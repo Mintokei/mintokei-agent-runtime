@@ -103,7 +103,8 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 // Runner-facing HTTP surface (enroll / token exchange) + the gRPC data plane.
-app.MapRunnerHost();
+// Group the HTTP endpoints under /api so the sample matches the default runner-client URLs.
+app.MapGroup("/api").MapRunnerHost();
 app.MapGrpcService<RunnerLinkService>().RequireAuthorization("Runner");
 
 // --- Demo endpoints -----------------------------------------------------------------------------

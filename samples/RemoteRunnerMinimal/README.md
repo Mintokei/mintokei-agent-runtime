@@ -28,7 +28,7 @@ dotnet run --project samples/RemoteRunnerMinimal
 ```
 
 On boot it creates the in-memory schema, binds two Kestrel endpoints
-(`http://localhost:5080` HTTP/1 for enrollment + `http://localhost:5081` HTTP/2 for gRPC —
+(`http://localhost:5080` HTTP/1 for enrollment/token exchange under `/api` + `http://localhost:5081` HTTP/2 for gRPC —
 they can't share a plaintext port), and **prints a one-time enrollment token** to the console.
 
 ## Attach a runner

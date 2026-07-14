@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Mintokei.AgentEngine\Mintokei.AgentEngine.csproj" />
+    <ProjectReference Include="..\Mintokei.Runner.Contracts\Mintokei.Runner.Contracts.csproj" />
+    <ProjectReference Include="..\Mintokei.Runner.Contracts.Grpc\Mintokei.Runner.Contracts.Grpc.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.2" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.2" />
+  </ItemGroup>
+
+  <!-- The in-process Kestrel file server (RunnerFileServer) that streams workspace files to the API
+       tunnel needs the ASP.NET Core shared framework. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+</Project>

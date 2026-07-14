@@ -1,0 +1,20 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Mintokei.AgentEngine/Mintokei.AgentEngine.csproj" />
+    <Project Path="src/Mintokei.AgentControlPlane/Mintokei.AgentControlPlane.csproj" />
+    <Project Path="src/Mintokei.Filesystem/Mintokei.Filesystem.csproj" />
+    <Project Path="src/Mintokei.Runner.Contracts/Mintokei.Runner.Contracts.csproj" />
+    <Project Path="src/Mintokei.Runner.Contracts.Grpc/Mintokei.Runner.Contracts.Grpc.csproj" />
+    <Project Path="src/Mintokei.Runner.Host/Mintokei.Runner.Host.csproj" />
+    <Project Path="src/Mintokei.Runner.Client/Mintokei.Runner.Client.csproj" />
+    <Project Path="src/Mintokei.Runner/Mintokei.Runner.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Mintokei.AgentEngine.Tests/Mintokei.AgentEngine.Tests.csproj" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/LocalAgentMinimal/LocalAgentMinimal.csproj" />
+    <Project Path="samples/ControlPlaneLocal/ControlPlaneLocal.csproj" />
+    <Project Path="samples/RemoteRunnerMinimal/RemoteRunnerMinimal.csproj" />
+  </Folder>
+</Solution>

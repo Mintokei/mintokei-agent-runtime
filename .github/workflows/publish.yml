@@ -1,0 +1,48 @@
+name: Publish to NuGet
+
+# Manual release: pack the libraries and push them to nuget.org via Trusted Publishing
+# (OIDC — no long-lived API key stored in the repo). Separate from CI (which only packs to
+# upload artifacts) so ordinary merges never publish. Idempotent: --skip-duplicate.
+# Bump the lockstep VersionPrefix in Directory.Build.props to publish a new version.
+#
+# One-time nuget.org setup — create a Trusted Publishing policy at
+# https://www.nuget.org/account/trustedpublishing (owner = you or the Mintokei org):
+#   Repository Owner : Mintokei
+#   Repository       : mintokei-agent-runtime
+#   Workflow File    : publish.yml          (file name only — no .github/workflows/ path)
+#   Environment      : (leave empty)
+# Then set a NUGET_USER secret = your nuget.org profile name (NOT an email; not sensitive).
+# For a private repo the policy is provisionally active for 7 days; the first successful
+# publish locks it permanently.
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write          # required: lets the job mint a GitHub OIDC token for nuget.org
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Pack
+        run: dotnet pack Mintokei.slnx -c Release -o "${{ github.workspace }}/nupkgs"
+      # Exchange the OIDC token for a short-lived (~1h) nuget.org API key — requested right
+      # before the push so it can't expire in transit.
+      - name: NuGet login (trusted publishing)
+        uses: NuGet/login@v1
+        id: login
+        with:
+          user: ${{ secrets.NUGET_USER }}
+      - name: Push to nuget.org
+        run: |
+          dotnet nuget push "nupkgs/*.nupkg" \
+            --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate

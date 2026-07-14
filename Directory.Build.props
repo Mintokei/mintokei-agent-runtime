@@ -1,0 +1,88 @@
+<Project>
+
+  <!-- Shared packaging metadata for the "Mintokei Agent Runtime" libraries. Per-package
+       bits are keyed off $(MSBuildProjectName) so there are zero per-csproj edits. -->
+
+  <PropertyGroup>
+    <!-- Lockstep version for the whole family (pre-1.0 — everything experimental together). -->
+    <VersionPrefix>0.1.0</VersionPrefix>
+
+    <Authors>Mintokei</Authors>
+    <Company>Mintokei</Company>
+    <Product>Mintokei Agent Runtime</Product>
+    <Copyright>Copyright (c) 2026 Mintokei</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <!-- The source repo is private, so DON'T link it (a repo/source link on the nuget.org
+         listing would 404). Point at the product site instead, and keep SourceLink off so
+         no repo URL or source is embedded in the public packages/symbols. -->
+    <PackageProjectUrl>https://mintokei.com</PackageProjectUrl>
+    <EnableSourceLink>false</EnableSourceLink>
+    <EnableSourceControlManagerQueries>false</EnableSourceControlManagerQueries>
+    <PackageIcon>logo.png</PackageIcon>
+
+    <!-- Consumer IntelliSense from the (heavy) XML comments; don't fail the build on the
+         public members that happen to lack a doc comment. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+
+    <!-- Symbol packages (PDBs only — no embedded source, since the repo stays private) and
+         a deterministic CI build. -->
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
+  <!-- Not libraries: the worker executable, the sample hosts, and the test project. -->
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Mintokei.Runner'
+                         Or '$(MSBuildProjectName)' == 'RemoteRunnerMinimal'
+                         Or '$(MSBuildProjectName)' == 'ControlPlaneLocal'
+                         Or '$(MSBuildProjectName)' == 'LocalAgentMinimal'
+                         Or '$(MSBuildProjectName)' == 'Mintokei.AgentEngine.Tests'">
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <!-- Per-package descriptions + tags. -->
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Mintokei.AgentEngine'">
+    <Description>DB-free .NET runtime for driving coding-agent CLIs (Claude Code, Codex, Copilot, OpenCode) as long-lived, streaming, resumable sessions — with a single normalized message contract across every provider.</Description>
+    <PackageTags>claude-code;codex;copilot;opencode;acp;agent;cli;ai;llm</PackageTags>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Mintokei.AgentControlPlane'">
+    <Description>Spawn, track, and capacity-manage many Mintokei.AgentEngine sessions across machines, with admission control.</Description>
+    <PackageTags>agent;orchestration;control-plane;capacity;ai;cli</PackageTags>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Mintokei.Filesystem'">
+    <Description>Small filesystem helpers (git-aware suffix search, watcher-event filtering) shared by the Mintokei runner and host.</Description>
+    <PackageTags>filesystem;git;file-watch</PackageTags>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Mintokei.Runner.Contracts'">
+    <Description>Dependency-free wire contracts and tunnel frame codec for the Mintokei remote-runner protocol.</Description>
+    <PackageTags>runner;contracts;protocol;tunnel</PackageTags>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Mintokei.Runner.Contracts.Grpc'">
+    <Description>gRPC service and message contracts (generated from runner.proto) for the Mintokei remote-runner protocol.</Description>
+    <PackageTags>runner;grpc;protocol</PackageTags>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Mintokei.Runner.Host'">
+    <Description>Backend transport that accepts dial-in worker machines over gRPC and dispatches agent CLIs to them, streaming output over a durable outbox. Embeds Mintokei.AgentEngine and AgentControlPlane.</Description>
+    <PackageTags>runner;host;grpc;remote-execution;agent;ai</PackageTags>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Mintokei.Runner.Client'">
+    <Description>Worker-side runtime: enroll with a backend, hold the gRPC link, run agent CLIs locally, and serve workspace files back over a tunnel.</Description>
+    <PackageTags>runner;client;worker;grpc;agent;ai</PackageTags>
+  </PropertyGroup>
+
+  <!-- Pack the shared icon (from the repo root) into every package. -->
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)logo.png" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
+
+  <!-- Pack a per-package README where one exists next to the csproj. -->
+  <PropertyGroup Condition="Exists('$(MSBuildProjectDirectory)/README.md')">
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+  <ItemGroup Condition="Exists('$(MSBuildProjectDirectory)/README.md')">
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+</Project>

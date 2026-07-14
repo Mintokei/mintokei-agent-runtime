@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <!-- The runner is now a thin CLI shell over the embeddable Mintokei.Runner.Client library
+         (AddMintokeiRunner). The engine / contracts / filesystem refs, the SignalR + EF Core packages,
+         and the ASP.NET framework reference all come transitively from it. -->
+    <ProjectReference Include="..\Mintokei.Runner.Client\Mintokei.Runner.Client.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Host.CreateApplicationBuilder + the JSON / command-line configuration providers used in
+         Program.cs to layer appsettings, the persisted credentials file, and CLI flags. -->
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.2" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="appsettings.*.json" Condition="Exists('appsettings.Development.json')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+</Project>

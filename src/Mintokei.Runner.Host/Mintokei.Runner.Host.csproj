@@ -1,0 +1,54 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!-- The runner transport (the gRPC RunnerLinkService) is hosted
+       on ASP.NET Core: the gRPC handlers read the authenticated machine_id claim via
+       ServerCallContext.GetHttpContext().User. Referencing the shared framework here does NOT
+       reintroduce a Mintokei.Api dependency — it's the ASP.NET Core runtime, not the product. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <!-- Data layer of the runner-host extraction: the 5 runner-infra entities, their enums, and the
+       RunnerHostDbContext overlay. Needs only EF Core. All types in this assembly live under
+       Mintokei.Runner.Host.*; Api/test consumers import them via global usings. -->
+  <ItemGroup>
+    <!-- Relational (brings base EF Core transitively) — RunnerHostDbContext uses HasFilter, a
+         relational-only index method. The concrete SQLite provider is configured by the host (Api). -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.2" />
+    <!-- The outbox substrate (OutboxProcessorService / OutboxCleanupService) are BackgroundServices
+         resolved from DI and log via ILogger. The Api got these namespaces from the Web SDK's implicit
+         usings; this plain SDK project pulls the abstractions explicitly. -->
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.2" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.2" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.2" />
+    <!-- RunnerLinkService is a gRPC service hosted on ASP.NET Core: ServerCallContext.GetHttpContext()
+         (used to read the authenticated machine_id claim) lives in Grpc.AspNetCore.Server. -->
+    <PackageReference Include="Grpc.AspNetCore.Server" Version="2.71.0" />
+    <!-- The runner-facing server surface (RunnerTokenService) mints runner access tokens with the
+         legacy JwtSecurityTokenHandler. Version matches the Api's transitive resolution. -->
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The command-runner bridge (RemoteCommandLineRunner / CommandLineRunnerFactory / process stores)
+         implements the engine's ICommandLineRunner(Factory) over the outbox. -->
+    <ProjectReference Include="..\Mintokei.AgentEngine\Mintokei.AgentEngine.csproj" />
+    <!-- The gRPC Control stream registers runner presence (IRunnerRegistry.ConnectRunner) directly in
+         the control plane — the transport telling the control plane "a runner connected".
+         AgentControlPlane has no back-reference to Runner.Host, so this is acyclic. -->
+    <ProjectReference Include="..\Mintokei.AgentControlPlane\Mintokei.AgentControlPlane.csproj" />
+    <!-- The gRPC channel registries + OutboxProcessorService speak the runner wire contracts
+         (ServerTaskCommand, StartProcess, …) and use Grpc.Core stream types (transitively). -->
+    <ProjectReference Include="..\Mintokei.Runner.Contracts.Grpc\Mintokei.Runner.Contracts.Grpc.csproj" />
+    <!-- RemoteProcessOutputDispatcher deserializes runner reports (ProcessOutputReport, …) and
+         calls the IRunnerHost seam (orphan-correlation cleanup). -->
+    <ProjectReference Include="..\Mintokei.Runner.Contracts\Mintokei.Runner.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

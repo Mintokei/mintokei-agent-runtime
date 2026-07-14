@@ -1,0 +1,346 @@
+syntax = "proto3";
+
+package mintokei.runner.v1;
+
+option csharp_namespace = "Mintokei.Runner.Contracts.Grpc";
+
+import "google/protobuf/timestamp.proto";
+
+// =============================================================================
+// RunnerLink — gRPC contract between the API (server) and a Runner (client).
+//
+// Stream topology per runner-machine connection (all multiplex over a single
+// HTTP/2 connection):
+//
+//   Control       — exactly 1: handshake, heartbeat, CLI probes, lifecycle.
+//                   Tiny payloads only. First Runner→Server message MUST be
+//                   HandshakeRequest.
+//
+//   OpenTask      — 1 per active agent task. Carries StartProcess / Stdin /
+//                   Kill (down) and ProcessOutput / ProcessCompleted (up) for
+//                   that task ONLY. Sequence numbers + cumulative ack are
+//                   per-task. First Runner→Server message MUST be TaskOpen.
+//
+//   OpenWatcher   — exactly 1: file-watcher control + change events. Tiny
+//                   payloads only.
+//
+//   OpenQuery     — exactly 1: small / medium request-response RPC
+//                   (Browse, DirectoryTree, FindFile, RunCommand, etc.).
+//                   Correlated by query_id. Bounded payload size.
+//
+//   OpenBulk      — exactly 1: large file content / image reads. Server sends
+//                   a request; runner replies with a sequence of BulkChunk
+//                   messages for that query_id, terminated by `last = true`
+//                   or BulkError. Chunks from concurrent reads may interleave.
+//
+// At-least-once delivery (sequences + acks) applies ONLY to:
+//   - Server→Runner ServerTaskCommand
+//   - Runner→Server ProcessOutput / ProcessCompleted
+// Watcher and Query/Bulk channels are best-effort; lost requests time out
+// and the caller retries.
+// =============================================================================
+
+service RunnerLink {
+  // Long-lived control channel. One per machine. Handshake first.
+  rpc Control(stream RunnerControlMessage) returns (stream ServerControlMessage);
+
+  // Per-task bidirectional stream. One per active agent task.
+  // Client must send TaskOpen as the first message.
+  rpc OpenTask(stream TaskClientMessage) returns (stream TaskServerMessage);
+
+  // File-watcher channel. One per machine.
+  rpc OpenWatcher(stream WatcherClientMessage) returns (stream WatcherServerMessage);
+
+  // Small/medium filesystem & command RPC channel. One per machine.
+  rpc OpenQuery(stream QueryClientMessage) returns (stream QueryServerMessage);
+
+  // Bulk read channel (chunked file content / images). One per machine.
+  rpc OpenBulk(stream BulkClientMessage) returns (stream BulkServerMessage);
+}
+
+// -----------------------------------------------------------------------------
+// Common
+// -----------------------------------------------------------------------------
+
+// Cumulative acknowledgement. Means "I have processed all messages with
+// sequence <= cumulative_seq on this stream."
+message Ack {
+  int64 cumulative_seq = 1;
+}
+
+message Heartbeat {
+  google.protobuf.Timestamp sent_at = 1;
+}
+
+// -----------------------------------------------------------------------------
+// Control channel
+// -----------------------------------------------------------------------------
+
+message RunnerControlMessage {
+  oneof payload {
+    HandshakeRequest    handshake   = 1;
+    Heartbeat           heartbeat   = 2;
+    InstalledClisReport clis_report = 3;
+  }
+}
+
+message ServerControlMessage {
+  oneof payload {
+    HandshakeResponse handshake   = 1;
+    Heartbeat         heartbeat   = 2;
+    CliProbeRequest   cli_probe   = 3;
+
+    // Asks the runner to open an OpenTask stream for the given correlation.
+    // Used by the API to bootstrap a per-task channel before sending the
+    // first ServerTaskCommand on it — the runner can't know a new
+    // correlation exists otherwise (StartProcess used to bootstrap implicitly
+    // via SignalR, but without SignalR there is no other way to deliver
+    // the first message).
+    OpenTaskRequest   open_task   = 4;
+  }
+}
+
+message OpenTaskRequest {
+  string task_correlation_id = 1;
+}
+
+message HandshakeRequest {
+  // Tasks the runner currently has running (correlation IDs as Guid strings).
+  // Used by the server to reconcile state after reconnect.
+  repeated string active_correlation_ids = 1;
+
+  // Loopback port of the runner's in-process file server (0 = none).
+  int32 file_server_port = 2;
+
+  // Highest server→runner outbound sequence the runner has acknowledged.
+  // The server uses this to flip OutboxMessages up to that seq to
+  // Acknowledged on reconnect, so the cleanup service can delete them.
+  // Mirrors SignalR's HandshakeRequest.LastAckedOutboundSequence.
+  int64 last_acked_outbound_sequence = 3;
+}
+
+message HandshakeResponse {
+  string machine_id = 1;
+  bool   success    = 2;
+  string error      = 3;
+
+  // Tasks the server expects to remain active. The runner should call
+  // OpenTask for each of these (if not already open) to resume delivery.
+  repeated string expected_active_tasks = 4;
+
+  // CLI probe specs the runner should probe and report back via an
+  // InstalledClisReport on the Control stream. Populated only when the server
+  // owns presence over gRPC (Runner:PresenceViaGrpc) — this mirrors the SignalR
+  // handshake response's CliProbes so a runner that no longer opens SignalR
+  // still discovers + reports its installed CLIs. Empty otherwise.
+  repeated CliProbeRequest cli_probes = 5;
+}
+
+message CliProbeRequest {
+  string agent_tool_key = 1;
+  string binary_name    = 2;
+  string version_args   = 3;
+  string version_regex  = 4;
+}
+
+message InstalledClisReport {
+  repeated InstalledCli clis = 1;
+}
+
+message InstalledCli {
+  string                     agent_tool_key = 1;
+  string                     version        = 2;
+  repeated InstalledCliModel models         = 3;
+}
+
+message InstalledCliModel {
+  string model_id     = 1;
+  string display_name = 2;
+  bool   is_default   = 3;
+}
+
+// -----------------------------------------------------------------------------
+// Task channel
+// -----------------------------------------------------------------------------
+
+message TaskClientMessage {
+  oneof payload {
+    TaskOpen             open      = 1;  // first message on the stream
+    Ack                  ack       = 2;  // acks ServerTaskCommand sequences
+    ProcessOutput        output    = 3;
+    ProcessCompleted     completed = 4;
+    ScheduleWakeupReport wakeup    = 5;
+  }
+}
+
+message TaskServerMessage {
+  oneof payload {
+    TaskOpenAck       open_ack = 1;  // first message in response to TaskOpen
+    Ack               ack      = 2;  // acks ProcessOutput / ProcessCompleted sequences
+    ServerTaskCommand command  = 3;
+  }
+}
+
+message TaskOpen {
+  string task_correlation_id = 1;
+
+  // Highest sequence the runner has acked from the server side of this task
+  // (so the server can replay anything above it from its outbox).
+  int64 last_acked_server_seq = 2;
+
+  // Next sequence the runner will use for its own ProcessOutput /
+  // ProcessCompleted messages on this task.
+  int64 next_runner_seq = 3;
+}
+
+message TaskOpenAck {
+  bool   success = 1;
+  string error   = 2;
+
+  // Highest sequence the server has received from this task's runner side
+  // (so the runner can replay anything above it from its local outbox).
+  int64 last_received_runner_seq = 3;
+}
+
+message ServerTaskCommand {
+  int64 sequence = 1;
+  oneof command {
+    StartProcess start = 2;
+    WriteStdin   stdin = 3;
+    KillProcess  kill  = 4;
+  }
+}
+
+// Payloads carry JSON for v1 to avoid duplicating the existing
+// Mintokei.Runner.Contracts.Messages records as protobuf. A follow-up PR
+// can promote these to typed protobuf messages.
+message StartProcess         { string payload_json = 1; }
+message WriteStdin           { string payload_json = 1; }
+message KillProcess          { string payload_json = 1; }
+message ProcessOutput        { int64 sequence = 1; string payload_json = 2; }
+message ProcessCompleted     { int64 sequence = 1; string payload_json = 2; }
+message ScheduleWakeupReport { string payload_json = 1; }
+
+// -----------------------------------------------------------------------------
+// Watcher channel
+// -----------------------------------------------------------------------------
+
+message WatcherServerMessage {
+  oneof payload {
+    StartFileWatcher start = 1;
+    StopFileWatcher  stop  = 2;
+  }
+}
+
+message WatcherClientMessage {
+  oneof payload {
+    FileSystemChanged changed = 1;
+  }
+}
+
+message StartFileWatcher  { string workspace_id = 1; string path = 2; }
+message StopFileWatcher   { string workspace_id = 1; }
+message FileSystemChanged { string workspace_id = 1; }
+
+// -----------------------------------------------------------------------------
+// Query channel — small/medium request/response, correlated by query_id.
+// -----------------------------------------------------------------------------
+
+message QueryServerMessage {
+  string query_id = 1;
+  oneof payload {
+    BrowseFilesystem        browse         = 2;
+    DiscoverGitRepositories discover_git   = 3;
+    RunCommand              run_command    = 4;
+    GetDirectoryTree        directory_tree = 5;
+    GetFileSize             file_size      = 6;
+    PathOperation           path_op        = 7;
+    FindFile                find_file      = 8;
+  }
+}
+
+message QueryClientMessage {
+  string query_id = 1;
+  oneof payload {
+    BrowseFilesystemResult        browse         = 2;
+    DiscoverGitRepositoriesResult discover_git   = 3;
+    RunCommandResult              run_command    = 4;
+    GetDirectoryTreeResult        directory_tree = 5;
+    GetFileSizeResult             file_size      = 6;
+    PathOperationResult           path_op        = 7;
+    FindFileResult                find_file      = 8;
+    QueryError                    error          = 9;
+  }
+}
+
+message QueryError { string message = 1; }
+
+message BrowseFilesystem              { string path = 1; }
+message BrowseFilesystemResult        { string result_json = 1; }
+
+message DiscoverGitRepositories       { string path = 1; }
+message DiscoverGitRepositoriesResult { string result_json = 1; }
+
+message RunCommand {
+  string working_directory = 1;
+  string executable        = 2;
+  string arguments         = 3;
+  int32  timeout_ms        = 4;
+}
+message RunCommandResult { string result_json = 1; }
+
+message GetDirectoryTree {
+  string base_path      = 1;
+  string sub_path       = 2;  // empty string = none
+  int32  max_depth      = 3;
+  bool   use_git_ignore = 4;
+}
+message GetDirectoryTreeResult { string result_json = 1; }
+
+message GetFileSize       { string path = 1; }
+message GetFileSizeResult { int64 size_bytes = 1; bool exists = 2; }
+
+message PathOperation       { string operation = 1; repeated string args = 2; }
+message PathOperationResult { string result_json = 1; }
+
+message FindFile       { string base_path = 1; string suffix = 2; int32 limit = 3; }
+message FindFileResult { string result_json = 1; }
+
+// -----------------------------------------------------------------------------
+// Bulk channel — chunked file content / image reads.
+//
+// Server sends one BulkServerMessage per request (with a fresh query_id).
+// Runner replies with one or more BulkClientMessage envelopes for that
+// query_id: a sequence of BulkChunk frames terminated by `last = true`,
+// or a single BulkError. Chunks from concurrent requests may interleave on
+// this stream — clients must demultiplex by query_id.
+// -----------------------------------------------------------------------------
+
+message BulkServerMessage {
+  string query_id = 1;
+  oneof payload {
+    GetFileContent file  = 2;
+    GetImageFile   image = 3;
+  }
+}
+
+message BulkClientMessage {
+  string query_id = 1;
+  oneof payload {
+    BulkChunk chunk = 2;
+    BulkError error = 3;
+  }
+}
+
+message GetFileContent { string base_path = 1; string file_path = 2; }
+message GetImageFile   { string base_path = 1; string file_path = 2; }
+
+message BulkChunk {
+  uint32 chunk_index = 1;
+  bool   last        = 2;
+  // Set only on the first chunk of a response. Empty on subsequent chunks.
+  string mime_type   = 3;
+  bytes  data        = 4;
+}
+
+message BulkError { string message = 1; }

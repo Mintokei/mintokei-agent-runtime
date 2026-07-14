@@ -7,11 +7,11 @@ namespace Mintokei.AgentControlPlane;
 
 /// <summary>
 /// DB-free launcher: lists connected runners and starts an <see cref="IAgentSession"/> on any of them
-/// — local (<paramref name="runnerMachineId"/> null) or remote — through <em>one</em> code path, since
+/// — local or remote — through <em>one</em> code path, since
 /// <see cref="ICommandLineRunnerFactory"/> already resolves local-vs-remote. No DbContext, no
 /// AgentTask, no auth service: the caller hands a fully-populated <see cref="AgentSessionSpec"/> and
-/// picks the machine. (Internal for now because <see cref="IAgentSession.Output"/> speaks the internal
-/// vocabulary — DTO neutralisation is a separate follow-up.)
+/// picks the machine. Internal for now because <see cref="IAgentSession.Output"/> still exposes the
+/// runtime's stream vocabulary directly.
 /// </summary>
 internal sealed class AgentSessionLauncher
 {

@@ -11,6 +11,8 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Mintokei.AgentEngine.Tests/Mintokei.AgentEngine.Tests.csproj" />
+    <Project Path="tests/Mintokei.AgentControlPlane.Tests/Mintokei.AgentControlPlane.Tests.csproj" />
+    <Project Path="tests/Mintokei.Filesystem.Tests/Mintokei.Filesystem.Tests.csproj" />
   </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/LocalAgentMinimal/LocalAgentMinimal.csproj" />

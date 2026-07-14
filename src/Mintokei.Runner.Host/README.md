@@ -15,6 +15,17 @@ builder.Services.AddRunnerHostCore(o => o.CliProbesProvider = ...);
 // optionally: builder.Services.AddSingleton<IRunnerHost, MyRunnerHost>();
 ```
 
+That snippet is only one piece of the host. A working backend also needs:
+
+- a `RunnerHostDbContext` database registration for enrollment, presence, and the durable outbox
+- `AddRunnerHostServer(...)` plus `MapRunnerHost()` for enrollment and runner-token minting
+- JWT auth that validates the runner `machine_id` claim on the gRPC data plane
+- `AddAgentControlPlane()` plus at least one `IAgentBackend`
+- gRPC registration and a mapped `RunnerLinkService`
+
+The smallest complete composition is in [`samples/RemoteRunnerMinimal`](../../samples/RemoteRunnerMinimal).
+That sample shows the full host wiring: database, auth, enrollment, control plane, and demo endpoints.
+
 See [`samples/RemoteRunnerMinimal`](https://github.com/Mintokei/mintokei-agent-runtime/tree/main/samples/RemoteRunnerMinimal)
 for the smallest possible backend that accepts remote runners.
 

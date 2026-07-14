@@ -8,8 +8,7 @@ namespace Mintokei.Runner.Host.RemoteExecution.Grpc;
 /// Tracks open per-machine gRPC OpenWatcher streams. Singleton.
 ///
 /// FileSystemWatcherService consults this registry before falling back to
-/// the SignalR <see cref="IRunnerClient.StartFileWatcher"/> / <c>StopFileWatcher</c>
-/// calls. With watcher events on a dedicated physical stream, a flood on
+/// its compatibility path for watcher commands. With watcher events on a dedicated physical stream, a flood on
 /// the bulk/query channels can never head-of-line block fs notifications.
 /// </summary>
 public sealed class GrpcWatcherChannelRegistry

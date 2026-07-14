@@ -13,7 +13,7 @@ namespace Mintokei.AgentEngine.Acp;
 /// <c>session/new</c> (fresh) or <c>session/load</c> (resume, with the replay gate) handshake, then
 /// per turn a <c>session/prompt</c> whose RESPONSE is the turn completion — awaited off the pump so
 /// the send returns immediately. Serves both Copilot and OpenCode; the only per-turn difference is the
-/// prompt-params shape (OpenCode threads a per-turn model), injected as <paramref name="buildPromptParams"/>.
+/// prompt-params shape (OpenCode threads a per-turn model), supplied through the constructor.
 /// Compaction is unsupported; config changes need a restart.
 /// </summary>
 internal sealed class AcpSessionProtocol : IAgentSessionProtocol

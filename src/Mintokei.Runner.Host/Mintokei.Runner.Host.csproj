@@ -9,21 +9,20 @@
   <!-- The runner transport (the gRPC RunnerLinkService) is hosted
        on ASP.NET Core: the gRPC handlers read the authenticated machine_id claim via
        ServerCallContext.GetHttpContext().User. Referencing the shared framework here does NOT
-       reintroduce a Mintokei.Api dependency — it's the ASP.NET Core runtime, not the product. -->
+       reintroduce any product-host dependency — it's the ASP.NET Core runtime only. -->
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
   <!-- Data layer of the runner-host extraction: the 5 runner-infra entities, their enums, and the
        RunnerHostDbContext overlay. Needs only EF Core. All types in this assembly live under
-       Mintokei.Runner.Host.*; Api/test consumers import them via global usings. -->
+       Mintokei.Runner.Host.*. -->
   <ItemGroup>
     <!-- Relational (brings base EF Core transitively) — RunnerHostDbContext uses HasFilter, a
-         relational-only index method. The concrete SQLite provider is configured by the host (Api). -->
+         relational-only index method. The concrete SQLite provider is configured by the embedding host. -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.2" />
     <!-- The outbox substrate (OutboxProcessorService / OutboxCleanupService) are BackgroundServices
-         resolved from DI and log via ILogger. The Api got these namespaces from the Web SDK's implicit
-         usings; this plain SDK project pulls the abstractions explicitly. -->
+         resolved from DI and log via ILogger. This plain SDK project pulls the abstractions explicitly. -->
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.2" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.2" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.2" />

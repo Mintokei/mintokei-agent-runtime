@@ -52,7 +52,7 @@
     <PackageTags>agent;orchestration;control-plane;capacity;ai;cli</PackageTags>
   </PropertyGroup>
   <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Mintokei.Filesystem'">
-    <Description>Small filesystem helpers (git-aware suffix search, watcher-event filtering) shared by the Mintokei runner and host.</Description>
+    <Description>Small filesystem helpers (git-aware suffix search, watcher-event filtering) shared by the Mintokei runner and runtime embedders.</Description>
     <PackageTags>filesystem;git;file-watch</PackageTags>
   </PropertyGroup>
   <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Mintokei.Runner.Contracts'">

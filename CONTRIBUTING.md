@@ -4,20 +4,21 @@ Thanks for your interest in **Mintokei Agent Runtime**.
 
 ## How this repository works
 
-This repository is a **published, buildable mirror**. The source of truth is Mintokei's private
-monorepo, and the code here is synced automatically on every merge upstream. That has one important
-consequence:
+This repository is maintained as the standalone runtime library repo.
 
-- **Pull requests opened here are not merged directly.** Code lands in the monorepo and flows down
-  on the next sync — a PR merged into this repo would be overwritten by the mirror.
+Mintokei's private product repo (`Mintokei/mintokei`) consumes it as a git submodule at
+`external/mintokei-agent-runtime`. That means runtime changes should be made here first, then pulled
+into the product repo by updating the submodule pointer.
 
 ## What you can do
 
 - **Open an issue** — bug reports, questions, and feature requests are very welcome, and are the best
   way to get a change made. A minimal reproduction helps a lot.
 - **Discuss** — design feedback and real use-case reports genuinely shape what gets built.
-- **Suggest a patch** — have a fix? Attach a diff or describe it in an issue. We'll apply it upstream
-  and credit you; we just can't merge the PR itself, only carry the change into the monorepo.
+- **Open a pull request** — if you have access, target this repo directly for runtime-library
+  changes.
+- **Update the product repo after merge** — if the change is needed in `Mintokei/mintokei`, bump the
+  `external/mintokei-agent-runtime` submodule there to the merged commit from this repo.
 
 ## Building locally
 

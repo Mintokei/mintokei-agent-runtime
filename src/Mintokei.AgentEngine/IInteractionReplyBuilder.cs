@@ -7,8 +7,8 @@ namespace Mintokei.AgentEngine;
 /// Rebuilds the wire reply for a persisted interaction on the <em>durable recovery path</em> —
 /// when the in-memory turn that would normally write it is gone (e.g. an API restart between the
 /// prompt being asked and the user answering, while the agent process keeps running on a runner,
-/// blocked on its request). Resolved by <see cref="AgentToolKey"/> via keyed DI, mirroring
-/// <c>IAgentExecutionService</c>.
+/// blocked on its request). Resolved by
+/// <see cref="Mintokei.AgentEngine.AgentTools.AgentToolKey"/> via keyed DI.
 ///
 /// The live path never uses this — it writes via the in-memory reply delegate registered in
 /// <c>AgentProcessContext.PendingReplies</c>. This is only the fallback that rebuilds the

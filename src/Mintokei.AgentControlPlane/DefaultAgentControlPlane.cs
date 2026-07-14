@@ -13,19 +13,12 @@ namespace Mintokei.AgentControlPlane;
 /// <c>SessionStarted</c>/<c>SessionEnded</c> so a persistence sidecar can subscribe (the
 /// DB-owner→subscriber inversion) — <em>without</em> this class ever touching a DbContext.
 ///
-/// The session registry doubles as the capacity slot-book: it answers the same live/active/pending
-/// counts as <see cref="Application.Common.Services.IAgentProcessStore"/> and owns the
-/// <see cref="MachineAdmissionControl"/> (pending claims + per-machine lock). This is the read/reserve
-/// surface Stage C points <c>AgentInstanceLimitEnforcer</c> at once prod sessions run on the engine.
+/// The session registry doubles as the capacity slot-book: it answers live/active/pending counts and
+/// owns the <see cref="MachineAdmissionControl"/> (pending claims + per-machine lock).
 ///
-/// Prod runner connections are routed through this class: <c>RunnerHub</c> (SignalR) authenticates via
-/// the pluggable <c>IRunnerAuthenticator</c> and funnels connect/disconnect through
-/// <see cref="ConnectRunner"/>/<see cref="DisconnectRunnerByConnection"/>, and the non-transport
-/// evictions (heartbeat timeout, machine removal) go through <see cref="DisconnectRunner"/> — so the
-/// runner events fire for every prod connection change and the persistence sidecar's projection is
-/// complete. Session rehydration on reconnect (<c>ResumeOutputStreamAsync</c>'s engine branch)
-/// re-registers surviving sessions after an API restart. See <c>docs/agent-server-design.md</c> and
-/// <c>docs/stage-e-rehydration.md</c>.
+/// Runner transports report connect/disconnect through <see cref="ConnectRunner"/>,
+/// <see cref="DisconnectRunnerByConnection"/>, and <see cref="DisconnectRunner"/> so this one class
+/// remains the source of truth for runner presence and session capacity.
 ///
 /// Stays <c>internal</c>: its whole surface is reachable through the broad <see cref="IAgentControlPlane"/>
 /// facade (session lifecycle + runner presence) plus the narrow <see cref="ICapacityLedger"/>, so consumers
@@ -184,11 +177,11 @@ internal sealed class DefaultAgentControlPlane : IRunnerRegistry, ICapacityLedge
 
     // ── Capacity (the session registry as the machine slot-book) ──
     //
-    // Counts mirror IAgentProcessStore exactly: "live" = registered and not exited (an exited
+    // Counts mirror the host's capacity semantics exactly: "live" = registered and not exited (an exited
     // session still lingers in the registry until teardown but holds no slot); "active" = live and
     // not idle (idle slots are evictable, so dispatchers treat them as available). Machine matching
     // here is exact — the local "null-or-local-machine-id" fold lives in the enforcer, which reads
-    // GetSlots() for that. This is the read surface Stage C points the enforcer at.
+    // GetSlots() for that.
 
     /// <summary>Live sessions across all machines (registered and not exited).</summary>
     public int LiveSessionCount => _sessions.Values.Count(e => !e.Session.HasExited);

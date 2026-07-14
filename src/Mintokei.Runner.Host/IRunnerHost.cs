@@ -14,7 +14,7 @@ namespace Mintokei.Runner.Host;
 /// This is <em>reactions only</em>. The one non-reaction the transport needs — the CLI-probe list the
 /// handshake hands back — is a <em>pull with a return value</em>, so it is configuration rather than an
 /// event: set <c>RunnerHostOptions.CliProbesProvider</c> via <c>AddRunnerHostCore(o =&gt; ...)</c>
-/// instead. See <c>docs/runner-host-extraction-plan.md</c> (§4).
+/// instead.
 /// </summary>
 public interface IRunnerHost
 {

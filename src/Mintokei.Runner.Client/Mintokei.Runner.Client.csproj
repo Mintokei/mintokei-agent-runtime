@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Mintokei.AgentEngine\Mintokei.AgentEngine.csproj" />
+    <ProjectReference Include="..\Mintokei.Filesystem\Mintokei.Filesystem.csproj" />
     <ProjectReference Include="..\Mintokei.Runner.Contracts\Mintokei.Runner.Contracts.csproj" />
     <ProjectReference Include="..\Mintokei.Runner.Contracts.Grpc\Mintokei.Runner.Contracts.Grpc.csproj" />
   </ItemGroup>

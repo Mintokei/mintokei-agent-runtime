@@ -2,7 +2,7 @@
 
 The smallest host that accepts a **remote Mintokei runner** over gRPC and runs agent CLIs
 (Claude Code, …) on it — built on `Mintokei.Runner.Host` + `Mintokei.AgentControlPlane` +
-`Mintokei.AgentEngine`, with **none** of Mintokei.Api's product weight.
+`Mintokei.AgentEngine`, with **none** of a full product host's extra weight.
 
 If you only want to drive a CLI on the current machine, start with
 [`samples/LocalAgentMinimal`](../LocalAgentMinimal). If you want local multi-session orchestration,

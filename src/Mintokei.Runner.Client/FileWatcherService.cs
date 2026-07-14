@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
-using Mintokei.Runner.Filesystem;
+using Mintokei.Filesystem;
 
 namespace Mintokei.Runner;
 

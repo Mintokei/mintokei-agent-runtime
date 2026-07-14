@@ -3,11 +3,9 @@ using Mintokei.AgentEngine.AgentTools;
 namespace Mintokei.AgentControlPlane;
 
 /// <summary>
-/// The capacity/admission surface <see cref="AgentInstanceLimitEnforcer"/> reads and reserves against:
-/// per-machine counts, in-flight pending claims, the per-machine lock, and a slot snapshot for the
-/// local null-or-machine fold, idle eviction, and logging. Two implementations back it — the legacy
-/// process store (default) and the engine control plane (<c>DefaultAgentControlPlane</c>) — selected by config so
-/// the enforcer can flip from store→registry as one switch once every backend runs on the engine.
+/// The capacity/admission surface a host uses to reason about runner slots: per-machine counts,
+/// in-flight pending claims, the per-machine lock, and a slot snapshot for the local null-or-machine
+/// fold, idle eviction, and logging.
 /// </summary>
 public interface ICapacityLedger
 {

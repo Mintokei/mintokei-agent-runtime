@@ -3,17 +3,10 @@ using Microsoft.EntityFrameworkCore;
 namespace Mintokei.Runner.Host.Persistence;
 
 /// <summary>
-/// Read/write OVERLAY context over the 5 runner-infra tables, sharing the same SQLite file as
-/// <see cref="AppDbContext"/> — which remains the schema/migrations owner. This context NEVER
-/// creates schema (no <c>EnsureCreated</c>/<c>Migrate</c> is ever called on it); it exists so the
-/// runner transport/outbox/enrollment code can depend on a runner-scoped context with no product
-/// or ASP.NET Identity coupling, ahead of extracting that code into <c>Mintokei.Runner.Host</c>.
-///
-/// The mapping + value conversions below MUST match <see cref="AppDbContext"/> exactly, or reads
-/// and writes against the shared file diverge (e.g. an enum stored as int here but string there).
-/// See <c>docs/runner-host-extraction-plan.md</c> §5-6. The cross-boundary relationships
-/// (Workspace / Agent / RunnerMachineCli → RunnerMachine) live in <see cref="AppDbContext"/> only;
-/// here the navigations that reach those product tables are ignored.
+/// Read/write context over the five runner-infrastructure tables used by enrollment, runner presence,
+/// and the durable outbox. A host can point this at its own database or at a standalone store; the
+/// important constraint is that every code path touching these tables uses the same mapping and value
+/// conversions.
 /// </summary>
 public sealed class RunnerHostDbContext(DbContextOptions<RunnerHostDbContext> options) : DbContext(options)
 {
@@ -25,7 +18,7 @@ public sealed class RunnerHostDbContext(DbContextOptions<RunnerHostDbContext> op
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
-        // Matches AppDbContext: SQLite has no native DateTimeOffset — store as ISO 8601 strings.
+        // SQLite has no native DateTimeOffset type, so persist these as ISO 8601 strings.
         configurationBuilder.Properties<DateTimeOffset>().HaveConversion<string>();
         configurationBuilder.Properties<DateTimeOffset?>().HaveConversion<string>();
     }

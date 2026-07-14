@@ -16,6 +16,7 @@ You embed them and supply your own persistence and orchestration through small c
 |---|---|---|
 | **Mintokei.AgentEngine** | Drive one agent-CLI session over its native stdio protocol — handshake, turns, streaming, interrupts, compaction, permissions — and get a single normalized `AgentMessage` contract across every provider. | logging + DI abstractions only |
 | **Mintokei.AgentControlPlane** | Spawn / track many engine sessions with capacity accounting and machine admission. | AgentEngine |
+| **Mintokei.Filesystem** | Low-level filesystem helpers used by the runner-side file-search and file-watch flows. Most consumers never reference it directly. | — |
 | **Mintokei.Runner.Contracts** (+ `.Grpc`) | Dependency-free wire records + the gRPC/tunnel protocol between backend and worker. | — |
 | **Mintokei.Runner.Host** | Backend transport: accept dial-in workers over gRPC, dispatch agent CLIs to them, stream output back over a durable outbox. React to transport events via `IRunnerHost`. | AgentEngine, AgentControlPlane, Contracts |
 | **Mintokei.Runner.Client** | The worker side: enroll, hold the gRPC link, run CLIs locally, serve workspace files back over a tunnel. | AgentEngine, Contracts |
@@ -31,6 +32,8 @@ in the ones below it, so you never reference a lower package directly.
 - **Run agents on remote worker machines** → add `Mintokei.Runner.Host` on the backend, and on each
   worker either `Mintokei.Runner` (ready-to-run executable) or `Mintokei.Runner.Client` (to embed in
   your own host). `Runner.Contracts` / `.Grpc` come along transitively.
+- **Reuse the runner's file-search or file-watch filtering rules in your own code** →
+  `Mintokei.Filesystem` (advanced; most users do not need this directly).
 
 ## Getting started
 
@@ -41,6 +44,8 @@ dotnet test  Mintokei.slnx
 
 - Drive a single agent CLI: see [`src/Mintokei.AgentEngine/README.md`](src/Mintokei.AgentEngine/README.md).
 - Manage many sessions with capacity: see [`src/Mintokei.AgentControlPlane/README.md`](src/Mintokei.AgentControlPlane/README.md).
+- Embed a worker into your own host: see [`src/Mintokei.Runner.Client/README.md`](src/Mintokei.Runner.Client/README.md).
+- Host remote workers in your backend: see [`src/Mintokei.Runner.Host/README.md`](src/Mintokei.Runner.Host/README.md).
 - Accept remote workers with the smallest possible backend: see
   [`samples/RemoteRunnerMinimal`](samples/RemoteRunnerMinimal).
 
@@ -63,11 +68,14 @@ plane and dispatches agent CLIs to it through a **durable outbox** (so nothing i
 reconnect); the worker runs each CLI locally via `Mintokei.AgentEngine` and streams output back. To
 your code it is the **same `IAgentSession` API as a local spawn** — you just pass a machine id.
 
-## Source of truth
+## Repository role
 
-This repository is a **published, buildable view** — the source lives in Mintokei's private
-monorepo and is mirrored here on merge. Issues and discussion are welcome; code changes flow from
-upstream. See [CONTRIBUTING.md](CONTRIBUTING.md) for how to get a change made.
+This repository is the standalone home of the **Mintokei Agent Runtime** libraries.
+
+Mintokei's private product repository (`Mintokei/mintokei`) consumes this repo as a git submodule at
+`external/mintokei-agent-runtime`. Changes to the runtime should land here first; product-side
+adoption then happens by bumping that submodule pointer. See [CONTRIBUTING.md](CONTRIBUTING.md) for
+the expected workflow.
 
 ## License
 

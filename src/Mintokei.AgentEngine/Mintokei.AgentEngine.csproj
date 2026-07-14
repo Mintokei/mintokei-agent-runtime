@@ -7,7 +7,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="Mintokei.Api.Tests" />
     <InternalsVisibleTo Include="Mintokei.AgentEngine.Tests" />
   </ItemGroup>
 

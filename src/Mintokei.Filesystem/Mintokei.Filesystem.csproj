@@ -6,8 +6,4 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
-  <ItemGroup>
-    <InternalsVisibleTo Include="Mintokei.Api.Tests" />
-  </ItemGroup>
-
 </Project>

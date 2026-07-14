@@ -1,5 +1,4 @@
-// The moved cluster relied on Mintokei.Api's global usings for the engine types (IAgentSession,
-// AgentSessionSpec, AgentSessionOptions, IAgentBackend, AgentSessionFactory). Re-declare them here so
-// the moved files compile unchanged.
+// Re-declare the shared engine imports used across this library so the files stay concise without
+// taking a dependency on a larger host's global-usings set.
 global using Mintokei.AgentEngine;
 global using Mintokei.AgentEngine.AgentTools;

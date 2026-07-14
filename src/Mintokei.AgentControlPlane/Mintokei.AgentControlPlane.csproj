@@ -6,11 +6,6 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
-  <!-- The tests construct the internal DefaultAgentControlPlane / AgentSessionLauncher directly. -->
-  <ItemGroup>
-    <InternalsVisibleTo Include="Mintokei.Api.Tests" />
-  </ItemGroup>
-
   <ItemGroup>
     <!-- AgentSessionLauncher logs via ILoggerFactory; the AddAgentControlPlane() extension needs
          IServiceCollection. (Logging comes transitively via the engine too, but be explicit.) -->
@@ -20,9 +15,8 @@
 
   <ItemGroup>
     <!-- The control plane spawns/tracks engine sessions: IAgentSession, AgentSessionSpec, IAgentBackend,
-         ICommandLineRunnerFactory. It depends on the engine ONLY — no product, no runner transport
-         (RunnerConnectionTracker moved up here). NOTE: keep-namespace — the moved types keep their
-         Mintokei.Api.* namespaces for now; a follow-up renames them to Mintokei.AgentControlPlane.*. -->
+         ICommandLineRunnerFactory. It depends on the engine only — no product schema and no
+         runner transport package. -->
     <ProjectReference Include="..\Mintokei.AgentEngine\Mintokei.AgentEngine.csproj" />
   </ItemGroup>
 

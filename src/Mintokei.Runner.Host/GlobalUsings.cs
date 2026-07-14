@@ -1,5 +1,5 @@
-// The moved files previously relied on Mintokei.Api's global usings. Re-declare the ones they need
-// here so they compile in this project.
+// Re-declare the shared imports this library uses rather than relying on a larger host's
+// Web-SDK/global-usings environment.
 global using Microsoft.EntityFrameworkCore;
 global using Microsoft.Extensions.DependencyInjection;
 global using Microsoft.Extensions.Hosting;

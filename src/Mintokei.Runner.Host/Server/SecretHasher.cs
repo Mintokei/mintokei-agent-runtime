@@ -5,7 +5,7 @@ namespace Mintokei.Runner.Host.Server;
 
 /// <summary>
 /// SHA-256 hash of a secret/token, base64-encoded — how enrollment tokens and runner secrets are
-/// stored and compared. (Moved from Mintokei.Api during the runner-host server extraction.)
+/// stored and compared.
 /// </summary>
 public static class SecretHasher
 {

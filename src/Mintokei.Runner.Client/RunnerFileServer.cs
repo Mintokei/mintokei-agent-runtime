@@ -17,12 +17,10 @@ namespace Mintokei.Runner;
 /// via the existing tunnel WebSocket — never exposed to the public network.
 ///
 /// The server itself does no path validation: callers must validate paths
-/// against the workspace root before forwarding here. This is enforced on
-/// the API side at <c>GetMediaFileEndpoint</c>.
+/// against the workspace root before forwarding here.
 ///
-/// Returns files via <see cref="Results.File(string, string?, string?, DateTimeOffset?, EntityTagHeaderValue?, bool)"/>
-/// with range processing enabled, so video/audio playback gets HTTP semantics
-/// (seek, progressive download) for free.
+/// Returns files with HTTP range processing enabled, so video/audio playback gets normal seek and
+/// progressive-download semantics for free.
 /// </summary>
 public sealed class RunnerFileServer : IHostedService
 {

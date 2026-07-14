@@ -27,7 +27,7 @@ public interface IAgentControlPlane : IRunnerRegistry
     /// is null, otherwise on that connected runner — registers it under its own generated session id,
     /// runs the handshake, and returns it ready for <see cref="IAgentSession.SendMessageAsync"/>. The
     /// caller consumes <see cref="IAgentSession.Output"/> and calls <see cref="StopSessionAsync"/> when
-    /// done. Use the <paramref name="sessionKey"/> overload to register under a caller-chosen key.
+    /// done. Use the overload that accepts a caller-supplied session key when you need stable lookup.
     /// </summary>
     Task<IAgentSession> StartSessionAsync(
         AgentSessionSpec spec, Guid? runnerMachineId = null, Guid? agentId = null,

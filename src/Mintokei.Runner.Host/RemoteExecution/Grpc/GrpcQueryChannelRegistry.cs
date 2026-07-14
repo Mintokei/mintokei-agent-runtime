@@ -8,7 +8,7 @@ namespace Mintokei.Runner.Host.RemoteExecution.Grpc;
 /// Tracks open per-machine gRPC OpenQuery streams. Singleton.
 ///
 /// RemoteFilesystemService consults this registry before falling back to
-/// SignalR's <see cref="IRunnerClient"/> typed query methods. With small/medium
+/// its slower compatibility path. With small/medium
 /// FS RPC on a dedicated stream, file content / image reads on OpenBulk
 /// can never head-of-line block them.
 /// </summary>

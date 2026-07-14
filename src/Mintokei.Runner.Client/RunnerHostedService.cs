@@ -10,7 +10,7 @@ using Mintokei.Runner.Contracts.Messages;
 using GrpcContracts = Mintokei.Runner.Contracts.Grpc;
 using Mintokei.AgentEngine.AgentTools;
 using Mintokei.AgentEngine.CommandRunner;
-using Mintokei.Runner.Filesystem;
+using Mintokei.Filesystem;
 
 namespace Mintokei.Runner;
 
@@ -498,8 +498,8 @@ public sealed class RunnerHostedService : BackgroundService
 
     /// <summary>
     /// Drains <see cref="GrpcTaskStreamManager.Commands"/> and dispatches each
-    /// inbound <c>ServerTaskCommand</c> through the same handlers as
-    /// <see cref="OnReceiveMessageAsync"/>. Per-task ack flows on the gRPC
+    /// inbound <c>ServerTaskCommand</c> through the same process-control handlers the runner uses
+    /// everywhere else. Per-task ack flows on the gRPC
     /// stream only (post-PR #6 the dual SignalR <c>Acknowledge</c> is gone);
     /// the API-side OpenTask Ack handler now flips
     /// <c>OutboxMessage.Status = Acknowledged</c> per-correlation on the

@@ -8,8 +8,7 @@ namespace Mintokei.Runner.Host.Server;
 /// <summary>
 /// Mints short-lived runner access tokens — a JWT carrying the <c>machine_id</c> claim — from a
 /// machine's already-verified identity (the secret→JWT exchange behind <c>/auth/runner-token</c>).
-/// (Moved from Mintokei.Api; now reads <see cref="RunnerHostServerOptions"/> instead of the Api's
-/// auth options, so the runner-host server surface is self-contained.)
+/// Reads <see cref="RunnerHostServerOptions"/> so the runner-host server surface stays self-contained.
 /// </summary>
 public sealed class RunnerTokenService
 {

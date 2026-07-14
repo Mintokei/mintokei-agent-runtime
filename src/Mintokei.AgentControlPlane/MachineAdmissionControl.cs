@@ -14,9 +14,8 @@ namespace Mintokei.AgentControlPlane;
 /// machine. Held only across the bookkeeping (microseconds), never across the network spawn.</item>
 /// </list>
 ///
-/// Extracted verbatim (behaviour-identical) from <see cref="InMemoryAgentProcessStore"/> so the
-/// DB-free <see cref="DefaultAgentControlPlane"/> can own capacity without depending on the legacy process store.
-/// Stage C deletes the store's copy and points <c>AgentInstanceLimitEnforcer</c> here.
+/// Shared by the DB-free <see cref="DefaultAgentControlPlane"/> so capacity accounting stays local to
+/// the runtime rather than depending on a product-specific process store.
 /// </summary>
 internal sealed class MachineAdmissionControl
 {

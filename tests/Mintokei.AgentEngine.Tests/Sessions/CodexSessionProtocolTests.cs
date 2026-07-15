@@ -73,13 +73,13 @@ public class CodexSessionProtocolTests
         var fake = new FakeProcessHandle();
         var session = await StartHandshakenCodexAsync(fake, "thread-1");
 
-        var sendTask = session.SendMessageAsync("hello there");
+        var sendTask = session.SendMessageAsync("hello there", TestContext.Current.CancellationToken);
         var turnReq = await fake.WaitForWriteAsync(l => l.Contains("\"method\":\"turn/start\""), Timeout);
         Assert.Contains("thread-1", turnReq);
         Assert.Contains("hello there", turnReq);
 
         fake.FeedStdout(JsonRpcResult(JsonRpcIdOf(turnReq), new { turn = new { id = "turn-9" } }));
-        await sendTask.WaitAsync(Timeout);
+        await sendTask.WaitAsync(Timeout, TestContext.Current.CancellationToken);
 
         Assert.Equal("turn-9", session.CurrentTurnId);
 
@@ -92,7 +92,7 @@ public class CodexSessionProtocolTests
         var fake = new FakeProcessHandle();
         var session = await StartHandshakenCodexAsync(fake, "thread-1");
 
-        var rollbackTask = session.RollbackAsync(3);
+        var rollbackTask = session.RollbackAsync(3, TestContext.Current.CancellationToken);
         var rollbackReq = await fake.WaitForWriteAsync(l => l.Contains("\"method\":\"thread/rollback\""), Timeout);
         Assert.Contains("\"threadId\":\"thread-1\"", rollbackReq);
         Assert.Contains("\"numTurns\":3", rollbackReq);
@@ -100,7 +100,7 @@ public class CodexSessionProtocolTests
         // Awaited like any round-trip: completes only once the pump routes the response.
         Assert.False(rollbackTask.IsCompleted);
         fake.FeedStdout(JsonRpcResult(JsonRpcIdOf(rollbackReq), new { }));
-        await rollbackTask.WaitAsync(Timeout);
+        await rollbackTask.WaitAsync(Timeout, TestContext.Current.CancellationToken);
 
         await session.DisposeAsync();
     }
@@ -111,12 +111,12 @@ public class CodexSessionProtocolTests
         var fake = new FakeProcessHandle();
         var session = await StartHandshakenCodexAsync(fake, "thread-1");
 
-        var sendTask = session.SendMessageAsync("work");
+        var sendTask = session.SendMessageAsync("work", TestContext.Current.CancellationToken);
         var turnReq = await fake.WaitForWriteAsync(l => l.Contains("\"method\":\"turn/start\""), Timeout);
         fake.FeedStdout(JsonRpcResult(JsonRpcIdOf(turnReq), new { turn = new { id = "turn-7" } }));
-        await sendTask.WaitAsync(Timeout);
+        await sendTask.WaitAsync(Timeout, TestContext.Current.CancellationToken);
 
-        Assert.True(await session.InterruptAsync());
+        Assert.True(await session.InterruptAsync(TestContext.Current.CancellationToken));
         var interrupt = await fake.WaitForWriteAsync(l => l.Contains("\"method\":\"turn/interrupt\""), Timeout);
         Assert.Contains("thread-1", interrupt);
         Assert.Contains("turn-7", interrupt);

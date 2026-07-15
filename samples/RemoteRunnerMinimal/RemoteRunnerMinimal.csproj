@@ -19,6 +19,10 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.2" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.2" />
+    <!-- Security override: force the patched SQLite native library. EF Core Sqlite 10.0.2 pulls
+         SQLitePCLRaw.bundle_e_sqlite3 2.1.11 transitively, whose bundled e_sqlite3 build has a known
+         high-severity vulnerability (GHSA-2m69-gcr7-jv3q); 2.1.12 is the patched release. -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.12" />
   </ItemGroup>
 
 </Project>

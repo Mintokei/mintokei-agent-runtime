@@ -30,14 +30,14 @@ public class AgentSessionAttachTests
         var (session, handle) = Adopted("sess-abc");
         await using var _ = session;
 
-        await session.AttachAsync();
+        await session.AttachAsync(TestContext.Current.CancellationToken);
 
         // The whole point of adoption: not a single byte toward the CLI — no initialize.
         Assert.Empty(handle.Writes);
         Assert.Equal("sess-abc", session.AgentSessionId);
 
         // The first post-adopt turn goes out against the persisted session id.
-        await session.SendMessageAsync("hello again");
+        await session.SendMessageAsync("hello again", TestContext.Current.CancellationToken);
         var write = Assert.Single(handle.Writes);
         Assert.Contains("\"type\":\"user\"", write);
         Assert.Contains("sess-abc", write);
@@ -49,7 +49,7 @@ public class AgentSessionAttachTests
         var (session, handle) = Adopted();
         await using var _ = session;
 
-        await session.AttachAsync();
+        await session.AttachAsync(TestContext.Current.CancellationToken);
 
         // Drive a control round-trip on the adopted session (what set_model / compact would do).
         var roundTrip = session.SendRequestAndWaitAsync("ping", new { }, CancellationToken.None);
@@ -69,7 +69,7 @@ public class AgentSessionAttachTests
             type = "control_response",
             response = new { request_id = requestId, subtype = "success" },
         }));
-        await roundTrip.WaitAsync(Timeout);
+        await roundTrip.WaitAsync(Timeout, TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -78,14 +78,14 @@ public class AgentSessionAttachTests
         var (session, handle) = Adopted();
         await using var _ = session;
 
-        await session.AttachAsync();
+        await session.AttachAsync(TestContext.Current.CancellationToken);
         handle.CompleteOutput();
 
         // Output completing (rather than hanging) proves the pump actually ran.
         var drained = Task.Run(async () =>
         {
             await foreach (var unused in session.Output) { }
-        });
-        await drained.WaitAsync(Timeout);
+        }, TestContext.Current.CancellationToken);
+        await drained.WaitAsync(Timeout, TestContext.Current.CancellationToken);
     }
 }

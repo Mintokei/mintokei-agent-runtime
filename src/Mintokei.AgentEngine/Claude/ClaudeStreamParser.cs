@@ -108,7 +108,7 @@ internal sealed class ClaudeStreamParser : IAgentStreamParser
             yield break;
 
         var subtype = subtypeProp.GetString();
-        _logger.LogDebug("Received control_request subtype={Subtype}, request_id={RequestId}", subtype, requestId);
+        ClaudeStreamParserLog.ControlRequestReceived(_logger, subtype, requestId);
 
         if (subtype != "can_use_tool")
             yield break;
@@ -267,9 +267,8 @@ internal sealed class ClaudeStreamParser : IAgentStreamParser
 
         _pendingCompactBoundary = message;
 
-        _logger.LogInformation(
-            "Compact boundary for AgentTask {TaskId}: trigger={Trigger} pre={Pre} post={Post} duration={Duration}ms — waiting for synthetic summary",
-            _agentTaskId, message.CompactBoundary!.Trigger,
+        ClaudeStreamParserLog.CompactBoundaryWaiting(
+            _logger, _agentTaskId, message.CompactBoundary!.Trigger,
             message.CompactBoundary.PreTokens, message.CompactBoundary.PostTokens, message.CompactBoundary.DurationMs);
     }
 
@@ -334,9 +333,7 @@ internal sealed class ClaudeStreamParser : IAgentStreamParser
 
                 yield return new MessageOutput(pending);
                 yield return new CompactingChanged(Active: false);
-                _logger.LogInformation(
-                    "Published compact boundary with summary ({Len} chars) for AgentTask {TaskId}",
-                    summary.Length, _agentTaskId);
+                ClaudeStreamParserLog.CompactBoundaryPublished(_logger, summary.Length, _agentTaskId);
                 yield break;
             }
         }
@@ -354,7 +351,7 @@ internal sealed class ClaudeStreamParser : IAgentStreamParser
 
     private IEnumerable<AgentStreamOutput> HandleResult(JsonElement root, bool isInterrupted)
     {
-        _logger.LogInformation("Turn completed for AgentTask {TaskId}", _agentTaskId);
+        ClaudeStreamParserLog.TurnCompleted(_logger, _agentTaskId);
 
         // Flush a dangling boundary so it lands before the turn boundary.
         foreach (var o in FlushPendingCompactBoundary())
@@ -677,4 +674,19 @@ internal sealed class ClaudeStreamParser : IAgentStreamParser
             Status = status,
             CreatedAt = DateTimeOffset.UtcNow,
         };
+}
+
+internal static partial class ClaudeStreamParserLog
+{
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Received control_request subtype={Subtype}, request_id={RequestId}")]
+    public static partial void ControlRequestReceived(ILogger logger, string? subtype, string requestId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Compact boundary for AgentTask {TaskId}: trigger={Trigger} pre={Pre} post={Post} duration={Duration}ms — waiting for synthetic summary")]
+    public static partial void CompactBoundaryWaiting(ILogger logger, Guid taskId, CompactTrigger trigger, long? pre, long? post, long? duration);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Published compact boundary with summary ({Len} chars) for AgentTask {TaskId}")]
+    public static partial void CompactBoundaryPublished(ILogger logger, int len, Guid taskId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Turn completed for AgentTask {TaskId}")]
+    public static partial void TurnCompleted(ILogger logger, Guid taskId);
 }

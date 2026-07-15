@@ -153,7 +153,7 @@ app.MapPost("/demo/run", async (IAgentControlPlane plane, string prompt, string?
 
 // Log when a runner attaches (the presence event the control plane raises — no polling needed).
 var controlPlane = app.Services.GetRequiredService<IAgentControlPlane>();
-controlPlane.RunnerConnected += info => app.Logger.LogInformation("Runner connected: {MachineId}", info.MachineId);
+controlPlane.RunnerConnected += info => SampleLog.RunnerConnected(app.Logger, info.MachineId);
 
 // Mint + print one enrollment token so you can attach a runner immediately.
 using (var scope = app.Services.CreateScope())
@@ -161,12 +161,29 @@ using (var scope = app.Services.CreateScope())
     var token = (await scope.ServiceProvider.GetRequiredService<IRunnerEnrollment>().CreateEnrollmentTokenAsync()).Token;
     app.Logger.LogInformation("──────────────────────────────────────────────────────────────");
     app.Logger.LogInformation("Enrollment token (valid ~15 min):");
-    app.Logger.LogInformation("  {Token}", token);
+    SampleLog.EnrollmentToken(app.Logger, token);
     app.Logger.LogInformation("Attach a runner:");
     app.Logger.LogInformation("  Runner__GrpcBackendUrl=http://localhost:5081 \\");
     app.Logger.LogInformation("  dotnet run --project src/Mintokei.Runner -- \\");
-    app.Logger.LogInformation("  --backend http://localhost:5080 --token {Token} --data-dir ./runner-data", token);
+    SampleLog.AttachCommand(app.Logger, token);
     app.Logger.LogInformation("──────────────────────────────────────────────────────────────");
 }
 
 app.Run();
+
+/// <summary>
+/// Source-generated log methods for this sample's startup banner. Avoids the params-object[] array
+/// (and Guid boxing) the plain logger.LogInformation(...) calls allocate on every invocation, which
+/// the CA1873 analyzer flags; templates are unchanged.
+/// </summary>
+internal static partial class SampleLog
+{
+    [LoggerMessage(Level = LogLevel.Information, Message = "Runner connected: {MachineId}")]
+    public static partial void RunnerConnected(ILogger logger, Guid machineId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "  {Token}")]
+    public static partial void EnrollmentToken(ILogger logger, string token);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "  --backend http://localhost:5080 --token {Token} --data-dir ./runner-data")]
+    public static partial void AttachCommand(ILogger logger, string token);
+}

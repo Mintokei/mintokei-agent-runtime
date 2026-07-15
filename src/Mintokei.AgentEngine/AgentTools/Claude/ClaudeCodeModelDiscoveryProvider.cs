@@ -93,7 +93,7 @@ public sealed class ClaudeCodeModelDiscoveryProvider : IModelDiscoveryProvider
                     return EmptyList();
                 }
 
-                _logger.LogInformation("Discovered {Count} models from Claude Code CLI", models.Count);
+                ClaudeCodeModelDiscoveryProviderLog.DiscoveredModels(_logger, models.Count);
 
                 return new AgentToolModelList
                 {
@@ -281,4 +281,10 @@ public sealed class ClaudeCodeModelDiscoveryProvider : IModelDiscoveryProvider
         Source = "dynamic",
         FetchedAt = DateTimeOffset.UtcNow,
     };
+}
+
+internal static partial class ClaudeCodeModelDiscoveryProviderLog
+{
+    [LoggerMessage(Level = LogLevel.Information, Message = "Discovered {Count} models from Claude Code CLI")]
+    public static partial void DiscoveredModels(ILogger logger, int count);
 }

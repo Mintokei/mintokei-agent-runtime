@@ -322,8 +322,7 @@ internal sealed class CodexStreamParser : IAgentStreamParser
                 _pendingManualCompact = false;
             }
 
-            _logger.LogInformation("Compact boundary for AgentTask {TaskId}: trigger={Trigger}",
-                _agentTaskId, message.CompactBoundary!.Trigger);
+            CodexStreamParserLog.CompactBoundary(_logger, _agentTaskId, message.CompactBoundary!.Trigger);
 
             yield return new MessageOutput(message);
             // Compaction complete → drop the banner. Per-turn token counts arrive separately
@@ -379,7 +378,7 @@ internal sealed class CodexStreamParser : IAgentStreamParser
 
     private IEnumerable<AgentStreamOutput> HandleTurnCompleted(JsonElement msg)
     {
-        _logger.LogInformation("Turn completed for AgentTask {TaskId}", _agentTaskId);
+        CodexStreamParserLog.TurnCompleted(_logger, _agentTaskId);
 
         JsonElement? turnResult = msg.TryGetProperty("params", out var p) ? p.Clone() : null;
 
@@ -530,4 +529,13 @@ internal sealed class CodexStreamParser : IAgentStreamParser
 
         return null;
     }
+}
+
+internal static partial class CodexStreamParserLog
+{
+    [LoggerMessage(Level = LogLevel.Information, Message = "Compact boundary for AgentTask {TaskId}: trigger={Trigger}")]
+    public static partial void CompactBoundary(ILogger logger, Guid taskId, CompactTrigger trigger);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Turn completed for AgentTask {TaskId}")]
+    public static partial void TurnCompleted(ILogger logger, Guid taskId);
 }

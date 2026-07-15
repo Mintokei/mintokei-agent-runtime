@@ -111,7 +111,7 @@ public sealed class OutboxProcessorService : BackgroundService
         // when the runner reconnects, which re-enters this method.
         if (!_grpcControlChannels.IsOpen(machineId))
         {
-            _logger.LogDebug("Machine {MachineId} not connected via gRPC, skipping outbox dispatch", machineId);
+            OutboxProcessorLog.MachineNotConnected(_logger, machineId);
             return;
         }
 
@@ -256,9 +256,7 @@ public sealed class OutboxProcessorService : BackgroundService
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogDebug(ex,
-                        "Failed to send OpenTaskRequest to machine {MachineId} for correlation {CorrelationId}",
-                        machineId, correlationId);
+                    OutboxProcessorLog.OpenTaskRequestFailed(_logger, ex, machineId, correlationId);
                 }
             }
             return false;
@@ -283,4 +281,18 @@ public sealed class OutboxProcessorService : BackgroundService
             return false;
         }
     }
+}
+
+/// <summary>
+/// Source-generated, allocation-free log methods for <see cref="OutboxProcessorService"/>. Keeps the
+/// Debug dispatch logs from boxing their <see cref="Guid"/> arguments when Debug is disabled (CA1873);
+/// message templates are unchanged.
+/// </summary>
+internal static partial class OutboxProcessorLog
+{
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Machine {MachineId} not connected via gRPC, skipping outbox dispatch")]
+    public static partial void MachineNotConnected(ILogger logger, Guid machineId);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to send OpenTaskRequest to machine {MachineId} for correlation {CorrelationId}")]
+    public static partial void OpenTaskRequestFailed(ILogger logger, Exception ex, Guid machineId, Guid correlationId);
 }

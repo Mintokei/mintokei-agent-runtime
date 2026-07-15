@@ -85,9 +85,9 @@ public class AcpSessionProtocolTests
     {
         var fake = new FakeProcessHandle();
         var session = await StartHandshakenAcpAsync(fake, "sess-1");
-        await using var outputs = session.Output.GetAsyncEnumerator();
+        await using var outputs = session.Output.GetAsyncEnumerator(TestContext.Current.CancellationToken);
 
-        await session.SendMessageAsync("do the thing");
+        await session.SendMessageAsync("do the thing", TestContext.Current.CancellationToken);
         var promptReq = await fake.WaitForWriteAsync(l => l.Contains("\"method\":\"session/prompt\""), Timeout);
         Assert.Contains("sess-1", promptReq);
         Assert.Contains("do the thing", promptReq);
@@ -108,9 +108,9 @@ public class AcpSessionProtocolTests
     {
         var fake = new FakeProcessHandle();
         var session = await StartHandshakenAcpAsync(fake, "sess-1");
-        await using var outputs = session.Output.GetAsyncEnumerator();
+        await using var outputs = session.Output.GetAsyncEnumerator(TestContext.Current.CancellationToken);
 
-        await session.SendMessageAsync("please");
+        await session.SendMessageAsync("please", TestContext.Current.CancellationToken);
         var promptReq = await fake.WaitForWriteAsync(l => l.Contains("\"method\":\"session/prompt\""), Timeout);
         fake.FeedStdout(JsonRpcResult(JsonRpcIdOf(promptReq), new { stopReason = "refusal" }));
 
@@ -128,10 +128,10 @@ public class AcpSessionProtocolTests
         var fake = new FakeProcessHandle();
         var session = await StartHandshakenAcpAsync(fake, "sess-1");
 
-        await session.SendMessageAsync("work");
+        await session.SendMessageAsync("work", TestContext.Current.CancellationToken);
         await fake.WaitForWriteAsync(l => l.Contains("\"method\":\"session/prompt\""), Timeout);
 
-        Assert.True(await session.InterruptAsync());
+        Assert.True(await session.InterruptAsync(TestContext.Current.CancellationToken));
         var cancel = await fake.WaitForWriteAsync(l => l.Contains("\"method\":\"session/cancel\""), Timeout);
         Assert.Contains("sess-1", cancel);
 
@@ -155,11 +155,11 @@ public class AcpSessionProtocolTests
             """{"jsonrpc":"2.0","method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"REPLAYED"}}}}""");
         fake.FeedStdout(JsonRpcResult(JsonRpcIdOf(loadReq), new { }));
 
-        await startTask.WaitAsync(Timeout);
+        await startTask.WaitAsync(Timeout, TestContext.Current.CancellationToken);
 
         // The gate held: the only thing on Output is the SessionIdChanged emitted after the load,
         // not a DeltaOutput from the replayed chunk.
-        await using var outputs = session.Output.GetAsyncEnumerator();
+        await using var outputs = session.Output.GetAsyncEnumerator(TestContext.Current.CancellationToken);
         Assert.IsType<SessionIdChanged>(await NextAsync(outputs));
 
         await session.DisposeAsync();

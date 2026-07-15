@@ -22,10 +22,9 @@
          relational-only index method. The concrete SQLite provider is configured by the embedding host. -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.2" />
     <!-- The outbox substrate (OutboxProcessorService / OutboxCleanupService) are BackgroundServices
-         resolved from DI and log via ILogger. This plain SDK project pulls the abstractions explicitly. -->
-    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.2" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.2" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.2" />
+         resolved from DI and log via ILogger. The Hosting/DI/Logging abstractions they use come from
+         the Microsoft.AspNetCore.App shared framework referenced above, so they are not listed as
+         packages here (they would be redundant — NU1510). -->
     <!-- RunnerLinkService is a gRPC service hosted on ASP.NET Core: ServerCallContext.GetHttpContext()
          (used to read the authenticated machine_id claim) lives in Grpc.AspNetCore.Server. -->
     <PackageReference Include="Grpc.AspNetCore.Server" Version="2.71.0" />

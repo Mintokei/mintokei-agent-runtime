@@ -80,7 +80,7 @@ public class AgentSessionTests
     {
         var fake = new FakeProcessHandle();
         var session = await StartHandshakenAsync(fake);
-        await using var outputs = session.Output.GetAsyncEnumerator();
+        await using var outputs = session.Output.GetAsyncEnumerator(TestContext.Current.CancellationToken);
 
         fake.FeedStdout("""{"type":"system","session_id":"sess-123"}""");
 
@@ -97,7 +97,7 @@ public class AgentSessionTests
     {
         var fake = new FakeProcessHandle();
         var session = await StartHandshakenAsync(fake);
-        await using var outputs = session.Output.GetAsyncEnumerator();
+        await using var outputs = session.Output.GetAsyncEnumerator(TestContext.Current.CancellationToken);
 
         fake.FeedStdout(
             """{"type":"control_request","request_id":"perm-1","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"ls"}}}""");
@@ -105,7 +105,7 @@ public class AgentSessionTests
         var q = Assert.IsType<InteractionRequested>(await NextAsync(outputs));
         Assert.Equal("perm-1", q.RequestId);
 
-        var answered = await session.RespondAsync("perm-1", new UserInteractionResponse("allow", null, null));
+        var answered = await session.RespondAsync("perm-1", new UserInteractionResponse("allow", null, null), TestContext.Current.CancellationToken);
         Assert.True(answered);
 
         var reply = await fake.WaitForWriteAsync(
@@ -113,7 +113,7 @@ public class AgentSessionTests
         Assert.Contains("\"behavior\":\"allow\"", reply);
 
         // Answering the same request id again is a no-op — it was consumed.
-        Assert.False(await session.RespondAsync("perm-1", new UserInteractionResponse("allow", null, null)));
+        Assert.False(await session.RespondAsync("perm-1", new UserInteractionResponse("allow", null, null), TestContext.Current.CancellationToken));
 
         await session.DisposeAsync();
     }
@@ -131,7 +131,7 @@ public class AgentSessionTests
         fake.CompleteOutput();
 
         // Fails the pending waiter with the CLI's own error, not a bare "stream ended".
-        var ex = await Assert.ThrowsAsync<AgentStreamEndedException>(async () => await startTask.WaitAsync(Timeout));
+        var ex = await Assert.ThrowsAsync<AgentStreamEndedException>(async () => await startTask.WaitAsync(Timeout, TestContext.Current.CancellationToken));
         Assert.Contains("Output stream ended", ex.Message);
         Assert.Contains("authentication_error", ex.Message);
 
@@ -144,11 +144,11 @@ public class AgentSessionTests
         var fake = new FakeProcessHandle();
         var session = await StartHandshakenAsync(fake);
 
-        Assert.True(await session.InterruptAsync());
+        Assert.True(await session.InterruptAsync(TestContext.Current.CancellationToken));
         await fake.WaitForWriteAsync(l => l.Contains("\"subtype\":\"interrupt\""), Timeout);
 
         fake.Kill();
-        Assert.False(await session.InterruptAsync());
+        Assert.False(await session.InterruptAsync(TestContext.Current.CancellationToken));
 
         await session.DisposeAsync();
     }
@@ -160,13 +160,13 @@ public class AgentSessionTests
         var session = await StartHandshakenAsync(fake);
 
         // Plain follow-up turn: no context block.
-        await session.SendMessageAsync("hello world");
+        await session.SendMessageAsync("hello world", TestContext.Current.CancellationToken);
         var plain = await fake.WaitForWriteAsync(
             l => l.Contains("\"type\":\"user\"") && l.Contains("hello world"), Timeout);
         Assert.DoesNotContain("WS_CONTEXT_BLOCK", plain);
 
         // First turn with a context block: inlined into the same stream-json user message.
-        await session.SendTurnAsync(new SessionTurn("second message", ContextBlock: "WS_CONTEXT_BLOCK"));
+        await session.SendTurnAsync(new SessionTurn("second message", ContextBlock: "WS_CONTEXT_BLOCK"), TestContext.Current.CancellationToken);
         var withContext = await fake.WaitForWriteAsync(
             l => l.Contains("\"type\":\"user\"") && l.Contains("second message"), Timeout);
         Assert.Contains("WS_CONTEXT_BLOCK", withContext);
@@ -180,7 +180,7 @@ public class AgentSessionTests
         var fake = new FakeProcessHandle();
         var session = await StartHandshakenAsync(fake);
 
-        await session.CompactAsync("focus on the API");
+        await session.CompactAsync("focus on the API", TestContext.Current.CancellationToken);
 
         var msg = await fake.WaitForWriteAsync(
             l => l.Contains("\"type\":\"user\"") && l.Contains("/compact"), Timeout);
@@ -197,7 +197,7 @@ public class AgentSessionTests
 
         var oldConfig = new Dictionary<string, string?> { ["model"] = "claude-old" };
         var newConfig = new Dictionary<string, string?> { ["model"] = "claude-new" };
-        var applyTask = session.ApplyConfigAsync(oldConfig, newConfig);
+        var applyTask = session.ApplyConfigAsync(oldConfig, newConfig, TestContext.Current.CancellationToken);
 
         // set_model goes out as a control_request/response round-trip — complete it.
         var req = await fake.WaitForWriteAsync(
@@ -205,7 +205,7 @@ public class AgentSessionTests
         Assert.Contains("claude-new", req);
         fake.FeedStdout(ControlResponse(RequestIdOf(req), "success"));
 
-        Assert.True(await applyTask.WaitAsync(Timeout));
+        Assert.True(await applyTask.WaitAsync(Timeout, TestContext.Current.CancellationToken));
 
         await session.DisposeAsync();
     }
@@ -216,7 +216,7 @@ public class AgentSessionTests
         var fake = new FakeProcessHandle();
         var session = await StartHandshakenAsync(
             fake, new AgentSessionOptions { InteractionMode = InteractionMode.AutoApprove });
-        await using var outputs = session.Output.GetAsyncEnumerator();
+        await using var outputs = session.Output.GetAsyncEnumerator(TestContext.Current.CancellationToken);
 
         fake.FeedStdout(
             """{"type":"control_request","request_id":"perm-1","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"ls"}}}""");

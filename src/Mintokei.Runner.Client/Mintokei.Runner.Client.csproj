@@ -15,11 +15,16 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.2" />
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.2" />
+    <!-- Security override: EF Core Sqlite 10.0.2 pulls SQLitePCLRaw.bundle_e_sqlite3 2.1.11
+         transitively, whose bundled e_sqlite3 native library has a known high-severity vulnerability
+         (GHSA-2m69-gcr7-jv3q). A direct top-level reference wins over the transitive one, pinning the
+         whole SQLitePCLRaw family to the patched 2.1.12. -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.12" />
   </ItemGroup>
 
   <!-- The in-process Kestrel file server (RunnerFileServer) that streams workspace files to the API
-       tunnel needs the ASP.NET Core shared framework. -->
+       tunnel needs the ASP.NET Core shared framework. Microsoft.Extensions.Hosting is part of that
+       shared framework, so it is not referenced as a package here (NU1510). -->
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>

@@ -27,7 +27,7 @@ public class AgentSessionFactoryTests
         var spec = new AgentSessionSpec { Tool = AgentToolKey.ClaudeCodeCli, WorkingDirectory = "/repo" };
 
         await using var session = await HandshakeAsync(
-            sessionFactory.CreateClaudeSessionAsync(spec, runnerMachineId: machineId), runnerFactory);
+            sessionFactory.CreateClaudeSessionAsync(spec, runnerMachineId: machineId, ct: TestContext.Current.CancellationToken), runnerFactory);
 
         Assert.Equal(machineId, runnerFactory.LastMachineId);   // routed to the REMOTE machine
         Assert.NotNull(runnerFactory.LastOptions);              // a real CLI invocation was built + started
@@ -41,7 +41,7 @@ public class AgentSessionFactoryTests
         var spec = new AgentSessionSpec { Tool = AgentToolKey.ClaudeCodeCli };
 
         await using var session = await HandshakeAsync(
-            sessionFactory.CreateClaudeSessionAsync(spec), runnerFactory);
+            sessionFactory.CreateClaudeSessionAsync(spec, ct: TestContext.Current.CancellationToken), runnerFactory);
 
         Assert.Null(runnerFactory.LastMachineId);               // null id ⇒ local
     }
@@ -55,7 +55,7 @@ public class AgentSessionFactoryTests
         var spec = new AgentSessionSpec { Tool = AgentToolKey.ClaudeCodeCli };
 
         await using var session = await HandshakeAsync(
-            sessionFactory.CreateSessionAsync(new ClaudeBackend(), spec, runnerMachineId: machineId),
+            sessionFactory.CreateSessionAsync(new ClaudeBackend(), spec, runnerMachineId: machineId, ct: TestContext.Current.CancellationToken),
             runnerFactory);
 
         Assert.Equal(machineId, runnerFactory.LastMachineId);

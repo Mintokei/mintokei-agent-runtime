@@ -15,6 +15,7 @@
     <Project Path="tests/Mintokei.AgentControlPlane.Tests/Mintokei.AgentControlPlane.Tests.csproj" />
     <Project Path="tests/Mintokei.Filesystem.Tests/Mintokei.Filesystem.Tests.csproj" />
     <Project Path="tests/Mintokei.Sandbox.Tests/Mintokei.Sandbox.Tests.csproj" />
+    <Project Path="tests/Mintokei.Runner.Host.Tests/Mintokei.Runner.Host.Tests.csproj" />
   </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/LocalAgentMinimal/LocalAgentMinimal.csproj" />

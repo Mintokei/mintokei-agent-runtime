@@ -19,6 +19,12 @@ public class RunnerMachine
     public string? WorkspaceRootPath { get; set; }
     public int MaxInstances { get; set; } = 5;
 
+    // Per-session sandbox pool: an ephemeral machine is a single-use sandbox runner (one session, then
+    // recycled); Profile is the isolation tier it was provisioned for (e.g. "standard"). Null/false for
+    // ordinary persistent runners. Enables profile-aware assignment and GC of retired ephemeral machines.
+    public bool IsEphemeral { get; set; }
+    public string? Profile { get; set; }
+
     // Sequence tracking
     public long NextOutboundSequence { get; set; } = 1;
     public long LastAckedOutboundSequence { get; set; }

@@ -24,6 +24,9 @@ public sealed class SandboxOptions
 
     /// <summary>Warm (repo-agnostic) default-profile sandboxes the pool keeps online. 0 = no warm pool.</summary>
     public int WarmPoolSize { get; set; }
+
+    /// <summary>Seconds between warm-pool maintenance ticks (top-up + reap). Minimum 1.</summary>
+    public int PoolIntervalSeconds { get; set; } = 15;
 }
 
 /// <summary>One isolation tier: an OCI runtime + resource caps + egress posture.</summary>

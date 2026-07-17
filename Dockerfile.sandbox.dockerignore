@@ -1,0 +1,28 @@
+# Applies ONLY to `docker build -f Dockerfile.sandbox` (BuildKit per-Dockerfile
+# ignore), so it does not affect Dockerfile.api / webapp / landing builds.
+# The runner build only needs the .NET sources under src/, so exclude everything
+# heavy and irrelevant to keep the build context small.
+**/node_modules
+**/bin
+**/obj
+**/dist
+**/.vite
+.git
+*.db
+*.db-shm
+*.db-wal
+tests
+mkwt
+samples
+landing
+website
+docs
+docs-internal
+k8s
+migrations
+build
+prompts
+schemas
+**/*.png
+**/*.jpg
+**/*.heic

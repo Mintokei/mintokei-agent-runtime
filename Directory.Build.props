@@ -42,6 +42,14 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
+  <!-- Mintokei.Sandbox is experimental (per-session runner isolation). It lives here as runtime
+       infra but is NOT published to NuGet yet — flip IsPackable and add a Description/PackageTags
+       block below when it's ready to ship. -->
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Mintokei.Sandbox'
+                         Or '$(MSBuildProjectName)' == 'Mintokei.Sandbox.Tests'">
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
   <!-- Per-package descriptions + tags. -->
   <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Mintokei.AgentEngine'">
     <Description>DB-free .NET runtime for driving coding-agent CLIs (Claude Code, Codex, Copilot, OpenCode) as long-lived, streaming, resumable sessions — with a single normalized message contract across every provider.</Description>

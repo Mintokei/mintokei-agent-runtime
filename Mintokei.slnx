@@ -8,11 +8,13 @@
     <Project Path="src/Mintokei.Runner.Host/Mintokei.Runner.Host.csproj" />
     <Project Path="src/Mintokei.Runner.Client/Mintokei.Runner.Client.csproj" />
     <Project Path="src/Mintokei.Runner/Mintokei.Runner.csproj" />
+    <Project Path="src/Mintokei.Sandbox/Mintokei.Sandbox.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Mintokei.AgentEngine.Tests/Mintokei.AgentEngine.Tests.csproj" />
     <Project Path="tests/Mintokei.AgentControlPlane.Tests/Mintokei.AgentControlPlane.Tests.csproj" />
     <Project Path="tests/Mintokei.Filesystem.Tests/Mintokei.Filesystem.Tests.csproj" />
+    <Project Path="tests/Mintokei.Sandbox.Tests/Mintokei.Sandbox.Tests.csproj" />
   </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/LocalAgentMinimal/LocalAgentMinimal.csproj" />

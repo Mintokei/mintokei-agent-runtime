@@ -7,6 +7,13 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The control-plane facade types (DefaultAgentControlPlane, AgentSessionLauncher) are internal; the
+         runtime's own test project drives them directly. Consumers use the public seams (IAgentControlPlane
+         et al.), so this grant stays inside the runtime — no product assembly is ever named. -->
+    <InternalsVisibleTo Include="Mintokei.AgentControlPlane.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- AgentSessionLauncher logs via ILoggerFactory; the AddAgentControlPlane() extension needs
          IServiceCollection. (Logging comes transitively via the engine too, but be explicit.) -->
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.2" />

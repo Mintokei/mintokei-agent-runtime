@@ -102,4 +102,32 @@ public class SandboxManagerTests
         Assert.Empty(manager.Active);
         Assert.Contains("s1", runtime.Stopped);
     }
+
+    [Fact]
+    public async Task TryAcquireWarm_claims_a_matching_warm_sandbox_once()
+    {
+        var (manager, _) = NewManager(warmPoolSize: 2);
+        var n = 0;
+        await manager.MaintainWarmPoolAsync(_ => Task.FromResult(Request($"w{n++}")));
+
+        var first = manager.TryAcquireWarm("standard");
+        var second = manager.TryAcquireWarm("standard");
+        var third = manager.TryAcquireWarm("standard");
+
+        Assert.NotNull(first);
+        Assert.NotNull(second);
+        Assert.NotEqual(first!.Handle.Name, second!.Handle.Name); // two distinct sandboxes
+        Assert.False(first.Warm);                                  // flipped to serving
+        Assert.Null(third);                                        // pool exhausted
+    }
+
+    [Fact]
+    public async Task TryAcquireWarm_returns_null_for_a_profile_with_no_warm_sandbox()
+    {
+        var (manager, _) = NewManager(warmPoolSize: 1);
+        await manager.MaintainWarmPoolAsync(_ => Task.FromResult(Request("w0")));
+
+        Assert.Null(manager.TryAcquireWarm("strict"));
+        Assert.NotNull(manager.TryAcquireWarm("standard"));
+    }
 }

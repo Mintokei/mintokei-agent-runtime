@@ -26,6 +26,30 @@ public sealed class SandboxManager(
     /// <summary>Snapshot of currently tracked sandboxes.</summary>
     public IReadOnlyCollection<SandboxLease> Active => _leases.Values.ToArray();
 
+    /// <summary>
+    /// Claim an available warm sandbox matching <paramref name="profile"/> for a session — profile-aware
+    /// selection from the pool. Atomically flips it from warm to serving (so it isn't handed out twice);
+    /// the next maintenance tick provisions a replacement. Returns null when no warm sandbox of that
+    /// profile is free.
+    /// </summary>
+    public SandboxLease? TryAcquireWarm(string profile)
+    {
+        foreach (var (name, lease) in _leases)
+        {
+            if (!lease.Warm || !string.Equals(lease.Profile, profile, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var assigned = lease with { Warm = false };
+            if (_leases.TryUpdate(name, assigned, lease))
+            {
+                logger.LogInformation("Sandbox {Name} acquired for a {Profile} session", name, profile);
+                return assigned;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>Resolve the isolation profile, build the spec, and launch one sandbox. Names must be unique.</summary>
     public async Task<SandboxLease> ProvisionAsync(
         SandboxSessionRequest request,

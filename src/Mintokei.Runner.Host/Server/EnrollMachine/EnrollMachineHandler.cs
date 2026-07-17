@@ -28,21 +28,34 @@ public sealed class EnrollMachineHandler(RunnerHostDbContext db)
         var plaintextSecret = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
         var secretHash = SecretHasher.Hash(plaintextSecret);
 
-        var machine = new RunnerMachine
+        RunnerMachine machine;
+        if (enrollmentToken.PreassignedMachineId is { } preId)
         {
-            Id = Guid.NewGuid(),
-            Name = command.Name,
-            Description = command.Description,
-            SecretHash = secretHash,
-            SecretIssuedAt = DateTimeOffset.UtcNow,
-            EnrolledAt = DateTimeOffset.UtcNow,
-            Status = RunnerMachineStatus.Offline,
-            OsInfo = command.OsInfo,
-            RunnerVersion = command.RunnerVersion,
-            CreatedAt = DateTimeOffset.UtcNow,
-        };
+            // Redeem into the machine pre-created at token time (sandbox provisioning) — keep its identity
+            // (id, name, ephemeral, profile); the runner just supplies its secret + reported details.
+            var existing = await db.RunnerMachines.FirstOrDefaultAsync(m => m.Id == preId);
+            if (existing is null)
+                return RunnerHostResult<EnrollMachineResult>.BadRequest("Pre-assigned machine no longer exists.");
+            machine = existing;
+        }
+        else
+        {
+            machine = new RunnerMachine
+            {
+                Id = Guid.NewGuid(),
+                Name = command.Name,
+                Status = RunnerMachineStatus.Offline,
+                CreatedAt = DateTimeOffset.UtcNow,
+            };
+            db.RunnerMachines.Add(machine);
+        }
 
-        db.RunnerMachines.Add(machine);
+        machine.SecretHash = secretHash;
+        machine.SecretIssuedAt = DateTimeOffset.UtcNow;
+        machine.EnrolledAt = DateTimeOffset.UtcNow;
+        machine.OsInfo = command.OsInfo;
+        machine.RunnerVersion = command.RunnerVersion;
+        machine.Description ??= command.Description;
 
         // Mark enrollment token as used
         enrollmentToken.IsUsed = true;

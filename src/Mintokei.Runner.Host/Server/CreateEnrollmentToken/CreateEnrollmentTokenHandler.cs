@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using Mintokei.Runner.Host.Domain.Machines;
+using Mintokei.Runner.Host.Domain.Machines.Enums;
 using Mintokei.Runner.Host.Persistence;
 
 namespace Mintokei.Runner.Host.Server;
@@ -13,6 +14,24 @@ public sealed class CreateEnrollmentTokenHandler(RunnerHostDbContext db)
         var displayPrefix = plaintextToken[..8];
         var expiresAt = DateTimeOffset.UtcNow.AddMinutes(15);
 
+        Guid? preassignedMachineId = null;
+        if (command.MachineName is { } machineName)
+        {
+            // Pre-create the machine identity so the caller knows the id immediately and the row is born
+            // marked ephemeral; enrollment will redeem into this same machine rather than create a new one.
+            var machine = new RunnerMachine
+            {
+                Id = Guid.NewGuid(),
+                Name = machineName,
+                IsEphemeral = command.IsEphemeral,
+                Profile = command.Profile,
+                Status = RunnerMachineStatus.Offline,
+                CreatedAt = DateTimeOffset.UtcNow,
+            };
+            db.RunnerMachines.Add(machine);
+            preassignedMachineId = machine.Id;
+        }
+
         var enrollmentToken = new EnrollmentToken
         {
             Id = Guid.NewGuid(),
@@ -20,6 +39,7 @@ public sealed class CreateEnrollmentTokenHandler(RunnerHostDbContext db)
             DisplayPrefix = displayPrefix,
             ExpiresAt = expiresAt,
             IsUsed = false,
+            PreassignedMachineId = preassignedMachineId,
             CreatedByUserId = command.UserId,
             CreatedByUserName = command.UserName,
             CreatedAt = DateTimeOffset.UtcNow,
@@ -31,6 +51,7 @@ public sealed class CreateEnrollmentTokenHandler(RunnerHostDbContext db)
         return RunnerHostResult<CreateEnrollmentTokenResult>.Ok(new(
             plaintextToken,
             displayPrefix,
-            expiresAt));
+            expiresAt,
+            preassignedMachineId));
     }
 }

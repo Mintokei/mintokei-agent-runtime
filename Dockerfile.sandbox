@@ -1,0 +1,63 @@
+# syntax=docker/dockerfile:1
+#
+# Phase 0 sandbox image — runner-isolation spike.
+# See docs/sandboxed-runner-isolation-plan.md (§8, Phase 0).
+#
+# Wraps Mintokei.Runner + the agent CLIs so ONE agent session can run inside a
+# container. This is a VALIDATION image, not production-hardened: it runs as root
+# with open egress. Phase 1 switches to `USER agent`, dropped caps, cgroup limits,
+# and an egress allowlist.
+#
+# Build (arch is auto-detected by scripts/run-sandbox-spike.sh):
+#   docker build -f Dockerfile.sandbox --build-arg RID=linux-x64 -t mintokei/sandbox:spike .
+
+ARG RID=linux-x64
+
+# --- build: publish the runner as a self-contained single-file binary ----------
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+ARG RID
+WORKDIR /src
+COPY src/ ./src/
+# Self-contained so the runtime image needs no .NET installed (matches how the
+# runner ships as mintokei-runner-<rid>). Restore runs as part of publish.
+RUN dotnet publish src/Mintokei.Runner/Mintokei.Runner.csproj \
+      -c Release -r "$RID" --self-contained true \
+      -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
+      -o /out
+
+# --- runtime: node (for the agent CLIs) + git + the runner binary --------------
+FROM node:22-bookworm-slim AS runtime
+
+# git → worktrees/clone; libicu → .NET globalization; openssh → git over SSH.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git ca-certificates libicu72 openssh-client \
+ && rm -rf /var/lib/apt/lists/*
+
+# Agent CLIs on PATH. Names are fixed host-side (ClaudeBackend => "claude",
+# AcpBackends copilot => "copilot", ...). Trim to what you actually test.
+RUN npm install -g @anthropic-ai/claude-code @openai/codex \
+ && npm cache clean --force
+# Other providers, if you test them:
+#   npm install -g @github/copilot opencode-ai
+
+# Non-root user for Phase 1 hardening (the spike currently runs as root).
+RUN useradd -m -u 10001 agent
+
+# Self-contained publish output: the Mintokei.Runner binary + appsettings.json
+# sit side by side; the app finds config via its base directory.
+COPY --from=build /out/ /opt/runner/
+
+# Workspace provisioning (Step 2): the entrypoint provisions a source repo from the
+# RO mirror via git alternates before the runner connects (only when SANDBOX_REPO_URL
+# is set), then execs the runner.
+COPY scripts/sandbox/prepare-workspace.sh  /usr/local/bin/prepare-workspace
+COPY scripts/sandbox/sandbox-entrypoint.sh /usr/local/bin/sandbox-entrypoint
+RUN chmod +x /usr/local/bin/prepare-workspace /usr/local/bin/sandbox-entrypoint
+
+# NOTE: Runner:* config must come via CLI FLAGS, not env vars — Program.cs re-adds
+# appsettings.json (which ships BackendUrl + an empty EnrollmentToken) AFTER the
+# env-var source, so Runner__BackendUrl / Runner__EnrollmentToken get shadowed.
+# Only --backend/--token/--name/--data-dir (added last) win. The entrypoint fixes
+# --data-dir /data and passes through the flags run-sandbox-spike.sh appends after
+# the image; the runner dials OUT only, so no ports are exposed.
+ENTRYPOINT ["sandbox-entrypoint"]

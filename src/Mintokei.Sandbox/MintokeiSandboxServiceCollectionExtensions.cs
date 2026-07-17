@@ -24,6 +24,17 @@ public static class MintokeiSandboxServiceCollectionExtensions
         return services.AddMintokeiSandboxCore();
     }
 
+    /// <summary>
+    /// Registers the warm-pool host (<see cref="SandboxPoolService"/>) that drives top-up + reap on a timer.
+    /// The embedder must also register an <see cref="ISandboxSessionSource"/> (mint token, backend URL,
+    /// per-session policy). Dormant unless <see cref="SandboxOptions.WarmPoolSize"/> &gt; 0.
+    /// </summary>
+    public static IServiceCollection AddMintokeiSandboxPool(this IServiceCollection services)
+    {
+        services.AddHostedService<SandboxPoolService>();
+        return services;
+    }
+
     private static IServiceCollection AddMintokeiSandboxCore(this IServiceCollection services)
     {
         services.AddSingleton<SandboxProfileResolver>();

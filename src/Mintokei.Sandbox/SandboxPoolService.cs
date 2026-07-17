@@ -33,6 +33,19 @@ public sealed class SandboxPoolService(
         logger.LogInformation("Sandbox pool started: warm={Warm}, profile={Profile}, interval={Interval}s",
             _options.WarmPoolSize, _options.DefaultProfile, _options.PoolIntervalSeconds);
 
+        // Crash recovery: clean up exited sandbox containers left by a previous process (running ones are
+        // left alone — their runners reconnect and resume).
+        try
+        {
+            var reaped = await manager.ReconcileAsync(stoppingToken);
+            if (reaped > 0)
+                logger.LogInformation("Sandbox pool reconcile: cleaned up {Reaped} exited container(s)", reaped);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogError(ex, "Sandbox pool startup reconcile failed");
+        }
+
         while (!stoppingToken.IsCancellationRequested)
         {
             await Task.Delay(interval, stoppingToken);

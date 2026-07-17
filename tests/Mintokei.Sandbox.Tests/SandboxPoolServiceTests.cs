@@ -22,6 +22,9 @@ public class SandboxPoolServiceTests
             => Task.FromResult(new SandboxStatus(SandboxState.Running));
 
         public Task StopAsync(SandboxHandle handle, CancellationToken ct = default) => Task.CompletedTask;
+
+        public Task<IReadOnlyList<SandboxHandle>> ListManagedAsync(CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<SandboxHandle>>([]);
     }
 
     private sealed class CountingSource : ISandboxSessionSource

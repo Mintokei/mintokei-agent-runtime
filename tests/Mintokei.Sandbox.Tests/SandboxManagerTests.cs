@@ -12,6 +12,8 @@ public class SandboxManagerTests
         public List<SandboxSpec> Provisioned { get; } = [];
         public List<string> Stopped { get; } = [];
         public SandboxState Status { get; set; } = SandboxState.Running;
+        public HashSet<string> ExitedNames { get; } = [];    // per-name override (else Status)
+        public List<SandboxHandle> Managed { get; } = [];    // returned by ListManagedAsync
 
         public string Backend => "fake";
 
@@ -22,13 +24,16 @@ public class SandboxManagerTests
         }
 
         public Task<SandboxStatus> GetStatusAsync(SandboxHandle handle, CancellationToken ct = default)
-            => Task.FromResult(new SandboxStatus(Status));
+            => Task.FromResult(new SandboxStatus(ExitedNames.Contains(handle.Name) ? SandboxState.Exited : Status));
 
         public Task StopAsync(SandboxHandle handle, CancellationToken ct = default)
         {
             Stopped.Add(handle.Name);
             return Task.CompletedTask;
         }
+
+        public Task<IReadOnlyList<SandboxHandle>> ListManagedAsync(CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<SandboxHandle>>(Managed);
     }
 
     private static (SandboxManager Manager, FakeRuntime Runtime) NewManager(int warmPoolSize = 0)
@@ -129,5 +134,20 @@ public class SandboxManagerTests
 
         Assert.Null(manager.TryAcquireWarm("strict"));
         Assert.NotNull(manager.TryAcquireWarm("standard"));
+    }
+
+    [Fact]
+    public async Task Reconcile_reaps_exited_containers_and_leaves_running_ones()
+    {
+        var (manager, runtime) = NewManager();
+        runtime.Managed.Add(new SandboxHandle("id-running", "running-one", "fake"));
+        runtime.Managed.Add(new SandboxHandle("id-exited", "exited-one", "fake"));
+        runtime.ExitedNames.Add("exited-one");
+
+        var reaped = await manager.ReconcileAsync();
+
+        Assert.Equal(1, reaped);
+        Assert.Contains("exited-one", runtime.Stopped);
+        Assert.DoesNotContain("running-one", runtime.Stopped); // running container is left alone
     }
 }

@@ -79,6 +79,9 @@ sealed class LoggingSandboxRuntime : ISandboxRuntime
         return Task.CompletedTask;
     }
 
+    public Task<IReadOnlyList<SandboxHandle>> ListManagedAsync(CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<SandboxHandle>>([]);
+
     public void MarkExited(string name) => _exited.Add(name);
 }
 

@@ -53,6 +53,25 @@ public sealed class DockerSandboxRuntime(ILogger<DockerSandboxRuntime> logger) :
         logger.LogInformation("Stopped sandbox {Name} ({Id})", handle.Name, Short(handle.Id));
     }
 
+    public async Task<IReadOnlyList<SandboxHandle>> ListManagedAsync(CancellationToken ct = default)
+    {
+        // `-a` includes exited containers; the label filter keeps it to sandboxes we launched.
+        var (exit, stdout, stderr) = await RunDockerAsync(
+            ["ps", "--all", "--filter", $"label={DockerCommand.ManagedLabel}", "--format", "{{.ID}}\t{{.Names}}"], ct);
+        if (exit != 0)
+            throw new SandboxRuntimeException($"docker ps failed: {stderr.Trim()}");
+
+        var handles = new List<SandboxHandle>();
+        foreach (var line in stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var parts = line.Split('\t', 2);
+            if (parts.Length == 2 && parts[0].Length > 0)
+                handles.Add(new SandboxHandle(parts[0], parts[1], Backend));
+        }
+
+        return handles;
+    }
+
     private static SandboxState MapState(string status) => status.ToLowerInvariant() switch
     {
         "created" => SandboxState.Pending,

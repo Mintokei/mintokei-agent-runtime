@@ -77,7 +77,11 @@ public sealed class SandboxManager(
         logger.LogInformation("Sandbox {Name} recycled", name);
     }
 
-    /// <summary>Untrack + remove sandboxes that have exited or vanished (their machine went offline).</summary>
+    /// <summary>
+    /// Untrack + remove tracked sandboxes whose container has exited or vanished. Driven by the container's
+    /// own status, never by the machine's connection state — a disconnected-but-running sandbox is a
+    /// transient partition that the runner reconnects and resumes, so it is left alone.
+    /// </summary>
     public async Task<int> ReapAsync(CancellationToken ct = default)
     {
         var reaped = 0;
@@ -87,6 +91,30 @@ public sealed class SandboxManager(
             if (status.State is SandboxState.Exited or SandboxState.NotFound)
             {
                 await RecycleAsync(name, ct);
+                reaped++;
+            }
+        }
+
+        return reaped;
+    }
+
+    /// <summary>
+    /// Reconcile against the runtime after a process restart: clean up sandbox containers that have already
+    /// exited (including ones this process never tracked, e.g. leftovers from a previous run), and drop any
+    /// stale tracking. RUNNING containers are deliberately left untouched — they may be live sessions whose
+    /// runners will reconnect and resume; the machine's connection state is never a reason to kill them.
+    /// Returns the number of exited containers cleaned up.
+    /// </summary>
+    public async Task<int> ReconcileAsync(CancellationToken ct = default)
+    {
+        var reaped = 0;
+        foreach (var handle in await runtime.ListManagedAsync(ct))
+        {
+            var status = await runtime.GetStatusAsync(handle, ct);
+            if (status.State is SandboxState.Exited or SandboxState.NotFound)
+            {
+                await runtime.StopAsync(handle, ct); // remove the dead container shell (idempotent)
+                _leases.TryRemove(handle.Name, out _);
                 reaped++;
             }
         }

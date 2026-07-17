@@ -53,6 +53,13 @@ public interface ISandboxRuntime
     Task<SandboxHandle> ProvisionAsync(SandboxSpec spec, CancellationToken ct = default);
     Task<SandboxStatus> GetStatusAsync(SandboxHandle handle, CancellationToken ct = default);
     Task StopAsync(SandboxHandle handle, CancellationToken ct = default);
+
+    /// <summary>
+    /// Every sandbox this runtime currently manages (running or exited), regardless of whether the pool
+    /// still tracks it — used to reconcile after a process restart. Backend-agnostic: Docker filters by
+    /// label, Kubernetes would filter Pods by the same label.
+    /// </summary>
+    Task<IReadOnlyList<SandboxHandle>> ListManagedAsync(CancellationToken ct = default);
 }
 
 public sealed class SandboxRuntimeException(string message, Exception? inner = null)

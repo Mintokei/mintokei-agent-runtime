@@ -37,6 +37,7 @@ public class DockerCommandTests
         Assert.Contains("SANDBOX_REPO_URL=https://x/y.git", a);
         Assert.Equal("ALL", ValueAfter(a, "--cap-drop"));
         Assert.Contains("no-new-privileges", a);
+        Assert.Contains("mintokei.sandbox=1", a); // managed label for reconcile
     }
 
     private static string ValueAfter(List<string> a, string flag) => a[a.IndexOf(flag) + 1];

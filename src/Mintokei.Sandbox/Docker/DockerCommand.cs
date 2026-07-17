@@ -9,6 +9,9 @@ namespace Mintokei.Sandbox.Docker;
 /// </summary>
 public static class DockerCommand
 {
+    /// <summary>Docker label applied to every sandbox container, so we can list/reconcile only ours.</summary>
+    public const string ManagedLabel = "mintokei.sandbox";
+
     public static IReadOnlyList<string> BuildRunArgs(SandboxSpec spec)
     {
         var a = new List<string> { "run", "--detach", "--name", spec.Name };
@@ -30,6 +33,10 @@ public static class DockerCommand
         a.Add("ALL");
         a.Add("--security-opt");
         a.Add("no-new-privileges");
+
+        // Marks the container as ours so ListManagedAsync can reconcile after a process restart.
+        a.Add("--label");
+        a.Add($"{ManagedLabel}=1");
 
         foreach (var target in spec.Tmpfs)
         {

@@ -47,10 +47,11 @@ public sealed class SandboxPoolService(
         }
     }
 
-    /// <summary>One maintenance tick: top the warm pool up, then reap exited sandboxes. Exposed for tests.</summary>
+    /// <summary>One maintenance tick: reap exited sandboxes first (so top-up sees the real gap), then top
+    /// the warm pool back up to target. Exposed for tests.</summary>
     public async Task RunOnceAsync(CancellationToken ct = default)
     {
-        await manager.MaintainWarmPoolAsync(c => sessionSource.CreateWarmRequestAsync(c), ct);
         await manager.ReapAsync(ct);
+        await manager.MaintainWarmPoolAsync(c => sessionSource.CreateWarmRequestAsync(c), ct);
     }
 }

@@ -18,4 +18,8 @@
     <PackageReference Include="KubernetesClient" Version="19.0.2" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Mintokei.Sandbox.Tests" />
+  </ItemGroup>
+
 </Project>

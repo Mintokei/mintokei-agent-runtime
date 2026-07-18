@@ -1,5 +1,6 @@
 using k8s;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 using Mintokei.Sandbox;
 using Mintokei.Sandbox.Docker;
 using Mintokei.Sandbox.Kubernetes;
@@ -57,8 +58,10 @@ public static class MintokeiSandboxServiceCollectionExtensions
         switch (backend?.Trim().ToLowerInvariant())
         {
             case "kubernetes" or "k8s":
-                // One typed client for the process; in-cluster ServiceAccount auth as a Pod, else kubeconfig.
-                services.AddSingleton<IKubernetes>(_ => new Kubernetes(BuildKubernetesConfig()));
+                // One typed client for the process, pointed at the configured sandbox cluster (default:
+                // in-cluster ServiceAccount as a Pod, else the ambient kubeconfig).
+                services.AddSingleton<IKubernetes>(sp =>
+                    new Kubernetes(BuildKubernetesConfig(sp.GetRequiredService<IOptions<SandboxOptions>>().Value)));
                 services.AddSingleton<ISandboxRuntime, KubernetesSandboxRuntime>();
                 break;
 
@@ -72,17 +75,38 @@ public static class MintokeiSandboxServiceCollectionExtensions
         }
     }
 
-    private static KubernetesClientConfiguration BuildKubernetesConfig()
+    /// <summary>
+    /// Resolves which cluster the Kubernetes backend talks to. Precedence: an explicit API server + token,
+    /// then a kubeconfig file (the usual way to target a remote/dedicated cluster), then the default —
+    /// in-cluster ServiceAccount token when running as a Pod, else the ambient kubeconfig (dev / k3d).
+    /// Default behaviour (all options unset) is unchanged.
+    /// </summary>
+    internal static KubernetesClientConfiguration BuildKubernetesConfig(SandboxOptions o)
     {
-        // In-cluster (mounted ServiceAccount token) when running as a Pod; fall back to the local kubeconfig
-        // for dev / k3d validation, where InClusterConfig throws because the SA files aren't present.
+        // 1. Explicit API-server URL + token — no kubeconfig file needed.
+        if (!string.IsNullOrWhiteSpace(o.KubernetesApiServerUrl))
+        {
+            return new KubernetesClientConfiguration
+            {
+                Host = o.KubernetesApiServerUrl,
+                AccessToken = o.KubernetesToken,
+                SkipTlsVerify = o.KubernetesSkipTlsVerify,
+            };
+        }
+
+        // 2. Explicit kubeconfig file (+ optional context) — carries the cluster's server URL, CA, and creds.
+        if (!string.IsNullOrWhiteSpace(o.KubernetesKubeconfig))
+            return KubernetesClientConfiguration.BuildConfigFromConfigFile(o.KubernetesKubeconfig, o.KubernetesContext);
+
+        // 3. Default: in-cluster (ServiceAccount) as a Pod; else the ambient kubeconfig (InClusterConfig
+        //    throws when the SA files aren't present, e.g. dev / k3d).
         try
         {
             return KubernetesClientConfiguration.InClusterConfig();
         }
         catch (Exception)
         {
-            return KubernetesClientConfiguration.BuildConfigFromConfigFile();
+            return KubernetesClientConfiguration.BuildConfigFromConfigFile(currentContext: o.KubernetesContext);
         }
     }
 }

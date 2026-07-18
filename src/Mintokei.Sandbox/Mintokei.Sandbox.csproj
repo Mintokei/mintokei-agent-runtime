@@ -12,6 +12,10 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.2" />
     <!-- BackgroundService + AddHostedService for the optional warm-pool host (SandboxPoolService). -->
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.2" />
+    <!-- Kubernetes backend (KubernetesSandboxRuntime): typed client + in-cluster ServiceAccount auth,
+         so the k8s/containerd substrate needs no docker socket and no kubectl in the image. Only used
+         when Sandbox:Backend=kubernetes; the Docker backend has no runtime dependency on it. -->
+    <PackageReference Include="KubernetesClient" Version="19.0.2" />
   </ItemGroup>
 
 </Project>

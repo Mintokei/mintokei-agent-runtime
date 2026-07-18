@@ -20,6 +20,29 @@ public sealed class SandboxOptions
     /// of a private image. Ignored by the Docker backend.</summary>
     public string? KubernetesImagePullPolicy { get; set; }
 
+    // --- Which cluster the Kubernetes backend targets. All null = default: in-cluster ServiceAccount when
+    // the API runs as a Pod, else the ambient kubeconfig. Set these to point sandbox Pods at a SEPARATE /
+    // dedicated cluster (decouples the sandbox substrate from where the control plane runs). Ignored by the
+    // Docker backend. Precedence: explicit server+token > kubeconfig file > in-cluster/ambient.
+
+    /// <summary>Path to a kubeconfig file the backend uses to reach the sandbox cluster (overrides in-cluster).
+    /// The usual way to target a remote/dedicated cluster: mount a kubeconfig and point here.</summary>
+    public string? KubernetesKubeconfig { get; set; }
+
+    /// <summary>Context to select within the kubeconfig (null = the file's current-context).</summary>
+    public string? KubernetesContext { get; set; }
+
+    /// <summary>Explicit API-server URL for the sandbox cluster (alternative to a kubeconfig file). When set,
+    /// pair with <see cref="KubernetesToken"/>.</summary>
+    public string? KubernetesApiServerUrl { get; set; }
+
+    /// <summary>Bearer token for <see cref="KubernetesApiServerUrl"/>.</summary>
+    public string? KubernetesToken { get; set; }
+
+    /// <summary>Skip API-server TLS verification for the explicit-server path (dev / self-signed only —
+    /// prefer a kubeconfig, which carries the cluster CA, for real clusters).</summary>
+    public bool KubernetesSkipTlsVerify { get; set; }
+
     /// <summary>Sandbox image reference.</summary>
     public string Image { get; set; } = "mintokei/sandbox:latest";
 

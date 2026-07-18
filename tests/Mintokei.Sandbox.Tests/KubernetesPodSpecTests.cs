@@ -111,6 +111,20 @@ public class KubernetesPodSpecTests
     }
 
     [Fact]
+    public void Image_pull_policy_is_unset_by_default()
+    {
+        // Null → kubelet default (Always for :latest, else IfNotPresent).
+        Assert.Null(Container(KubernetesPodSpec.Build(Spec())).ImagePullPolicy);
+    }
+
+    [Fact]
+    public void Image_pull_policy_is_applied_when_configured()
+    {
+        // "Never" is how a node-imported private image avoids a failing registry pull.
+        Assert.Equal("Never", Container(KubernetesPodSpec.Build(Spec(), "Never")).ImagePullPolicy);
+    }
+
+    [Fact]
     public void AddHostGateway_is_ignored_by_the_k8s_backend()
     {
         // Docker-only dev knob (host.docker.internal); k8s reaches the API via Service DNS, so no host aliases.

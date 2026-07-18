@@ -14,6 +14,12 @@ public sealed class SandboxOptions
     /// <summary>Namespace the Kubernetes backend creates sandbox Pods in. Ignored by the Docker backend.</summary>
     public string KubernetesNamespace { get; set; } = "default";
 
+    /// <summary>Pull policy for sandbox Pods ("Always" | "IfNotPresent" | "Never"). Null = the Kubernetes
+    /// default (Always for a ":latest" tag, else IfNotPresent). Set "Never" when the sandbox image is
+    /// node-imported rather than pulled from a registry, so a ":latest" tag doesn't trigger a failing pull
+    /// of a private image. Ignored by the Docker backend.</summary>
+    public string? KubernetesImagePullPolicy { get; set; }
+
     /// <summary>Sandbox image reference.</summary>
     public string Image { get; set; } = "mintokei/sandbox:latest";
 

@@ -22,12 +22,13 @@ public sealed class KubernetesSandboxRuntime(
     private readonly string _namespace = string.IsNullOrWhiteSpace(options.Value.KubernetesNamespace)
         ? "default"
         : options.Value.KubernetesNamespace;
+    private readonly string? _imagePullPolicy = options.Value.KubernetesImagePullPolicy;
 
     public string Backend => "kubernetes";
 
     public async Task<SandboxHandle> ProvisionAsync(SandboxSpec spec, CancellationToken ct = default)
     {
-        var pod = KubernetesPodSpec.Build(spec);
+        var pod = KubernetesPodSpec.Build(spec, _imagePullPolicy);
 
         V1Pod created;
         try

@@ -33,7 +33,9 @@ public static class KubernetesPodSpec
     /// <summary>The single sandbox container's name (the runner). Must be a DNS label.</summary>
     public const string ContainerName = "sandbox";
 
-    public static V1Pod Build(SandboxSpec spec)
+    /// <param name="imagePullPolicy">"Always" | "IfNotPresent" | "Never", or null for the Kubernetes
+    /// default. Set "Never" when the sandbox image is node-imported (see <c>SandboxOptions</c>).</param>
+    public static V1Pod Build(SandboxSpec spec, string? imagePullPolicy = null)
     {
         var volumes = new List<V1Volume>();
         var mounts = new List<V1VolumeMount>();
@@ -69,6 +71,7 @@ public static class KubernetesPodSpec
         {
             Name = ContainerName,
             Image = spec.Image,
+            ImagePullPolicy = imagePullPolicy, // null → kubelet default (Always for :latest, else IfNotPresent)
             Args = spec.Args.Count > 0 ? spec.Args.ToList() : null, // → container entrypoint (runner flags)
             Env = env.Count > 0 ? env : null,
             VolumeMounts = mounts.Count > 0 ? mounts : null,

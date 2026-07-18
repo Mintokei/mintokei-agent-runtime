@@ -7,8 +7,12 @@ public sealed class SandboxOptions
 {
     public const string SectionName = "Sandbox";
 
-    /// <summary>Container runtime backend: "docker" (now) | "k8s" (later).</summary>
+    /// <summary>Container runtime backend: "docker" | "kubernetes" (alias "k8s"). Selects the
+    /// <see cref="ISandboxRuntime"/> implementation at DI registration; one backend per host process.</summary>
     public string Backend { get; set; } = "docker";
+
+    /// <summary>Namespace the Kubernetes backend creates sandbox Pods in. Ignored by the Docker backend.</summary>
+    public string KubernetesNamespace { get; set; } = "default";
 
     /// <summary>Sandbox image reference.</summary>
     public string Image { get; set; } = "mintokei/sandbox:latest";

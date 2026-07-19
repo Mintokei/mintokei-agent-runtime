@@ -62,5 +62,22 @@ public interface ISandboxRuntime
     Task<IReadOnlyList<SandboxHandle>> ListManagedAsync(CancellationToken ct = default);
 }
 
+/// <summary>
+/// Optional capability a backend may add on top of <see cref="ISandboxRuntime"/>: fetch a sandbox's
+/// recent log output. Used to explain WHY a sandbox that never enrolled failed — almost always a repo
+/// clone / git-credentials error in the entrypoint, which is otherwise invisible once the (single-shot)
+/// container is reaped. Kept OFF <see cref="ISandboxRuntime"/> so lightweight test doubles need not
+/// implement it; callers feature-detect with <c>runtime is ISandboxLogSource</c>.
+/// </summary>
+public interface ISandboxLogSource
+{
+    /// <summary>
+    /// Tail of the sandbox's combined stdout/stderr, best-effort. Returns an empty string when logs are
+    /// unavailable (container already gone, backend error) — never throws, so a failure-reporting path can
+    /// call it without its own try/catch.
+    /// </summary>
+    Task<string> GetLogsAsync(SandboxHandle handle, int tailLines = 40, CancellationToken ct = default);
+}
+
 public sealed class SandboxRuntimeException(string message, Exception? inner = null)
     : Exception(message, inner);

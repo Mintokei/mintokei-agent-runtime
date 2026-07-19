@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using Microsoft.Extensions.Logging;
 
 namespace Mintokei.Sandbox.Docker;
@@ -7,7 +8,7 @@ namespace Mintokei.Sandbox.Docker;
 /// <see cref="ISandboxRuntime"/> over the local Docker CLI (shelling out, matching how the rest of
 /// Mintokei runs external processes). The Kubernetes backend implements the same interface later.
 /// </summary>
-public sealed class DockerSandboxRuntime(ILogger<DockerSandboxRuntime> logger) : ISandboxRuntime
+public sealed class DockerSandboxRuntime(ILogger<DockerSandboxRuntime> logger) : ISandboxRuntime, ISandboxLogSource
 {
     public string Backend => "docker";
 
@@ -51,6 +52,26 @@ public sealed class DockerSandboxRuntime(ILogger<DockerSandboxRuntime> logger) :
             throw new SandboxRuntimeException($"docker rm failed for '{handle.Name}': {stderr.Trim()}");
 
         logger.LogInformation("Stopped sandbox {Name} ({Id})", handle.Name, Short(handle.Id));
+    }
+
+    public async Task<string> GetLogsAsync(SandboxHandle handle, int tailLines = 40, CancellationToken ct = default)
+    {
+        try
+        {
+            // `docker logs` writes the container's stdout to our stdout and its stderr to our stderr; the
+            // clone failure we want lands on stderr, so combine both (stderr first — it's the error stream).
+            var (exit, stdout, stderr) = await RunDockerAsync(
+                ["logs", "--tail", tailLines.ToString(CultureInfo.InvariantCulture), handle.Id], ct);
+            if (exit != 0)
+                return string.Empty;
+            return string.Join('\n',
+                new[] { stderr.Trim(), stdout.Trim() }.Where(s => s.Length > 0));
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "docker logs failed for {Name}", handle.Name);
+            return string.Empty;
+        }
     }
 
     public async Task<IReadOnlyList<SandboxHandle>> ListManagedAsync(CancellationToken ct = default)

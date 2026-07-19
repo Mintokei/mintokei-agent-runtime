@@ -67,6 +67,17 @@ public sealed class SandboxManager(
         return lease;
     }
 
+    /// <summary>Current runtime status of a provisioned sandbox (delegates to the backend). Lets a caller
+    /// waiting for a runner to enroll notice the container exiting early instead of burning the full timeout.</summary>
+    public Task<SandboxStatus> GetStatusAsync(SandboxHandle handle, CancellationToken ct = default)
+        => runtime.GetStatusAsync(handle, ct);
+
+    /// <summary>Best-effort tail of a sandbox's logs, or empty when the backend can't provide them (test
+    /// doubles, or a backend that doesn't implement <see cref="ISandboxLogSource"/>). Never throws — used to
+    /// explain WHY a sandbox that never enrolled failed (usually a clone / credentials error).</summary>
+    public async Task<string> GetLogsAsync(SandboxHandle handle, int tailLines = 40, CancellationToken ct = default)
+        => runtime is ISandboxLogSource source ? await source.GetLogsAsync(handle, tailLines, ct) : string.Empty;
+
     /// <summary>Stop + remove a sandbox and untrack it (one-shot recycle after its single session).</summary>
     public async Task RecycleAsync(string name, CancellationToken ct = default)
     {

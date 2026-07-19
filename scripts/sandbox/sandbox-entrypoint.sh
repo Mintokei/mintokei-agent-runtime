@@ -17,6 +17,22 @@ seed_creds() {
     [[ -f /seed/.claude.json ]] && cp /seed/.claude.json "${HOME:-/root}/.claude.json"
   fi
   [[ -d /seed/.codex ]] && { mkdir -p "${HOME:-/root}/.codex"; cp -a /seed/.codex/. "${HOME:-/root}/.codex/"; }
+
+  # Git credentials for cloning a private repo over the network (GitCredentialsHostDir mounted at
+  # /seed/git). Supports an HTTPS token store (.git-credentials) and/or an SSH key dir (.ssh/).
+  if [[ -d /seed/git ]]; then
+    if [[ -f /seed/git/.git-credentials ]]; then
+      cp /seed/git/.git-credentials "${HOME:-/root}/.git-credentials"
+      chmod 600 "${HOME:-/root}/.git-credentials" 2>/dev/null || true
+      git config --global credential.helper store 2>/dev/null || true
+    fi
+    if [[ -d /seed/git/.ssh ]]; then
+      mkdir -p "${HOME:-/root}/.ssh"
+      cp -a /seed/git/.ssh/. "${HOME:-/root}/.ssh/"
+      chmod 700 "${HOME:-/root}/.ssh" 2>/dev/null || true
+      chmod 600 "${HOME:-/root}"/.ssh/* 2>/dev/null || true
+    fi
+  fi
   return 0
 }
 seed_creds

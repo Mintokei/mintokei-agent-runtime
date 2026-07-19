@@ -22,6 +22,12 @@ public sealed record SandboxSessionRequest
     public string? ClaudeConfigHostDir { get; init; }         // host ~/.claude
     public string? ClaudeConfigJsonHostFile { get; init; }    // host ~/.claude.json
     public string? CodexConfigHostDir { get; init; }          // host ~/.codex
+
+    // Git credentials for cloning a private repo over the network (mounted RO at /seed/git; the
+    // entrypoint seeds ~/.git-credentials + ~/.ssh from it before prepare-workspace's clone). Point at a
+    // host dir holding .git-credentials (+ optional .ssh/). Not needed when SANDBOX_REPO_URL is public or
+    // served from a local RO mirror (RepoCacheHostPath).
+    public string? GitCredentialsHostDir { get; init; }
 }
 
 /// <summary>
@@ -67,6 +73,8 @@ public sealed class SandboxSpecFactory(IOptions<SandboxOptions> options)
             mounts.Add(new SandboxMount(req.ClaudeConfigJsonHostFile!, "/seed/.claude.json", ReadOnly: true));
         if (!string.IsNullOrWhiteSpace(req.CodexConfigHostDir))
             mounts.Add(new SandboxMount(req.CodexConfigHostDir!, "/seed/.codex", ReadOnly: true));
+        if (!string.IsNullOrWhiteSpace(req.GitCredentialsHostDir))
+            mounts.Add(new SandboxMount(req.GitCredentialsHostDir!, "/seed/git", ReadOnly: true));
 
         return new SandboxSpec
         {

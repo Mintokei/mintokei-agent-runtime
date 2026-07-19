@@ -17,7 +17,7 @@ namespace Mintokei.Sandbox.Kubernetes;
 public sealed class KubernetesSandboxRuntime(
     IKubernetes client,
     IOptions<SandboxOptions> options,
-    ILogger<KubernetesSandboxRuntime> logger) : ISandboxRuntime
+    ILogger<KubernetesSandboxRuntime> logger) : ISandboxRuntime, ISandboxLogSource
 {
     private readonly string _namespace = string.IsNullOrWhiteSpace(options.Value.KubernetesNamespace)
         ? "default"
@@ -96,6 +96,26 @@ public sealed class KubernetesSandboxRuntime(
         }
 
         logger.LogInformation("Stopped sandbox {Name} ({Id}) ns={Namespace}", handle.Name, Short(handle.Id), _namespace);
+    }
+
+    public async Task<string> GetLogsAsync(SandboxHandle handle, int tailLines = 40, CancellationToken ct = default)
+    {
+        try
+        {
+            using var stream = await client.CoreV1.ReadNamespacedPodLogAsync(
+                handle.Name, _namespace, tailLines: tailLines, cancellationToken: ct);
+            using var reader = new System.IO.StreamReader(stream);
+            return (await reader.ReadToEndAsync(ct)).Trim();
+        }
+        catch (HttpOperationException ex) when (ex.Response?.StatusCode == HttpStatusCode.NotFound)
+        {
+            return string.Empty; // pod already reaped
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "reading pod logs failed for {Name} in {Namespace}", handle.Name, _namespace);
+            return string.Empty;
+        }
     }
 
     public async Task<IReadOnlyList<SandboxHandle>> ListManagedAsync(CancellationToken ct = default)

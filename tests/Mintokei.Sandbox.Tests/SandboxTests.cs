@@ -120,6 +120,23 @@ public class SandboxSpecFactoryTests
         Assert.Contains(spec.Mounts, m => m is { Target: "/seed/.claude", ReadOnly: true });
     }
 
+    [Fact]
+    public void Mounts_git_credentials_read_only_when_set()
+    {
+        var factory = new SandboxSpecFactory(Options.Create(new SandboxOptions { Image = "img:1" }));
+        var profile = new SandboxProfile("standard", "runc", new SandboxResourceLimits(1, 1, 1), SandboxEgress.Open, null);
+
+        var spec = factory.Build(profile, new SandboxSessionRequest
+        {
+            BackendUrl = "https://api",
+            EnrollmentToken = "tok",
+            Name = "sess-1",
+            GitCredentialsHostDir = "/root/git-creds",
+        });
+
+        Assert.Contains(spec.Mounts, m => m is { Source: "/root/git-creds", Target: "/seed/git", ReadOnly: true });
+    }
+
     [Theory]
     [InlineData("https://github.com/acme/app.git", "/repos/app")]
     [InlineData("git@github.com:acme/app.git", "/repos/app")]

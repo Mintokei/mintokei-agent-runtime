@@ -37,7 +37,7 @@ seed_creds() {
 }
 seed_creds
 
-if [[ -n "${SANDBOX_REPO_URL:-}" ]]; then
+if [[ -n "${SANDBOX_REPO_URL:-}" || -n "${SANDBOX_REPOS:-}" ]]; then
   prepare-workspace || { echo "sandbox-entrypoint: prepare-workspace failed" >&2; exit 1; }
 fi
 

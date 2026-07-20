@@ -2,7 +2,11 @@ using Microsoft.Extensions.Options;
 
 namespace Mintokei.Sandbox;
 
-/// <summary>Inputs describing one session's sandbox: runner identity + optional repo + optional creds.</summary>
+/// <summary>One repo to provision inside a sandbox: its remote URL, optional base branch, and the container
+/// path it lands at (defaults to <c>/repos/&lt;name-from-url&gt;</c>). A sandbox can provision several.</summary>
+public sealed record SandboxRepoSpec(string Url, string? Branch = null, string? SourcePath = null);
+
+/// <summary>Inputs describing one session's sandbox: runner identity + optional repos + optional creds.</summary>
 public sealed record SandboxSessionRequest
 {
     // Runner enrollment (passed as CLI flags — see note in Build).
@@ -13,9 +17,9 @@ public sealed record SandboxSessionRequest
     public bool AddHostGateway { get; init; }                 // dev only
 
     // Step 2 repo provisioning (git alternates), read by the container entrypoint's prepare-workspace.
-    public string? RepoUrl { get; init; }
-    public string? RepoBranch { get; init; }
-    public string? SourcePath { get; init; }                  // defaults to /repos/<name-from-url>
+    // One or more repos, each cloned into SandboxSpecFactory.RepoRoot/<name> in the container (borrowing
+    // objects from the RO mirror when present). Empty for repo-agnostic warm sandboxes.
+    public IReadOnlyList<SandboxRepoSpec> Repos { get; init; } = [];
     public string? RepoCacheHostPath { get; init; }           // per-host bare mirror, mounted RO at /repo-cache
 
     // Credential seeding: mounted RO at /seed; the entrypoint copies into a writable HOME.
@@ -55,14 +59,18 @@ public sealed class SandboxSpecFactory(IOptions<SandboxOptions> options)
         if (!string.IsNullOrWhiteSpace(req.GrpcBackendUrl))
             env["Runner__GrpcBackendUrl"] = req.GrpcBackendUrl!;
 
-        if (!string.IsNullOrWhiteSpace(req.RepoUrl))
+        if (req.Repos.Count > 0)
         {
-            env["SANDBOX_REPO_URL"] = req.RepoUrl!;
-            env["SANDBOX_SOURCE_PATH"] = string.IsNullOrWhiteSpace(req.SourcePath)
-                ? DefaultSourcePath(req.RepoUrl!)
-                : req.SourcePath!;
-            if (!string.IsNullOrWhiteSpace(req.RepoBranch))
-                env["SANDBOX_REPO_BRANCH"] = req.RepoBranch!;
+            // Encode the repo list as ONE single-line env var (safe through the nested docker-arg dispatch,
+            // which has no shell): records joined by ';', fields within a record by '|' → url|sourcePath|branch.
+            // Repo URLs, /repos/<name> paths, and branch names contain none of these, so no escaping is needed.
+            // prepare-workspace.sh splits on them and provisions each repo. (Legacy single-repo SANDBOX_REPO_URL
+            // is still understood by the entrypoint for the spike script, but the product always uses this.)
+            env["SANDBOX_REPOS"] = string.Join(';', req.Repos.Select(r =>
+            {
+                var src = string.IsNullOrWhiteSpace(r.SourcePath) ? DefaultSourcePath(r.Url) : r.SourcePath!;
+                return $"{r.Url}|{src}|{r.Branch ?? string.Empty}";
+            }));
             if (!string.IsNullOrWhiteSpace(req.RepoCacheHostPath))
                 mounts.Add(new SandboxMount(req.RepoCacheHostPath!, "/repo-cache", ReadOnly: true));
         }
@@ -91,6 +99,10 @@ public sealed class SandboxSpecFactory(IOptions<SandboxOptions> options)
         };
     }
 
+    /// <summary>Container path every sandbox repo is provisioned under (the parent of each repo dir). The
+    /// persistent-workspace volume mounts here so all of a session's repos survive a recycle together.</summary>
+    public const string RepoRoot = "/repos";
+
     /// <summary>Derive /repos/&lt;name&gt; from a repo URL (mirrors prepare-workspace.sh's default).</summary>
     public static string DefaultSourcePath(string repoUrl)
     {
@@ -98,6 +110,6 @@ public sealed class SandboxSpecFactory(IOptions<SandboxOptions> options)
         var slash = name.LastIndexOfAny(['/', ':']);
         if (slash >= 0) name = name[(slash + 1)..];
         if (name.EndsWith(".git", StringComparison.OrdinalIgnoreCase)) name = name[..^4];
-        return $"/repos/{name}";
+        return $"{RepoRoot}/{name}";
     }
 }

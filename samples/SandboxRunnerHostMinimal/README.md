@@ -22,14 +22,29 @@ Unlike the other samples it launches a real container, so it needs:
   `Sandbox:GrpcBackendUrl` (gRPC control). Defaults use `host.docker.internal` (mapped into the
   container by the dev-only `AddHostGateway` → `--add-host=host.docker.internal:host-gateway`), which
   resolves to the host on Docker Desktop and on Linux.
-- **Agent credentials** available to the CLI inside the container (baked into the image, or seeded via
-  the request's `ClaudeConfigHostDir` / `GitCredentialsHostDir`), so a turn can actually run.
+- **Agent credentials** for the CLI inside the container — otherwise the runner enrolls and the session
+  dispatches, but the `claude`/`codex` CLI exits before its handshake (no auth). Point the optional
+  `Sandbox:ClaudeConfigHostDir` / `Sandbox:ClaudeConfigJsonHostFile` (and `CodexConfigHostDir` /
+  `GitCredentialsHostDir`) config keys at host paths; each is mounted RO at `/seed` and copied into the
+  container's HOME by the entrypoint. Leave them unset for a plumbing-only run.
 
 ```bash
+# plumbing-only (runner enrolls + session dispatches; the agent turn won't run — see the note below):
 dotnet run --project samples/SandboxRunnerHostMinimal
-# then, in another shell:
-curl -X POST "http://localhost:5082/demo/sandbox-run?prompt=say%20hello%20from%20the%20sandbox"
+curl -X POST "http://localhost:5082/demo/sandbox-run?prompt=say%20hello"
+
+# a REAL agent turn — seed the host's Claude credentials AND pass a repo (so the session has a workdir):
+Sandbox__ClaudeConfigHostDir="$HOME/.claude" \
+Sandbox__ClaudeConfigJsonHostFile="$HOME/.claude.json" \
+  dotnet run --project samples/SandboxRunnerHostMinimal
+curl -X POST "http://localhost:5082/demo/sandbox-run?repo=https://github.com/octocat/Hello-World.git&prompt=what%20file%20is%20in%20this%20repo%3F"
+# -> [Assistant/AgentMessage] The repo contains a single README.md file ...
 ```
+
+> A real turn needs **both**: **credentials** (so the CLI authenticates) *and* a **`repo`** — the
+> session runs in `/repos/<name>`, which only exists once a repo has been cloned into the container.
+> With no repo the runner still enrolls and the session still dispatches, but the CLI has no valid
+> working directory to start in.
 
 ## How it maps to a real product
 

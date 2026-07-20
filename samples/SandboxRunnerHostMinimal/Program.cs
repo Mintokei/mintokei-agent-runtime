@@ -132,6 +132,13 @@ app.MapPost("/demo/sandbox-run", async (
         Name = name,
         AddHostGateway = true, // dev-only: --add-host=host.docker.internal:host-gateway
         Repos = string.IsNullOrWhiteSpace(repo) ? [] : [new SandboxRepoSpec(repo)],
+        // Optional credential seeding: each host path is mounted RO at /seed and copied into the
+        // container's HOME by the entrypoint, so the CLI is authenticated. Set the matching Sandbox:*
+        // config keys to make the agent turn actually run; leave them unset for a plumbing-only demo.
+        ClaudeConfigHostDir = cfg["Sandbox:ClaudeConfigHostDir"],
+        ClaudeConfigJsonHostFile = cfg["Sandbox:ClaudeConfigJsonHostFile"],
+        CodexConfigHostDir = cfg["Sandbox:CodexConfigHostDir"],
+        GitCredentialsHostDir = cfg["Sandbox:GitCredentialsHostDir"],
     };
 
     // 3. Provision the REAL container (docker run of the sandbox image).

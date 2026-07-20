@@ -108,16 +108,41 @@ public class SandboxSpecFactoryTests
             BackendUrl = "https://api",
             EnrollmentToken = "tok",
             Name = "sess-1",
-            RepoUrl = "https://github.com/acme/app.git",
+            Repos = [new SandboxRepoSpec("https://github.com/acme/app.git")],
             RepoCacheHostPath = "/cache",
             ClaudeConfigHostDir = "/root/.claude",
         });
 
         Assert.Equal("img:1", spec.Image);
         Assert.Contains("--token", spec.Args);
-        Assert.Equal("/repos/app", spec.Env["SANDBOX_SOURCE_PATH"]);
+        // One repo → SANDBOX_REPOS carries "url|sourcePath|branch" (branch empty), sourcePath defaulted.
+        Assert.Equal("https://github.com/acme/app.git|/repos/app|", spec.Env["SANDBOX_REPOS"]);
         Assert.Contains(spec.Mounts, m => m is { Target: "/repo-cache", ReadOnly: true });
         Assert.Contains(spec.Mounts, m => m is { Target: "/seed/.claude", ReadOnly: true });
+    }
+
+    [Fact]
+    public void Encodes_multiple_repos_into_SANDBOX_REPOS()
+    {
+        var factory = new SandboxSpecFactory(Options.Create(new SandboxOptions { Image = "img:1" }));
+        var profile = new SandboxProfile("standard", "runc", new SandboxResourceLimits(1, 1, 1), SandboxEgress.Open, null);
+
+        var spec = factory.Build(profile, new SandboxSessionRequest
+        {
+            BackendUrl = "https://api",
+            EnrollmentToken = "tok",
+            Name = "sess-1",
+            Repos =
+            [
+                new SandboxRepoSpec("https://github.com/acme/api.git", Branch: "main"),
+                new SandboxRepoSpec("https://github.com/acme/web.git", SourcePath: "/repos/webapp"),
+            ],
+        });
+
+        // ';'-separated records, each 'url|sourcePath|branch'. First repo's branch set, second's path overridden.
+        Assert.Equal(
+            "https://github.com/acme/api.git|/repos/api|main;https://github.com/acme/web.git|/repos/webapp|",
+            spec.Env["SANDBOX_REPOS"]);
     }
 
     [Fact]

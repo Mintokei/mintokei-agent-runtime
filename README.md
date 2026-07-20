@@ -21,6 +21,7 @@ You embed them and supply your own persistence and orchestration through small c
 | **Mintokei.Runner.Host** | Backend transport: accept dial-in workers over gRPC, dispatch agent CLIs to them, stream output back over a durable outbox. React to transport events via `IRunnerHost`. | AgentEngine, AgentControlPlane, Contracts |
 | **Mintokei.Runner.Client** | The worker side: enroll, hold the gRPC link, run CLIs locally, serve workspace files back over a tunnel. | AgentEngine, Contracts |
 | **Mintokei.Runner** | A thin, ready-to-run worker executable over `Runner.Client`. | Runner.Client |
+| **Mintokei.Sandbox** | Run each agent session in a throwaway, resource-capped container — Docker or Kubernetes — whose in-container runner enrolls back exactly like a remote worker. Per-session OS isolation, isolation profiles (runc / gVisor / Firecracker), an optional warm pool, and one-shot recycle. *Experimental — not yet on NuGet.* | composes with Runner.Host at runtime |
 
 ## Which package do I need?
 
@@ -34,6 +35,10 @@ in the ones below it, so you never reference a lower package directly.
   your own host). `Runner.Contracts` / `.Grpc` come along transitively.
 - **Reuse the runner's file-search or file-watch filtering rules in your own code** →
   `Mintokei.Filesystem` (advanced; most users do not need this directly).
+- **Isolate each agent session in its own throwaway container** → add `Mintokei.Sandbox` on the
+  backend. It provisions a per-session container (Docker or Kubernetes) whose runner enrolls back like
+  any remote worker, so sessions dispatch through `Runner.Host` unchanged. *Experimental — referenced
+  from the runtime rather than installed from NuGet; see [`src/Mintokei.Sandbox/README.md`](src/Mintokei.Sandbox/README.md).*
 
 ## Getting started
 
@@ -48,6 +53,9 @@ dotnet test  Mintokei.slnx
 - Host remote workers in your backend: see [`src/Mintokei.Runner.Host/README.md`](src/Mintokei.Runner.Host/README.md).
 - Accept remote workers with the smallest possible backend: see
   [`samples/RemoteRunnerMinimal`](samples/RemoteRunnerMinimal).
+- Isolate each session in a per-session container: see [`src/Mintokei.Sandbox/README.md`](src/Mintokei.Sandbox/README.md),
+  with runnable [`samples/SandboxSessionMinimal`](samples/SandboxSessionMinimal) (one session end-to-end)
+  and [`samples/SandboxPoolMinimal`](samples/SandboxPoolMinimal) (warm pool).
 
 ## Remote runners: how the two halves talk
 

@@ -46,6 +46,30 @@ product or protocol coupling.
 - **`SandboxPoolService` / `AddMintokeiSandboxPool`** — optional hosted service that keeps N warm,
   repo-agnostic sandboxes online on a timer.
 
+## What you reuse vs. implement
+
+You **implement two things** — an `ISandboxSessionSource` and a small provision → wait-online → dispatch
+→ recycle orchestration. **Everything else is reused**, including the enrollment / presence / dispatch,
+which live in `Mintokei.Runner.Host` (a container's runner enrolls back exactly like any remote worker):
+
+| Concern | Reuse or implement | Type |
+|---|---|---|
+| Launch / stop / inspect the container | **Reuse** | `DockerSandboxRuntime` / `KubernetesSandboxRuntime` (registered by `AddMintokeiSandbox`) |
+| Container lifecycle (provision / recycle / reap / pool) | **Reuse** | `SandboxManager`, `SandboxPoolService` |
+| Mint the one-time enrollment token | **Reuse** | `IRunnerEnrollment.CreateEnrollmentTokenAsync` (`Mintokei.Runner.Host`) |
+| Runner presence ("came Online") | **Reuse** | `IRunnerRegistry` / `IAgentControlPlane` — `RunnerConnected`, `IsRunnerConnected` |
+| Dispatch the agent session into the sandbox | **Reuse** | `IAgentControlPlane.StartSessionAsync(spec, machineId)` |
+| Build the request (repos, creds, backend URL) | **Implement** | `ISandboxSessionSource` |
+| provision → wait-online → bind → recycle glue | **Implement** | your own small orchestration (an "assigner") |
+| *When* to recycle (session done / idle) | Reuse mechanism, own the policy | `SandboxManager.ReapAsync`/`RecycleAsync` + your trigger |
+
+The two runnable samples show both ends of that split:
+
+- [`samples/SandboxSessionMinimal`](../../samples/SandboxSessionMinimal) — the full lifecycle with the
+  reused parts faked, so it runs **anywhere** (no Docker).
+- [`samples/SandboxRunnerHostMinimal`](../../samples/SandboxRunnerHostMinimal) — the same lifecycle with
+  **no fakes**: real `Runner.Host` + a real container (needs Docker + the image).
+
 ## Minimal usage
 
 ```csharp
@@ -83,9 +107,8 @@ var lease = await manager.ProvisionAsync(await source.CreateWarmRequestAsync(ct)
 await manager.RecycleAsync(lease.Handle.Name, ct);
 ```
 
-See [`samples/SandboxSessionMinimal`](../../samples/SandboxSessionMinimal) for the full lifecycle end to
-end (runnable, no Docker), and [`samples/SandboxPoolMinimal`](../../samples/SandboxPoolMinimal) for the
-warm pool.
+See the two samples above for the full lifecycle end to end;
+[`samples/SandboxPoolMinimal`](../../samples/SandboxPoolMinimal) adds the warm pool.
 
 ## Configuration (`Sandbox` section)
 

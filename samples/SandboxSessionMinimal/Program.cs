@@ -10,6 +10,12 @@ using Mintokei.Sandbox;
 // fake backend stands in for Mintokei.Runner.Host. Those two fakes are the ONLY things you swap in
 // production (keep the default DockerSandboxRuntime; provide a token-minting ISandboxSessionSource, and
 // dispatch the session through Runner.Host / IAgentControlPlane once the runner comes Online).
+//
+// What's faked here vs. real (full "reuse vs. implement" table in src/Mintokei.Sandbox/README.md):
+//   * FakeContainerRuntime  -> REUSE  DockerSandboxRuntime / KubernetesSandboxRuntime (AddMintokeiSandbox)
+//   * FakeBackend           -> REUSE  Mintokei.Runner.Host (enrollment, presence, session dispatch)
+//   * DemoSessionSource     -> IMPLEMENT  ISandboxSessionSource (the one seam you own)
+// For a version with NO fakes (real Runner.Host + a real container), see samples/SandboxRunnerHostMinimal.
 
 // Stand-in for YOUR backend (Mintokei.Runner.Host): mints enrollment tokens, marks a machine Online when
 // its runner dials back, and dispatches agent sessions to Online machines.
@@ -79,7 +85,7 @@ static async Task WaitUntilOnlineAsync(FakeBackend backend, SandboxManager manag
 
 // --- demo fakes (swap for DockerSandboxRuntime + a token-minting ISandboxSessionSource + Runner.Host) ---
 
-// Stands in for Mintokei.Runner.Host: enrollment + presence + session dispatch.
+// REUSE (don't implement): stands in for Mintokei.Runner.Host — enrollment + presence + session dispatch.
 sealed class FakeBackend
 {
     private readonly HashSet<string> _online = [];
@@ -107,7 +113,8 @@ sealed class FakeBackend
     }
 }
 
-// Stands in for DockerSandboxRuntime: instead of `docker run`, simulate booting the container + its runner.
+// REUSE (don't implement): stands in for DockerSandboxRuntime — instead of `docker run`, simulate booting
+// the container + its runner. In production AddMintokeiSandbox registers the real DockerSandboxRuntime.
 sealed class FakeContainerRuntime(FakeBackend backend) : ISandboxRuntime
 {
     private readonly HashSet<string> _exited = [];
@@ -147,7 +154,8 @@ sealed class FakeContainerRuntime(FakeBackend backend) : ISandboxRuntime
     }
 }
 
-// Stands in for your product's session source: mint enrollment + describe the repos/creds for one session.
+// IMPLEMENT (the one seam you own): your product's session source — mint enrollment (via Runner.Host) +
+// describe the repos/creds for one session. This is the real ISandboxSessionSource, not a fake.
 sealed class DemoSessionSource(FakeBackend backend) : ISandboxSessionSource
 {
     public Task<SandboxSessionRequest> CreateWarmRequestAsync(CancellationToken ct = default)

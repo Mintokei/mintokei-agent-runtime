@@ -15,5 +15,7 @@ The two fakes are the only things you replace in production: keep the default `D
 tokens against your backend, and dispatch the session through `Mintokei.Runner.Host` /
 `IAgentControlPlane` once the container's runner comes Online.
 
-For the warm-pool variant see [`SandboxPoolMinimal`](../SandboxPoolMinimal); for the design see
+For a version with **no fakes** — real `Runner.Host` + a real container — see
+[`SandboxRunnerHostMinimal`](../SandboxRunnerHostMinimal). For the warm-pool variant see
+[`SandboxPoolMinimal`](../SandboxPoolMinimal); for the design see
 [`docs/sandboxed-runner-isolation-plan.md`](../../docs/sandboxed-runner-isolation-plan.md).

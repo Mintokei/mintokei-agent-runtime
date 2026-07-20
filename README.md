@@ -54,8 +54,9 @@ dotnet test  Mintokei.slnx
 - Accept remote workers with the smallest possible backend: see
   [`samples/RemoteRunnerMinimal`](samples/RemoteRunnerMinimal).
 - Isolate each session in a per-session container: see [`src/Mintokei.Sandbox/README.md`](src/Mintokei.Sandbox/README.md),
-  with runnable [`samples/SandboxSessionMinimal`](samples/SandboxSessionMinimal) (one session end-to-end)
-  and [`samples/SandboxPoolMinimal`](samples/SandboxPoolMinimal) (warm pool).
+  with runnable samples [`SandboxSessionMinimal`](samples/SandboxSessionMinimal) (one session, no Docker),
+  [`SandboxRunnerHostMinimal`](samples/SandboxRunnerHostMinimal) (the same, no fakes — real host + container),
+  and [`SandboxPoolMinimal`](samples/SandboxPoolMinimal) (warm pool).
 
 ## Remote runners: how the two halves talk
 

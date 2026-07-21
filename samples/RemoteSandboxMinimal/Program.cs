@@ -49,7 +49,7 @@ app.MapPost("/demo/remote-sandbox-run", async (
 {
     var o = options.Value;
     if (!registry.IsRunnerConnected(host))
-        return Results.Problem($"worker {host} is not connected. GET /demo/workers to list connected runners.");
+        return Results.BadRequest($"worker {host} is not connected. GET /demo/workers to list connected runners.");
 
     var name = $"sandbox-standard-{Guid.NewGuid().ToString("N")[..12]}";
 
@@ -83,7 +83,7 @@ app.MapPost("/demo/remote-sandbox-run", async (
     }
     catch (SandboxRuntimeException ex)
     {
-        return Results.Problem($"could not launch the sandbox on worker {host}: {ex.Message}");
+        return Results.BadRequest($"could not launch the sandbox on worker {host}: {ex.Message}");
     }
 
     await using (sandbox)

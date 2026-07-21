@@ -60,6 +60,10 @@ public sealed class SandboxOptions
 
     /// <summary>Seconds between warm-pool maintenance ticks (top-up + reap). Minimum 1.</summary>
     public int PoolIntervalSeconds { get; set; } = 15;
+
+    /// <summary>Directory on the runner host under which per-session credential copies are staged
+    /// (<see cref="SandboxCredentialStager"/>). One subdir per session, removed with the container.</summary>
+    public string? SeedStagingRoot { get; set; }
 }
 
 /// <summary>One isolation tier: an OCI runtime + resource caps + egress posture.</summary>

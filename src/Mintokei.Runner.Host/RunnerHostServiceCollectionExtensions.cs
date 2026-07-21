@@ -70,6 +70,11 @@ public static class RunnerHostServiceCollectionExtensions
         services.AddSingleton<PendingQueryStore>();
         services.AddSingleton<RunnerFileServerPortStore>();
 
+        // Reusable host-side "run a command on a worker" primitive over the OpenQuery lane. TryAdd so an
+        // embedder that supplies its own IRemoteCommandRunner keeps it.
+        services.TryAddSingleton<Mintokei.Runner.Contracts.IRemoteCommandRunner,
+            Mintokei.Runner.Host.RemoteExecution.GrpcRemoteCommandRunner>();
+
         return services;
     }
 }

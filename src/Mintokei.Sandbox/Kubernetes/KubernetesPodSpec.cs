@@ -88,6 +88,9 @@ public static class KubernetesPodSpec
             {
                 AllowPrivilegeEscalation = false,                             // Docker --security-opt no-new-privileges
                 Capabilities = new V1Capabilities { Drop = ["ALL"] },         // Docker --cap-drop ALL
+                RunAsNonRoot = true,                                          // refuse to start if the image would run as root
+                RunAsUser = SandboxImage.AgentUid,                            // matches the image's USER agent
+                RunAsGroup = SandboxImage.AgentUid,
             },
         };
 
@@ -104,6 +107,9 @@ public static class KubernetesPodSpec
             {
                 RestartPolicy = "Never",                                      // single-shot ephemeral session
                 RuntimeClassName = ResolveRuntimeClassName(spec.RuntimeClass),
+                // FsGroup makes the in-memory /data emptyDir group-owned + writable by the non-root agent
+                // (the kubelet does not chown emptyDir to the container uid on its own).
+                SecurityContext = new V1PodSecurityContext { FsGroup = SandboxImage.AgentUid },
                 Containers = [container],
                 Volumes = volumes.Count > 0 ? volumes : null,
             },

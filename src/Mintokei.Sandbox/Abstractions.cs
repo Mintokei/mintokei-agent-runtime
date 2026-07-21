@@ -3,6 +3,16 @@ namespace Mintokei.Sandbox;
 /// <summary>A provisioned sandbox — one container per agent session.</summary>
 public sealed record SandboxHandle(string Id, string Name, string Backend);
 
+/// <summary>
+/// The non-root uid/gid the sandbox image runs as (Dockerfile.sandbox: <c>groupadd/useradd -u 10001 agent</c>
+/// + <c>USER agent</c>). Both backends pin scratch-dir ownership and <c>RunAsUser</c> to it so the agent can
+/// write its <c>--data-dir</c>; keep this constant and the Dockerfile in lockstep.
+/// </summary>
+public static class SandboxImage
+{
+    public const long AgentUid = 10001;
+}
+
 public enum SandboxState { Pending, Running, Exited, NotFound, Unknown }
 
 public sealed record SandboxStatus(SandboxState State, int? ExitCode = null, string? Detail = null);

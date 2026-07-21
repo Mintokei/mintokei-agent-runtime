@@ -1,12 +1,13 @@
 # syntax=docker/dockerfile:1
 #
-# Phase 0 sandbox image — runner-isolation spike.
-# See docs/sandboxed-runner-isolation-plan.md (§8, Phase 0).
+# Sandbox image — one agent session per container.
+# See docs/sandboxed-runner-isolation-plan.md (§8).
 #
-# Wraps Mintokei.Runner + the agent CLIs so ONE agent session can run inside a
-# container. This is a VALIDATION image, not production-hardened: it runs as root
-# with open egress. Phase 1 switches to `USER agent`, dropped caps, cgroup limits,
-# and an egress allowlist.
+# Wraps Mintokei.Runner + the agent CLIs so ONE agent session runs inside a
+# container as a NON-ROOT user (USER agent, uid 10001). The Docker/Kubernetes
+# backends add the rest of the "standard" posture at launch: dropped caps,
+# no-new-privileges, and cgroup limits (memory/cpu/pids). Egress is still OPEN by
+# default — the allowlist proxy is an opt-in per-profile knob (SandboxEgress.Proxy).
 #
 # Build (arch is auto-detected by scripts/run-sandbox-spike.sh):
 #   docker build -f Dockerfile.sandbox --build-arg RID=linux-x64 -t mintokei/sandbox:spike .
@@ -40,8 +41,15 @@ RUN npm install -g @anthropic-ai/claude-code @openai/codex \
 # Other providers, if you test them:
 #   npm install -g @github/copilot opencode-ai
 
-# Non-root user for Phase 1 hardening (the spike currently runs as root).
-RUN useradd -m -u 10001 agent
+# Non-root user the container runs as (see SandboxImage.AgentUid; the backends set
+# RunAsUser / tmpfs ownership to this uid). Explicit group so gid 10001 exists
+# regardless of the base image's USERGROUPS_ENAB default.
+RUN groupadd -g 10001 agent && useradd -m -u 10001 -g 10001 agent
+ENV HOME=/home/agent
+# Repo-provisioning root (prepare-workspace clones here). Pre-create + own it so the
+# agent can write when /repos is NOT a mounted volume; a mounted /repos must be made
+# writable by uid 10001 out-of-band.
+RUN mkdir -p /repos && chown 10001:10001 /repos
 
 # Self-contained publish output: the Mintokei.Runner binary + appsettings.json
 # sit side by side; the app finds config via its base directory.
@@ -60,4 +68,7 @@ RUN chmod +x /usr/local/bin/prepare-workspace /usr/local/bin/sandbox-entrypoint
 # Only --backend/--token/--name/--data-dir (added last) win. The entrypoint fixes
 # --data-dir /data and passes through the flags run-sandbox-spike.sh appends after
 # the image; the runner dials OUT only, so no ports are exposed.
+
+# Drop to the non-root user for the session itself (all root-level setup is done above).
+USER agent
 ENTRYPOINT ["sandbox-entrypoint"]

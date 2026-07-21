@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>SandboxRunnerHostMinimal</RootNamespace>
+  </PropertyGroup>
+
+  <!-- The point of this sample: host the REAL Runner.Host backend (like RemoteRunnerMinimal) AND
+       Mintokei.Sandbox, so one endpoint provisions a real container, waits for its runner to enroll,
+       runs a session inside it, and recycles it — no Fake* types anywhere. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Mintokei.Runner.Host\Mintokei.Runner.Host.csproj" />
+    <ProjectReference Include="..\..\src\Mintokei.AgentControlPlane\Mintokei.AgentControlPlane.csproj" />
+    <ProjectReference Include="..\..\src\Mintokei.AgentEngine\Mintokei.AgentEngine.csproj" />
+    <ProjectReference Include="..\..\src\Mintokei.Sandbox\Mintokei.Sandbox.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.2" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.2" />
+    <!-- Security override: force the patched SQLite native library (see RemoteRunnerMinimal). -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.12" />
+  </ItemGroup>
+
+</Project>

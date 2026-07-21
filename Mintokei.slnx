@@ -22,5 +22,7 @@
     <Project Path="samples/ControlPlaneLocal/ControlPlaneLocal.csproj" />
     <Project Path="samples/RemoteRunnerMinimal/RemoteRunnerMinimal.csproj" />
     <Project Path="samples/SandboxPoolMinimal/SandboxPoolMinimal.csproj" />
+    <Project Path="samples/SandboxSessionMinimal/SandboxSessionMinimal.csproj" />
+    <Project Path="samples/SandboxRunnerHostMinimal/SandboxRunnerHostMinimal.csproj" />
   </Folder>
 </Solution>

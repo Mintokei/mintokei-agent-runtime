@@ -74,6 +74,9 @@ public sealed class SandboxProfileConfig
     /// <summary>"open" | "proxy" (allowlist egress via an HTTP CONNECT proxy).</summary>
     public string Egress { get; set; } = "open";
     public string? EgressProxyUrl { get; set; }
+
+    /// <summary>Mount the container rootfs read-only (opt-in hardening; see <see cref="SandboxSpec.ReadOnlyRootfs"/>).</summary>
+    public bool ReadOnlyRootfs { get; set; }
 }
 
 /// <summary>A resolved profile ready to shape a <see cref="SandboxSpec"/>.</summary>
@@ -82,7 +85,8 @@ public sealed record SandboxProfile(
     string Runtime,
     SandboxResourceLimits Limits,
     SandboxEgress Egress,
-    string? EgressProxyUrl);
+    string? EgressProxyUrl,
+    bool ReadOnlyRootfs = false);
 
 /// <summary>
 /// Resolves the isolation profile for a session with precedence
@@ -117,7 +121,8 @@ public sealed class SandboxProfileResolver(IOptions<SandboxOptions> options)
             cfg.Runtime,
             new SandboxResourceLimits(checked((long)cfg.MemoryMb * 1024 * 1024), cfg.Cpus, cfg.PidsLimit),
             egress,
-            cfg.EgressProxyUrl);
+            cfg.EgressProxyUrl,
+            cfg.ReadOnlyRootfs);
     }
 
     private bool TryGetProfile(string name, out SandboxProfileConfig cfg)

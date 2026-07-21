@@ -90,6 +90,32 @@ public class KubernetesPodSpecTests
     }
 
     [Fact]
+    public void ReadOnlyRootFilesystem_is_unset_by_default()
+        => Assert.Null(Container(KubernetesPodSpec.Build(Spec())).SecurityContext.ReadOnlyRootFilesystem);
+
+    [Fact]
+    public void ReadOnlyRootfs_sets_readonly_root_filesystem()
+        => Assert.True(Container(KubernetesPodSpec.Build(Spec() with { ReadOnlyRootfs = true }))
+            .SecurityContext.ReadOnlyRootFilesystem);
+
+    [Fact]
+    public void Tmpfs_defers_to_a_real_mount_at_the_same_path()
+    {
+        // /repos requested as tmpfs AND mounted (the persisted volume) → exactly one volumeMount at /repos,
+        // and it's the mount — never a second emptyDir at the same path (which would be an invalid Pod).
+        var pod = KubernetesPodSpec.Build(Spec() with
+        {
+            Tmpfs = ["/data", "/repos"],
+            Mounts = [new SandboxMount("/host/repos", "/repos", ReadOnly: false)],
+        });
+        var c = Container(pod);
+
+        var repos = Assert.Single(c.VolumeMounts, m => m.MountPath == "/repos");
+        Assert.Contains(pod.Spec.Volumes, v => v.Name == repos.Name && v.HostPath?.Path == "/host/repos");
+        Assert.Contains(c.VolumeMounts, m => m.MountPath == "/data"); // /data still an emptyDir tmpfs
+    }
+
+    [Fact]
     public void Runc_maps_to_node_default_runtime_class()
     {
         var pod = KubernetesPodSpec.Build(Spec() with { RuntimeClass = "runc" });

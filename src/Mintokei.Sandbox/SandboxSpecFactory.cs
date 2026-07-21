@@ -52,6 +52,13 @@ public sealed class SandboxSpecFactory(IOptions<SandboxOptions> options)
         if (!string.IsNullOrWhiteSpace(req.GitCredentialsHostDir))
             mounts.Add(new SandboxMount(req.GitCredentialsHostDir!, "/seed/git", ReadOnly: true));
 
+        // Under a read-only rootfs the paths the runner + agent CLIs must write to (data dir, HOME, /tmp, and
+        // the repos root) have to be writable tmpfs. The repos root also appears as a persisted volume mount when
+        // enabled — the backends drop the tmpfs for any path that is also a mount, so the volume wins there.
+        IReadOnlyList<string> tmpfs = profile.ReadOnlyRootfs
+            ? ["/data", SandboxImage.AgentHome, "/tmp", RepoRoot]
+            : ["/data"];
+
         return new SandboxSpec
         {
             Image = _options.Image,
@@ -63,6 +70,8 @@ public sealed class SandboxSpecFactory(IOptions<SandboxOptions> options)
             Mounts = mounts,
             Env = env,
             Args = args,
+            Tmpfs = tmpfs,
+            ReadOnlyRootfs = profile.ReadOnlyRootfs,
             AddHostGateway = req.AddHostGateway,
         };
     }

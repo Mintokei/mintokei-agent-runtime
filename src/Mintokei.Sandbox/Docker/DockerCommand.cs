@@ -34,14 +34,25 @@ public static class DockerCommand
         a.Add("--security-opt");
         a.Add("no-new-privileges");
 
+        // Opt-in: read-only container rootfs (the writable paths are served by the tmpfs set below / real mounts).
+        if (spec.ReadOnlyRootfs)
+            a.Add("--read-only");
+
         // Marks the container as ours so ListManagedAsync can reconcile after a process restart.
         a.Add("--label");
         a.Add($"{ManagedLabel}=1");
 
         // Scratch mounts (e.g. the runner data dir /data). Docker mounts a tmpfs 0755 root:root by default,
-        // which the non-root agent user cannot write — pin ownership to the sandbox uid so --data-dir works.
+        // which the non-root agent user cannot write — pin ownership to the sandbox uid so --data-dir works. Skip
+        // any target that is also a real mount (e.g. the persisted /repos volume): that already makes it writable,
+        // and Docker rejects a tmpfs + volume at the same path.
+        var mountTargets = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var m in spec.Mounts)
+            mountTargets.Add(m.Target);
         foreach (var target in spec.Tmpfs)
         {
+            if (mountTargets.Contains(target))
+                continue;
             a.Add("--tmpfs");
             a.Add($"{target}:uid={SandboxImage.AgentUid},gid={SandboxImage.AgentUid},mode=0700");
         }

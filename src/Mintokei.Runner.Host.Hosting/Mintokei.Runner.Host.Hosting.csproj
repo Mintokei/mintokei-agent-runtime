@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- Experimental batteries-included host (one-call registration). Not published yet. -->
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <!-- WebApplicationBuilder / WebApplication / auth + endpoint mapping live in the shared framework. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Mintokei.Runner.Host\Mintokei.Runner.Host.csproj" />
+    <ProjectReference Include="..\Mintokei.AgentControlPlane\Mintokei.AgentControlPlane.csproj" />
+    <ProjectReference Include="..\Mintokei.AgentEngine\Mintokei.AgentEngine.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The batteries the lean core deliberately omits: a concrete EF provider + JWT bearer. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.2" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.2" />
+    <!-- Security override: force the patched SQLite native library (see RemoteRunnerMinimal). -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.12" />
+  </ItemGroup>
+
+</Project>

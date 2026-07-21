@@ -55,6 +55,7 @@ public static class MintokeiSandboxServiceCollectionExtensions
     {
         services.AddSingleton<SandboxCredentialStager>();
         services.AddSingleton<Mintokei.Sandbox.Docker.RemoteDockerSandboxRuntime>();
+        services.AddSingleton<RemoteSandboxManager>();   // one-call facade over the three above
         return services;
     }
 

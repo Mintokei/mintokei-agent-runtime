@@ -19,6 +19,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- IRemoteCommandRunner + RunCommandResponse: the remote-runner command seam the credential stager
+         (and, later, the remote-runner sandbox backend) run over. Contracts is dependency-free. -->
+    <ProjectReference Include="../Mintokei.Runner.Contracts/Mintokei.Runner.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="Mintokei.Sandbox.Tests" />
   </ItemGroup>
 

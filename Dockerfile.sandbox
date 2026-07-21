@@ -46,6 +46,9 @@ RUN npm install -g @anthropic-ai/claude-code @openai/codex \
 # regardless of the base image's USERGROUPS_ENAB default.
 RUN groupadd -g 10001 agent && useradd -m -u 10001 -g 10001 agent
 ENV HOME=/home/agent
+# The runner is a self-extracting single-file binary; pin native-lib extraction to a writable tmpfs path so it
+# still starts under a read-only rootfs (the opt-in ReadOnlyRootfs profile mounts /tmp as tmpfs). Harmless otherwise.
+ENV DOTNET_BUNDLE_EXTRACT_BASE_DIR=/tmp/.net
 # Repo-provisioning root (prepare-workspace clones here). Pre-create + own it so the
 # agent can write when /repos is NOT a mounted volume; a mounted /repos must be made
 # writable by uid 10001 out-of-band.

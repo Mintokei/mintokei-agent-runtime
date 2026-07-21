@@ -42,6 +42,37 @@ public class DockerCommandTests
         Assert.Contains($"/data:uid={SandboxImage.AgentUid},gid={SandboxImage.AgentUid},mode=0700", a);
     }
 
+    [Fact]
+    public void No_read_only_rootfs_by_default()
+        => Assert.DoesNotContain("--read-only", DockerCommand.BuildRunArgs(Spec()).ToList());
+
+    [Fact]
+    public void ReadOnlyRootfs_adds_read_only_and_writable_tmpfs()
+    {
+        var spec = Spec() with { ReadOnlyRootfs = true, Tmpfs = ["/data", SandboxImage.AgentHome, "/tmp", "/repos"] };
+        var a = DockerCommand.BuildRunArgs(spec).ToList();
+        Assert.Contains("--read-only", a);
+        Assert.Contains($"{SandboxImage.AgentHome}:uid={SandboxImage.AgentUid},gid={SandboxImage.AgentUid},mode=0700", a);
+        Assert.Contains($"/tmp:uid={SandboxImage.AgentUid},gid={SandboxImage.AgentUid},mode=0700", a);
+        Assert.Contains($"/repos:uid={SandboxImage.AgentUid},gid={SandboxImage.AgentUid},mode=0700", a);
+    }
+
+    [Fact]
+    public void Tmpfs_defers_to_a_real_mount_at_the_same_path()
+    {
+        // /repos requested as tmpfs AND mounted as the persisted volume → the volume wins, no tmpfs at /repos
+        // (Docker rejects a tmpfs + volume at one path).
+        var spec = Spec() with
+        {
+            Tmpfs = ["/data", "/repos"],
+            Mounts = [new SandboxMount("mintokei-ws-x", "/repos", ReadOnly: false)],
+        };
+        var a = DockerCommand.BuildRunArgs(spec).ToList();
+        Assert.Contains("mintokei-ws-x:/repos", a);                     // the volume mount is present
+        Assert.DoesNotContain(a, s => s.StartsWith("/repos:uid="));     // …and no tmpfs at /repos
+        Assert.Contains($"/data:uid={SandboxImage.AgentUid},gid={SandboxImage.AgentUid},mode=0700", a); // /data still tmpfs
+    }
+
     private static string ValueAfter(List<string> a, string flag) => a[a.IndexOf(flag) + 1];
 }
 
@@ -94,6 +125,26 @@ public class SandboxProfileResolverTests
 
         Assert.Equal("standard", p.Name);
         Assert.Equal("runc", p.Runtime); // built-in default
+    }
+
+    [Fact]
+    public void Carries_read_only_rootfs_from_config()
+    {
+        var o = new SandboxOptions
+        {
+            DefaultProfile = "hardened",
+            AllowedProfiles = ["hardened"],
+            Profiles = { ["hardened"] = new SandboxProfileConfig { Runtime = "runc", ReadOnlyRootfs = true } },
+        };
+
+        Assert.True(Resolver(o).Resolve().ReadOnlyRootfs);
+    }
+
+    [Fact]
+    public void Read_only_rootfs_off_by_default()
+    {
+        var o = new SandboxOptions { DefaultProfile = "standard", AllowedProfiles = ["standard"] };
+        Assert.False(Resolver(o).Resolve().ReadOnlyRootfs);
     }
 }
 
@@ -170,4 +221,38 @@ public class SandboxSpecFactoryTests
     [InlineData("https://host/team/repo", "/repos/repo")]
     public void DefaultSourcePath_derives_repo_name(string url, string expected)
         => Assert.Equal(expected, SandboxSpecFactory.DefaultSourcePath(url));
+
+    [Fact]
+    public void ReadOnlyRootfs_profile_sets_the_flag_and_expands_writable_tmpfs()
+    {
+        var factory = new SandboxSpecFactory(Options.Create(new SandboxOptions { Image = "img:1" }));
+        var profile = new SandboxProfile("hardened", "runc", new SandboxResourceLimits(1, 1, 1),
+            SandboxEgress.Open, null, ReadOnlyRootfs: true);
+
+        var spec = factory.Build(profile, new SandboxSessionRequest
+        {
+            BackendUrl = "https://api", EnrollmentToken = "tok", Name = "sess-1",
+        });
+
+        Assert.True(spec.ReadOnlyRootfs);
+        Assert.Contains("/data", spec.Tmpfs);
+        Assert.Contains(SandboxImage.AgentHome, spec.Tmpfs);
+        Assert.Contains("/tmp", spec.Tmpfs);
+        Assert.Contains(SandboxSpecFactory.RepoRoot, spec.Tmpfs);
+    }
+
+    [Fact]
+    public void Writable_rootfs_profile_keeps_only_the_data_tmpfs()
+    {
+        var factory = new SandboxSpecFactory(Options.Create(new SandboxOptions { Image = "img:1" }));
+        var profile = new SandboxProfile("standard", "runc", new SandboxResourceLimits(1, 1, 1), SandboxEgress.Open, null);
+
+        var spec = factory.Build(profile, new SandboxSessionRequest
+        {
+            BackendUrl = "https://api", EnrollmentToken = "tok", Name = "sess-1",
+        });
+
+        Assert.False(spec.ReadOnlyRootfs);
+        Assert.Equal(["/data"], spec.Tmpfs);
+    }
 }

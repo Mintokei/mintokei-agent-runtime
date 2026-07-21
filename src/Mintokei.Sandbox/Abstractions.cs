@@ -11,6 +11,10 @@ public sealed record SandboxHandle(string Id, string Name, string Backend);
 public static class SandboxImage
 {
     public const long AgentUid = 10001;
+
+    /// <summary>The agent user's HOME (Dockerfile.sandbox: <c>useradd -m</c> + <c>ENV HOME</c>). Under a
+    /// read-only rootfs it must be a writable tmpfs so the entrypoint can seed creds and the CLIs can write.</summary>
+    public const string AgentHome = "/home/agent";
 }
 
 public enum SandboxState { Pending, Running, Exited, NotFound, Unknown }
@@ -45,6 +49,15 @@ public sealed record SandboxSpec
 
     /// <summary>tmpfs targets (ephemeral, e.g. the runner data dir "/data").</summary>
     public IReadOnlyList<string> Tmpfs { get; init; } = ["/data"];
+
+    /// <summary>
+    /// Mount the container root filesystem read-only (Docker <c>--read-only</c> / K8s
+    /// <c>readOnlyRootFilesystem</c>). Opt-in hardening: it only adds defence over the non-root default for
+    /// paths the agent user could otherwise write in the image, and it breaks agents that write outside the
+    /// writable <see cref="Tmpfs"/> set (e.g. <c>apt-get</c>, build tools writing to system dirs) — so it is a
+    /// per-profile choice, off by default. When on, HOME / <c>/tmp</c> / the repos root are made writable tmpfs.
+    /// </summary>
+    public bool ReadOnlyRootfs { get; init; }
 
     /// <summary>Add host.docker.internal → host-gateway (dev only; prod reaches a real ingress).</summary>
     public bool AddHostGateway { get; init; }

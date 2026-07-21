@@ -33,6 +33,7 @@ public static class KubernetesPodSpec
     /// <summary>The single sandbox container's name (the runner). Must be a DNS label.</summary>
     public const string ContainerName = "sandbox";
 
+    /// <param name="spec">The backend-agnostic sandbox spec to translate into a Pod.</param>
     /// <param name="imagePullPolicy">"Always" | "IfNotPresent" | "Never", or null for the Kubernetes
     /// default. Set "Never" when the sandbox image is node-imported (see <c>SandboxOptions</c>).</param>
     public static V1Pod Build(SandboxSpec spec, string? imagePullPolicy = null)
@@ -40,10 +41,18 @@ public static class KubernetesPodSpec
         var volumes = new List<V1Volume>();
         var mounts = new List<V1VolumeMount>();
 
+        // A real mount (e.g. the persisted /repos volume) already makes its path writable, and two volumeMounts
+        // at one path is an invalid Pod — so tmpfs de-dupes against mount targets, mirroring the Docker backend.
+        var mountTargets = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var m in spec.Mounts)
+            mountTargets.Add(m.Target);
+
         // tmpfs targets → in-memory emptyDir volumes (Docker's --tmpfs, e.g. the runner data dir /data).
         var t = 0;
         foreach (var target in spec.Tmpfs)
         {
+            if (mountTargets.Contains(target))
+                continue;
             var name = $"tmpfs-{t++}";
             volumes.Add(new V1Volume { Name = name, EmptyDir = new V1EmptyDirVolumeSource { Medium = "Memory" } });
             mounts.Add(new V1VolumeMount { Name = name, MountPath = target });
@@ -91,6 +100,7 @@ public static class KubernetesPodSpec
                 RunAsNonRoot = true,                                          // refuse to start if the image would run as root
                 RunAsUser = SandboxImage.AgentUid,                            // matches the image's USER agent
                 RunAsGroup = SandboxImage.AgentUid,
+                ReadOnlyRootFilesystem = spec.ReadOnlyRootfs ? true : null,   // Docker --read-only (opt-in per profile)
             },
         };
 

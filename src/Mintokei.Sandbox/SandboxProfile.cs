@@ -64,6 +64,10 @@ public sealed class SandboxOptions
     /// <summary>Directory on the runner host under which per-session credential copies are staged
     /// (<see cref="SandboxCredentialStager"/>). One subdir per session, removed with the container.</summary>
     public string? SeedStagingRoot { get; set; }
+
+    /// <summary>Timeout (seconds) for a <c>docker run</c> dispatched to a remote worker
+    /// (<see cref="Docker.RemoteDockerSandboxRuntime"/>) — generous, since it may implicitly pull the image.</summary>
+    public int RemoteRunTimeoutSeconds { get; set; } = 90;
 }
 
 /// <summary>One isolation tier: an OCI runtime + resource caps + egress posture.</summary>

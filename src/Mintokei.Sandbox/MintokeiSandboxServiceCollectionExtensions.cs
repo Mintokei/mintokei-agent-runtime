@@ -44,6 +44,20 @@ public static class MintokeiSandboxServiceCollectionExtensions
         return services;
     }
 
+    /// <summary>
+    /// Registers the remote-runner sandbox path: dispatch a sandbox container to a CHOSEN worker over the
+    /// control channel (<see cref="Mintokei.Sandbox.Docker.RemoteDockerSandboxRuntime"/>) plus per-session
+    /// credential staging (<see cref="SandboxCredentialStager"/>) for the non-root container. Opt-in and
+    /// independent of the single-backend <see cref="ISandboxRuntime"/>; requires an
+    /// <see cref="Mintokei.Runner.Contracts.IRemoteCommandRunner"/> (e.g. from <c>AddRunnerHostCore</c>).
+    /// </summary>
+    public static IServiceCollection AddMintokeiRemoteSandbox(this IServiceCollection services)
+    {
+        services.AddSingleton<SandboxCredentialStager>();
+        services.AddSingleton<Mintokei.Sandbox.Docker.RemoteDockerSandboxRuntime>();
+        return services;
+    }
+
     private static IServiceCollection AddMintokeiSandboxCore(this IServiceCollection services, string? backend)
     {
         services.AddSingleton<SandboxProfileResolver>();

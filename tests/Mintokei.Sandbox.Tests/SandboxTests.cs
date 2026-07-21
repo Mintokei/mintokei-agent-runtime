@@ -38,6 +38,8 @@ public class DockerCommandTests
         Assert.Equal("ALL", ValueAfter(a, "--cap-drop"));
         Assert.Contains("no-new-privileges", a);
         Assert.Contains("mintokei.sandbox=1", a); // managed label for reconcile
+        // Non-root: /data tmpfs is owned by the agent uid so the runner can write --data-dir.
+        Assert.Contains($"/data:uid={SandboxImage.AgentUid},gid={SandboxImage.AgentUid},mode=0700", a);
     }
 
     private static string ValueAfter(List<string> a, string flag) => a[a.IndexOf(flag) + 1];

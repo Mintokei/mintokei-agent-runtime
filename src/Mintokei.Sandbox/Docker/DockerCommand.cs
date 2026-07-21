@@ -38,10 +38,12 @@ public static class DockerCommand
         a.Add("--label");
         a.Add($"{ManagedLabel}=1");
 
+        // Scratch mounts (e.g. the runner data dir /data). Docker mounts a tmpfs 0755 root:root by default,
+        // which the non-root agent user cannot write — pin ownership to the sandbox uid so --data-dir works.
         foreach (var target in spec.Tmpfs)
         {
             a.Add("--tmpfs");
-            a.Add(target);
+            a.Add($"{target}:uid={SandboxImage.AgentUid},gid={SandboxImage.AgentUid},mode=0700");
         }
 
         if (spec.AddHostGateway)

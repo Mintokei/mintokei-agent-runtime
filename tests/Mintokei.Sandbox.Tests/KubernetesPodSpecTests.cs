@@ -54,10 +54,16 @@ public class KubernetesPodSpecTests
     [Fact]
     public void Applies_standard_hardening()
     {
-        var c = Container(KubernetesPodSpec.Build(Spec()));
+        var pod = KubernetesPodSpec.Build(Spec());
+        var c = Container(pod);
 
         Assert.False(c.SecurityContext.AllowPrivilegeEscalation);           // no-new-privileges
         Assert.Contains("ALL", c.SecurityContext.Capabilities.Drop);        // cap-drop ALL
+
+        // Non-root: refuse to run as root, run as the image's agent uid, and fsGroup so /data is writable.
+        Assert.True(c.SecurityContext.RunAsNonRoot);
+        Assert.Equal(SandboxImage.AgentUid, c.SecurityContext.RunAsUser);
+        Assert.Equal(SandboxImage.AgentUid, pod.Spec.SecurityContext.FsGroup);
     }
 
     [Fact]

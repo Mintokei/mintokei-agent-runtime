@@ -1,11 +1,17 @@
 # SandboxRunnerHostMinimal
 
-A **genuinely-real** end-to-end sandbox host — **no `Fake*` types**. The backend wiring (real
-`Mintokei.Runner.Host` + `AgentControlPlane` + `Mintokei.Sandbox`) is factored into
-[`SandboxDemoBackend.cs`](SandboxDemoBackend.cs) as `AddSandboxDemoBackend()` /
-`UseSandboxDemoBackend()`, so `Program.cs` is just that plus one HTTP endpoint that runs the full
-on-demand lifecycle. All settings — image, URLs, and optional credentials — bind from the `Sandbox`
-configuration section (appsettings / env vars like `Sandbox__BackendUrl` / CLI args). The endpoint:
+A **genuinely-real** end-to-end sandbox host — **no `Fake*` types**. The whole backend is two calls:
+
+```csharp
+builder.AddMintokeiRunnerHost().AddClaude();          // Mintokei.Runner.Host.Hosting: db + transport + JWT + control plane + gRPC
+builder.Services.AddMintokeiSandbox(builder.Configuration);
+// ...
+app.MapMintokeiRunnerHost();                           // auth + enroll routes + gRPC data plane
+```
+
+so `Program.cs` is just that plus one HTTP endpoint that runs the full on-demand lifecycle. All settings
+— image, URLs, credentials, JWT — bind from the `RunnerHost` / `Sandbox` config sections (appsettings /
+env vars like `Sandbox__BackendUrl` / CLI args); every value has a sensible default. The endpoint:
 
 ```
 POST /demo/sandbox-run?prompt=...&repo=<optional git url>

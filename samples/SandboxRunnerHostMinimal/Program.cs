@@ -4,7 +4,7 @@ using Mintokei.AgentControlPlane;
 using Mintokei.AgentEngine;
 using Mintokei.AgentEngine.AgentTools;
 using Mintokei.AgentEngine.Contracts;
-using Mintokei.Runner.Contracts.Messages;
+using Mintokei.Runner.Host.Hosting;
 using Mintokei.Runner.Host.Server;
 using Mintokei.Sandbox;
 using SandboxRunnerHostMinimal;
@@ -12,9 +12,10 @@ using SandboxRunnerHostMinimal;
 // =============================================================================
 // A GENUINELY-REAL sandbox host — no Fake* types.
 //
-// The backend wiring (Mintokei.Runner.Host + AgentControlPlane + Mintokei.Sandbox) lives in
-// SandboxDemoBackend.cs; here we just add it and expose ONE endpoint that runs the whole on-demand
-// lifecycle for real:
+// The whole backend is two calls: AddMintokeiRunnerHost() (the Mintokei.Runner.Host.Hosting package —
+// db + transport + JWT auth + control plane + gRPC, all from the "RunnerHost" config section) and
+// AddMintokeiSandbox() (the sandbox layer, from the "Sandbox" section). Then one endpoint runs the whole
+// on-demand lifecycle for real:
 //
 //   POST /demo/sandbox-run?prompt=...&repo=<optional git url>
 //     1. mint a one-time enrollment token (pre-creating an ephemeral machine id)
@@ -23,16 +24,16 @@ using SandboxRunnerHostMinimal;
 //     4. dispatch an agent session INTO the container (same IAgentSession API)
 //     5. recycle the container (`docker rm`)
 //
-// URLs + optional credentials come from the "Sandbox" config section (appsettings / env / args), bound
-// to SandboxDemoOptions. NOT "runs anywhere": step 2 launches a real container — see the README for the
-// prerequisites (Docker, the image, host reachable from the container, creds for a real turn).
+// NOT "runs anywhere": step 2 launches a real container — see the README for the prerequisites.
 // =============================================================================
 
 var builder = WebApplication.CreateBuilder(args);
-builder.AddSandboxDemoBackend();     // real Runner.Host + AgentControlPlane + Mintokei.Sandbox (config-driven)
+builder.AddMintokeiRunnerHost().AddClaude();     // real Runner.Host + AgentControlPlane + gRPC (config-driven)
+builder.Services.AddMintokeiSandbox(builder.Configuration);
+builder.Services.Configure<SandboxDemoOptions>(builder.Configuration.GetSection(SandboxDemoOptions.Section));
 
 var app = builder.Build();
-app.UseSandboxDemoBackend();         // db init + auth + MapRunnerHost + gRPC data plane
+app.MapMintokeiRunnerHost();                     // db init + auth + enroll routes + gRPC data plane
 
 // The full sandbox lifecycle, over one endpoint (no fakes).
 app.MapPost("/demo/sandbox-run", async (

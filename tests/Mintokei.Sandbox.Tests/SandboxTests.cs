@@ -365,4 +365,19 @@ public class SandboxSpecFactoryTests
 
         Assert.Contains("AddHostGateway", ex.Message);
     }
+
+    [Fact]
+    public void Broker_mode_requires_a_tls_grpc_endpoint()
+    {
+        var factory = new SandboxSpecFactory(Options.Create(new SandboxOptions { Image = "img:1" }));
+
+        // Plaintext h2c would bypass the broker's TLS-only CONNECT proxy → the runner could never dial back.
+        var ex = Assert.Throws<SandboxRuntimeException>(() => factory.Build(BrokerProfile("github.com"),
+            new SandboxSessionRequest
+            {
+                BackendUrl = "https://api", GrpcBackendUrl = "http://grpc", EnrollmentToken = "tok", Name = "sess-1",
+            }));
+
+        Assert.Contains("only tunnels TLS", ex.Message);
+    }
 }

@@ -29,6 +29,16 @@ public sealed class SandboxSpecFactory(IOptions<SandboxOptions> options)
             if (req.AddHostGateway)
                 throw new SandboxRuntimeException(
                     $"profile '{profile.Name}' uses broker egress, which is incompatible with AddHostGateway (host reachability defeats containment).");
+
+            // The in-sandbox runner reaches the control plane through the broker's CONNECT proxy, and .NET's
+            // SocketsHttpHandler only CONNECT-tunnels TLS — a plaintext http:// h2c gRPC URL would bypass the
+            // proxy (and, on a deny-by-default network, simply never connect). Require an https endpoint so the
+            // dial-back actually traverses the broker instead of the sandbox silently failing to enrol.
+            var grpcUrl = string.IsNullOrWhiteSpace(req.GrpcBackendUrl) ? req.BackendUrl : req.GrpcBackendUrl!;
+            if (!grpcUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                throw new SandboxRuntimeException(
+                    $"profile '{profile.Name}' uses broker egress, which routes the runner's gRPC dial-back through a " +
+                    $"CONNECT proxy that only tunnels TLS — set an https:// GrpcBackendUrl/BackendUrl (got '{grpcUrl}').");
         }
 
         var args = new List<string>

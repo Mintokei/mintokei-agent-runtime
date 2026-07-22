@@ -1,5 +1,6 @@
 using k8s;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Mintokei.Sandbox;
 using Mintokei.Sandbox.Docker;
@@ -57,6 +58,19 @@ public static class MintokeiSandboxServiceCollectionExtensions
         services.AddSingleton<Mintokei.Sandbox.Docker.RemoteDockerSandboxRuntime>();
         services.AddSingleton<ISandboxBroker, Mintokei.Sandbox.Docker.RemoteSandboxBroker>(); // broker-egress orchestration
         services.AddSingleton<RemoteSandboxManager>();   // one-call facade over the above
+        return services;
+    }
+
+    /// <summary>
+    /// Run the remote-sandbox path (<see cref="AddMintokeiRemoteSandbox"/>) on THIS machine with NO enrolled
+    /// worker — the broker + sandbox containers launch on the local Docker daemon. Replaces the
+    /// <see cref="Mintokei.Runner.Contracts.IRemoteCommandRunner"/> with a local process runner, so call it
+    /// AFTER any registration that provides the gRPC worker dispatcher (e.g. <c>AddMintokeiRunnerHost</c>) when
+    /// both are present. Single-host / local-dev only; production dispatches to a real worker over gRPC.
+    /// </summary>
+    public static IServiceCollection AddMintokeiLocalCommandRunner(this IServiceCollection services)
+    {
+        services.Replace(ServiceDescriptor.Singleton<Mintokei.Runner.Contracts.IRemoteCommandRunner, LocalCommandRunner>());
         return services;
     }
 

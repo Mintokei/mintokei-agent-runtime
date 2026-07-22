@@ -122,7 +122,9 @@ public sealed class GrpcRunnerHostedService(
         var grpcUrl = !string.IsNullOrEmpty(_options.GrpcBackendUrl)
             ? _options.GrpcBackendUrl
             : _options.BackendUrl;
-        using var channel = GrpcChannel.ForAddress(grpcUrl);
+        // Tunnel through HTTPS_PROXY when set (e.g. the sandbox broker's --internal net): Grpc.Net.Client's
+        // subchannel opens a raw socket that ignores the ambient proxy, so route it explicitly. No proxy → plain.
+        using var channel = GrpcProxyChannel.ForAddress(grpcUrl, GrpcProxyChannel.ResolveHttpsProxy());
         var client = new RunnerLink.RunnerLinkClient(channel);
 
         var token = await tokenRefreshService.GetCurrentTokenAsync();

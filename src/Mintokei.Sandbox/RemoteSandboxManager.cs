@@ -137,18 +137,19 @@ public sealed class RemoteSandboxManager(
         // otherwise forward the plaintext model call THROUGH the CONNECT proxy, which only does CONNECT → 501/hang.
         // Exempt the broker host so those calls go direct; external egress still flows through the proxy+allowlist.
         env["NO_PROXY"] = env["no_proxy"] = e.ContainerName;
-        if (e.ModelUrl is not null)
-        {
-            env["ANTHROPIC_BASE_URL"] = e.ModelUrl;
-            env["OPENAI_BASE_URL"] = e.ModelUrl;
-            // Agent CLIs won't even ATTEMPT a model call unless SOME credential is present locally (they look for
-            // ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN / OpenAI key, else they stop and ask to log in). In broker
-            // mode the REAL key is held by the broker and injected at its reverse-proxy — so seed a harmless
-            // PLACEHOLDER here purely to get the CLI to send the request; the broker replaces the auth header
-            // before it leaves. TryAdd so a caller/image that supplied its own value still wins.
-            env.TryAdd("ANTHROPIC_AUTH_TOKEN", PlaceholderModelCredential);
-            env.TryAdd("OPENAI_API_KEY", PlaceholderModelCredential);
-        }
+        // Point each configured provider's base URL at its broker reverse-proxy, and seed a harmless PLACEHOLDER
+        // credential. Agent CLIs won't even ATTEMPT a model call unless SOME credential is present locally (they
+        // look for ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN / OpenAI key, else they stop and ask to log in); in
+        // broker mode the REAL key is held by the broker and injected at its reverse-proxy, which overwrites the
+        // auth header before it leaves. TryAdd so a caller/image that supplied its own value still wins. Each
+        // provider has its own port, so one broker can serve several at once (Anthropic + OpenAI + …).
+        if (e.ModelUrls is { } modelUrls)
+            foreach (var (provider, url) in modelUrls)
+            {
+                if (ModelProviders.Find(provider) is not { } p) continue;
+                env[p.BaseUrlVar] = url;
+                env.TryAdd(p.CredentialVar, PlaceholderModelCredential);
+            }
         return spec with { NetworkName = e.NetworkName, EgressProxyUrl = e.ProxyUrl, Env = env };
     }
 

@@ -74,16 +74,56 @@ public class DockerCommandTests
     }
 
     [Fact]
-    public void Broker_egress_fails_closed()
+    public void Broker_egress_without_a_network_fails_closed()
     {
-        // The enforcing per-session broker isn't wired yet, so the backend must refuse rather than launch an
-        // unenforced "brokered" container (open network + no creds).
+        // No per-session --internal network provisioned yet → refuse rather than launch an unenforced
+        // "brokered" container (open network + no creds).
         var spec = Spec() with { Egress = SandboxEgress.Broker, EgressAllowlist = ["github.com"] };
         var ex = Assert.Throws<SandboxRuntimeException>(() => DockerCommand.BuildRunArgs(spec));
         Assert.Contains("fail-closed", ex.Message);
     }
 
+    [Fact]
+    public void Broker_egress_joins_the_internal_network_and_routes_through_the_broker()
+    {
+        var spec = Spec() with
+        {
+            Egress = SandboxEgress.Broker,
+            EgressAllowlist = ["github.com"],
+            NetworkName = "mintokei-sbx-abc",
+            EgressProxyUrl = "http://mintokei-sbx-abc-broker:3128",
+        };
+        var a = DockerCommand.BuildRunArgs(spec).ToList();
+
+        Assert.Equal("mintokei-sbx-abc", ValueAfter(a, "--network"));               // deny-by-default net (enforcement)
+        Assert.Contains("HTTPS_PROXY=http://mintokei-sbx-abc-broker:3128", a);       // how allowed traffic leaves
+        Assert.Contains("HTTP_PROXY=http://mintokei-sbx-abc-broker:3128", a);
+    }
+
+    [Fact]
+    public void Non_broker_uses_the_default_bridge()
+        => Assert.DoesNotContain("--network", DockerCommand.BuildRunArgs(Spec()).ToList());
+
     private static string ValueAfter(List<string> a, string flag) => a[a.IndexOf(flag) + 1];
+}
+
+public class DockerNetworkTests
+{
+    [Fact]
+    public void CreateArgs_makes_an_internal_labelled_network()
+        => Assert.Equal(
+            ["network", "create", "--internal", "--label", "mintokei.sandbox=1", "mintokei-sbx-abc"],
+            DockerNetwork.CreateArgs("mintokei-sbx-abc"));
+
+    [Fact]
+    public void RemoveArgs_removes_by_name()
+        => Assert.Equal(["network", "rm", "mintokei-sbx-abc"], DockerNetwork.RemoveArgs("mintokei-sbx-abc"));
+
+    [Theory]
+    [InlineData("sandbox-standard-abc123", "mintokei-sbx-sandbox-standard-abc123")]
+    [InlineData("bad name/../x", "mintokei-sbx-bad_name____x")]
+    public void Name_derives_and_sanitizes(string session, string expected)
+        => Assert.Equal(expected, DockerNetwork.Name(session));
 }
 
 public class SandboxProfileResolverTests

@@ -13,6 +13,11 @@ public sealed class BrokerDemoOptions
 {
     public const string Section = "Sandbox";
 
+    /// <summary>Run the broker + sandbox on THIS machine's Docker with no enrolled worker
+    /// (<c>AddMintokeiLocalCommandRunner</c>). When true, <c>host</c> is ignored and no worker need connect —
+    /// see the "full local loop" section of the README. Default false = dispatch to a connected remote worker.</summary>
+    public bool LocalDocker { get; set; }
+
     /// <summary>REST enroll URL the container's runner dials — must be https and egress-allowlisted.</summary>
     public string BackendUrl { get; set; } = "https://backend.example.com";
 

@@ -40,7 +40,7 @@ the broker.
 - `Sandbox:ModelUpstream` + `Sandbox:ModelAuth` — optional model injection (e.g. `https://api.anthropic.com` +
   `x-api-key=sk-ant-...`).
 
-## Run
+## Run (remote worker)
 
 ```bash
 dotnet run --project samples/BrokerSandboxMinimal
@@ -52,7 +52,41 @@ POST /demo/broker-sandbox-run?host=<worker-id>&repo=<private-git-url>&prompt=sum
 The agent runs with full autonomy inside a disposable box that can't reach anything off the allowlist and holds
 none of your long-lived secrets.
 
+## Full local loop (this machine, no worker)
+
+Set **`Sandbox:LocalDocker=true`** and the broker + sandbox run on your local Docker daemon with **no enrolled
+worker** — `AddMintokeiLocalCommandRunner()` makes the remote-sandbox path dispatch to `localhost`. `host` is
+then ignored:
+
+```bash
+Sandbox__LocalDocker=true dotnet run --project samples/BrokerSandboxMinimal
+POST /demo/broker-sandbox-run?repo=<git-url>&prompt=hi
+```
+
+**The one hard requirement is TLS**, and it's the same constraint as remote mode: the in-container runner dials
+the backend **through the broker's CONNECT proxy, which only tunnels TLS**, so the backend must be `https` and
+the sandbox must **trust its certificate**. On a dev box that means a self-signed cert whose CA is baked into
+the sandbox image. Concretely:
+
+1. **Config** — `Sandbox:LocalDocker=true`; put your backend host in `EgressAllowlist`; set `BackendUrl` /
+   `GrpcBackendUrl` to your `https` URL (a hostname the broker container can reach — e.g. the docker-bridge
+   host address, with that name/IP in the cert's SAN).
+2. **Images on the local daemon**:
+   - the broker: `docker build -f Dockerfile.broker -t mintokei/sandbox-broker:latest .`
+   - a sandbox image (from `Dockerfile.sandbox`) with your **dev CA added to its trust store**
+     (`COPY ca.crt /usr/local/share/ca-certificates/ && update-ca-certificates`).
+3. **Backend on https** — run this sample with a Kestrel https endpoint bound to that cert.
+4. **POST** `/demo/broker-sandbox-run` — the broker + sandbox launch locally, and the runner comes online
+   **through the broker**.
+
+**Verified vs. environment-specific:** the worker-free path itself — broker + sandbox containers launching on
+this machine's Docker with no worker — is covered by an integration test (`LocalBrokerIntegrationTests`, opt-in
+`MINTOKEI_SANDBOX_DOCKER_ITEST=1`). The runner's transport through the broker (HTTP/2 over TLS via CONNECT) is
+verified separately. The steps above assemble those into a full session; the TLS cert / SAN / CA-trust wiring
+is environment-specific, so treat it as the production-shaped setup, not a copy-paste one-liner.
+
 ## Not "runs anywhere"
 
-Needs a connected worker with Docker + both images, and an https/allowlisted backend reachable from that
-worker. See the prerequisites above.
+Broker mode needs Docker + both images and an `https`, allowlisted, sandbox-trusted backend — locally (above)
+or on a worker. That TLS requirement is deliberate: it's what keeps the runner's dial-back inside the
+deny-by-default boundary.

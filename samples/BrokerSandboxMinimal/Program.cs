@@ -30,6 +30,9 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddMintokeiRunnerHost().AddClaude();
 builder.Services.AddMintokeiSandbox(builder.Configuration);   // spec factory + isolation profiles (incl. the broker profile)
 builder.Services.AddMintokeiRemoteSandbox();                  // RemoteSandboxManager + RemoteDockerSandboxRuntime + ISandboxBroker
+// Full local loop: run the broker + sandbox on THIS machine with no enrolled worker (see README).
+if (builder.Configuration.GetValue<bool>("Sandbox:LocalDocker"))
+    builder.Services.AddMintokeiLocalCommandRunner();
 builder.Services.Configure<BrokerDemoOptions>(builder.Configuration.GetSection(BrokerDemoOptions.Section));
 
 var app = builder.Build();
@@ -44,11 +47,25 @@ app.MapPost("/demo/broker-sandbox-run", async (
     IAgentControlPlane plane,
     IRunnerRegistry registry,
     IOptions<BrokerDemoOptions> options,
-    Guid host, string prompt, string? repo, CancellationToken ct) =>
+    Guid? host, string prompt, string? repo, CancellationToken ct) =>
 {
     var o = options.Value;
-    if (!registry.IsRunnerConnected(host))
-        return Results.BadRequest($"worker {host} is not connected. GET /demo/workers to list connected runners.");
+
+    // Local mode: no worker — the broker + sandbox run on this machine (host is ignored). Remote mode: require
+    // a connected worker to dispatch to.
+    Guid workerId;
+    if (o.LocalDocker)
+    {
+        workerId = Guid.Empty;
+    }
+    else if (host is { } h && registry.IsRunnerConnected(h))
+    {
+        workerId = h;
+    }
+    else
+    {
+        return Results.BadRequest($"worker {host} is not connected. GET /demo/workers (or set Sandbox:LocalDocker=true to run without a worker).");
+    }
 
     var name = $"sandbox-hardened-{Guid.NewGuid().ToString("N")[..12]}";
 
@@ -81,12 +98,12 @@ app.MapPost("/demo/broker-sandbox-run", async (
     RemoteSandboxSession sandbox;
     try
     {
-        sandbox = await sandboxes.LaunchAsync(host, machineId, request, plane.IsRunnerConnected,
+        sandbox = await sandboxes.LaunchAsync(workerId, machineId, request, plane.IsRunnerConnected,
             profile: "hardened", brokerSecrets: secrets, ct: ct);
     }
     catch (SandboxRuntimeException ex)
     {
-        return Results.BadRequest($"could not launch the broker sandbox on worker {host}: {ex.Message}");
+        return Results.BadRequest($"could not launch the broker sandbox: {ex.Message}");
     }
 
     await using (sandbox)

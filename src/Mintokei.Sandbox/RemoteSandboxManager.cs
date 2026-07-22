@@ -122,6 +122,10 @@ public sealed class RemoteSandboxManager(
         throw new SandboxRuntimeException($"sandbox '{request.Name}' did not come online within {onlineTimeoutSeconds}s.");
     }
 
+    // A non-secret sentinel handed to the sandbox in broker mode so the agent CLI attempts its model call; the
+    // broker's reverse-proxy overwrites the auth header with the real credential, so this value never leaves the box.
+    private const string PlaceholderModelCredential = "mintokei-broker-injects-the-real-credential";
+
     // Inject the broker's runtime-resolved address into the spec: join its --internal net, route egress through
     // its proxy, and hand the sandbox the git-mint + model base URLs (env the entrypoint / agent CLI read).
     private static SandboxSpec WithBrokerWiring(SandboxSpec spec, BrokerEndpoint e)
@@ -137,6 +141,13 @@ public sealed class RemoteSandboxManager(
         {
             env["ANTHROPIC_BASE_URL"] = e.ModelUrl;
             env["OPENAI_BASE_URL"] = e.ModelUrl;
+            // Agent CLIs won't even ATTEMPT a model call unless SOME credential is present locally (they look for
+            // ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN / OpenAI key, else they stop and ask to log in). In broker
+            // mode the REAL key is held by the broker and injected at its reverse-proxy — so seed a harmless
+            // PLACEHOLDER here purely to get the CLI to send the request; the broker replaces the auth header
+            // before it leaves. TryAdd so a caller/image that supplied its own value still wins.
+            env.TryAdd("ANTHROPIC_AUTH_TOKEN", PlaceholderModelCredential);
+            env.TryAdd("OPENAI_API_KEY", PlaceholderModelCredential);
         }
         return spec with { NetworkName = e.NetworkName, EgressProxyUrl = e.ProxyUrl, Env = env };
     }

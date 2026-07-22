@@ -34,11 +34,30 @@ public class KubernetesPodSpecTests
     }
 
     [Fact]
-    public void Broker_egress_fails_closed()
+    public void Broker_egress_without_wiring_fails_closed()
     {
+        // A raw Broker spec (no proxy = the runtime hasn't started the broker + NetworkPolicy) must be refused.
         var spec = Spec() with { Egress = SandboxEgress.Broker, EgressAllowlist = ["github.com"] };
         var ex = Assert.Throws<SandboxRuntimeException>(() => KubernetesPodSpec.Build(spec));
         Assert.Contains("fail-closed", ex.Message);
+    }
+
+    [Fact]
+    public void Broker_egress_when_wired_builds_the_pod_with_proxy_env_and_session_labels()
+    {
+        var spec = Spec() with
+        {
+            Egress = SandboxEgress.Broker,
+            EgressAllowlist = ["github.com"],
+            EgressProxyUrl = "http://sess-1-broker:3128", // set by the runtime after starting the broker
+        };
+        var pod = KubernetesPodSpec.Build(spec);
+
+        var c = Container(pod);
+        Assert.Equal("http://sess-1-broker:3128", Assert.Single(c.Env, e => e.Name == "HTTPS_PROXY").Value);
+        // carries the per-session labels the broker's NetworkPolicy selects it by
+        Assert.Equal(KubernetesBrokerSpec.SandboxRole, pod.Metadata.Labels[KubernetesBrokerSpec.RoleLabel]);
+        Assert.Equal("1", pod.Metadata.Labels[KubernetesPodSpec.ManagedLabel]);
     }
 
     [Fact]

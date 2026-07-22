@@ -17,7 +17,8 @@ namespace Mintokei.Sandbox.Kubernetes;
 public sealed class KubernetesSandboxRuntime(
     IKubernetes client,
     IOptions<SandboxOptions> options,
-    ILogger<KubernetesSandboxRuntime> logger) : ISandboxRuntime, ISandboxLogSource
+    ILogger<KubernetesSandboxRuntime> logger,
+    ISandboxBroker? broker = null) : ISandboxRuntime, ISandboxLogSource
 {
     private readonly string _namespace = string.IsNullOrWhiteSpace(options.Value.KubernetesNamespace)
         ? "default"
@@ -27,6 +28,33 @@ public sealed class KubernetesSandboxRuntime(
     public string Backend => "kubernetes";
 
     public async Task<SandboxHandle> ProvisionAsync(SandboxSpec spec, CancellationToken ct = default)
+    {
+        // Broker egress: start the per-session broker (Pod + Service + deny-by-default NetworkPolicy) FIRST, then
+        // wire the sandbox Pod to reach only it. Fail closed if no broker is registered. If the sandbox Pod fails
+        // to create, tear the broker back down so nothing is orphaned.
+        if (spec.Egress == SandboxEgress.Broker)
+        {
+            if (broker is null)
+                throw new SandboxRuntimeException(
+                    "broker egress requested but no ISandboxBroker is registered — refusing to launch (fail-closed).");
+
+            var endpoint = await broker.StartAsync(
+                Guid.Empty, new SandboxBrokerRequest(spec.Name, spec.EgressAllowlist, spec.BrokerSecrets), ct);
+            try
+            {
+                return await CreatePodAsync(SandboxBrokerWiring.Apply(spec, endpoint), ct);
+            }
+            catch
+            {
+                await broker.StopAsync(Guid.Empty, endpoint, ct);
+                throw;
+            }
+        }
+
+        return await CreatePodAsync(spec, ct);
+    }
+
+    private async Task<SandboxHandle> CreatePodAsync(SandboxSpec spec, CancellationToken ct)
     {
         var pod = KubernetesPodSpec.Build(spec, _imagePullPolicy);
 
@@ -44,8 +72,9 @@ public sealed class KubernetesSandboxRuntime(
 
         // The Pod name (== spec.Name) is the stable handle used to inspect/delete; carry the uid as the id.
         var id = created.Metadata?.Uid ?? spec.Name;
-        logger.LogInformation("Provisioned sandbox {Name} (pod {Id}) runtimeClass={Runtime} ns={Namespace}",
-            spec.Name, Short(id), created.Spec?.RuntimeClassName ?? "(node default)", _namespace);
+        logger.LogInformation("Provisioned sandbox {Name} (pod {Id}) runtimeClass={Runtime} ns={Namespace}{Broker}",
+            spec.Name, Short(id), created.Spec?.RuntimeClassName ?? "(node default)", _namespace,
+            spec.Egress == SandboxEgress.Broker ? " (broker egress)" : "");
         return new SandboxHandle(id, spec.Name, Backend);
     }
 
@@ -95,6 +124,12 @@ public sealed class KubernetesSandboxRuntime(
                 $"({(int?)ex.Response?.StatusCode})", ex);
         }
 
+        // Broker mode also created a per-session broker (Pod + Service + NetworkPolicies) — tear it down too.
+        // Best-effort and keyed off the pod name, so it's a no-op (404-tolerant) for non-broker sandboxes and
+        // also reaps a broker orphaned by a crash between the two creates.
+        if (broker is not null)
+            await broker.StopAsync(Guid.Empty, new BrokerEndpoint("", KubernetesBrokerSpec.BrokerName(handle.Name), "", ""), ct);
+
         logger.LogInformation("Stopped sandbox {Name} ({Id}) ns={Namespace}", handle.Name, Short(handle.Id), _namespace);
     }
 
@@ -120,9 +155,12 @@ public sealed class KubernetesSandboxRuntime(
 
     public async Task<IReadOnlyList<SandboxHandle>> ListManagedAsync(CancellationToken ct = default)
     {
-        // Label existence selector keeps it to sandboxes we launched (matches Docker's label filter).
+        // Managed sandboxes we launched, EXCLUDING per-session broker Pods (which also carry the managed label,
+        // but are a broker's Pod, not a sandbox — the reaper must not treat them as reclaimable sessions).
         var list = await client.CoreV1.ListNamespacedPodAsync(
-            _namespace, labelSelector: KubernetesPodSpec.ManagedLabel, cancellationToken: ct);
+            _namespace,
+            labelSelector: $"{KubernetesPodSpec.ManagedLabel},{KubernetesBrokerSpec.RoleLabel}!={KubernetesBrokerSpec.BrokerRole}",
+            cancellationToken: ct);
 
         return list.Items
             .Where(p => !string.IsNullOrEmpty(p.Metadata?.Name))

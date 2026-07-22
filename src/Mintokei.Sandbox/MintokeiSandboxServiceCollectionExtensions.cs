@@ -92,6 +92,7 @@ public static class MintokeiSandboxServiceCollectionExtensions
                 // in-cluster ServiceAccount as a Pod, else the ambient kubeconfig).
                 services.AddSingleton<IKubernetes>(sp =>
                     new Kubernetes(BuildKubernetesConfig(sp.GetRequiredService<IOptions<SandboxOptions>>().Value)));
+                services.AddSingleton<ISandboxBroker, KubernetesSandboxBroker>(); // broker-egress on K8s
                 services.AddSingleton<ISandboxRuntime, KubernetesSandboxRuntime>();
                 break;
 

@@ -1,0 +1,48 @@
+# RBAC for the Kubernetes broker-egress path (Sandbox:Backend=kubernetes + a profile with Egress=broker).
+#
+# In broker mode KubernetesSandboxRuntime provisions, per session, a broker Pod + a ClusterIP Service + two
+# NetworkPolicies (a deny-by-default egress policy on the sandbox and a companion policy on the broker), then
+# deletes them on stop. The backend's ServiceAccount therefore needs create/delete on pods, services and
+# networkpolicies in the sandbox namespace (get/list are for status + reconcile-after-restart).
+#
+# Prerequisites beyond this RBAC:
+#   * a NetworkPolicy-enforcing CNI (calico / cilium / k3s's kube-router) — without it, NetworkPolicies are
+#     INERT and the containment is not enforced.
+#   * the broker image reachable by the cluster (Sandbox:BrokerImage).
+#
+# Replace <sandbox-namespace> and the subject ServiceAccount to match your deployment, then:
+#   kubectl apply -f k8s/sandbox-broker-rbac.yaml
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mintokei-sandbox-broker
+  namespace: <sandbox-namespace>
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "delete", "get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["create", "delete", "get"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["create", "delete", "deletecollection", "get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mintokei-sandbox-broker
+  namespace: <sandbox-namespace>
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: mintokei-sandbox-broker
+subjects:
+  # The ServiceAccount the Mintokei backend runs as.
+  - kind: ServiceAccount
+    name: <backend-service-account>
+    namespace: <backend-namespace>

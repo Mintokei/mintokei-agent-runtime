@@ -38,12 +38,14 @@ public static class KubernetesPodSpec
     /// default. Set "Never" when the sandbox image is node-imported (see <c>SandboxOptions</c>).</param>
     public static V1Pod Build(SandboxSpec spec, string? imagePullPolicy = null)
     {
-        // Fail closed: broker egress requires a per-session credential broker + a default-deny egress
-        // NetworkPolicy that this build does not yet provide. Refuse rather than launch an unenforced Pod that
-        // looks brokered but has open egress and no creds. (The enforcing broker lands in a follow-up.)
-        if (spec.Egress == SandboxEgress.Broker)
+        // Fail closed unless broker egress has actually been WIRED: the orchestrator
+        // (KubernetesSandboxRuntime) must have started the broker + created the deny-by-default NetworkPolicy and
+        // then set EgressProxyUrl (via SandboxBrokerWiring). A raw Broker spec with no proxy would launch a Pod
+        // that looks brokered but has open egress and no creds — refuse it (mirrors DockerCommand's NetworkName
+        // invariant). The NetworkPolicy that enforces containment is applied by the runtime, not by this Pod.
+        if (spec.Egress == SandboxEgress.Broker && string.IsNullOrWhiteSpace(spec.EgressProxyUrl))
             throw new SandboxRuntimeException(
-                "broker egress is configured but the per-session credential broker is not available in this build — refusing to launch (fail-closed).");
+                "broker egress is configured but not wired (no broker proxy) — refusing to launch (fail-closed).");
 
         var volumes = new List<V1Volume>();
         var mounts = new List<V1VolumeMount>();
@@ -76,8 +78,9 @@ public static class KubernetesPodSpec
 
         var env = spec.Env.Select(kv => new V1EnvVar { Name = kv.Key, Value = kv.Value }).ToList();
 
-        // Proxy egress: force the container through an allowlisting HTTP CONNECT proxy (Docker's HTTPS_PROXY).
-        if (spec.Egress == SandboxEgress.Proxy && !string.IsNullOrWhiteSpace(spec.EgressProxyUrl))
+        // Proxy / Broker egress: force the container through the allowlisting HTTP CONNECT proxy (Docker's
+        // HTTPS_PROXY). In Broker mode this is the session broker's proxy; NetworkPolicy makes it the only exit.
+        if (spec.Egress is SandboxEgress.Proxy or SandboxEgress.Broker && !string.IsNullOrWhiteSpace(spec.EgressProxyUrl))
         {
             env.Add(new V1EnvVar { Name = "HTTPS_PROXY", Value = spec.EgressProxyUrl });
             env.Add(new V1EnvVar { Name = "HTTP_PROXY", Value = spec.EgressProxyUrl });
@@ -118,7 +121,10 @@ public static class KubernetesPodSpec
             Metadata = new V1ObjectMeta
             {
                 Name = spec.Name,
-                Labels = new Dictionary<string, string> { [ManagedLabel] = "1" },
+                // In broker mode the Pod carries the per-session labels the broker's NetworkPolicy selects it by.
+                Labels = spec.Egress == SandboxEgress.Broker
+                    ? new Dictionary<string, string>(KubernetesBrokerSpec.SandboxLabels(spec.Name))
+                    : new Dictionary<string, string> { [ManagedLabel] = "1" },
             },
             Spec = new V1PodSpec
             {

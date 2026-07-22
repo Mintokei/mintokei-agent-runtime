@@ -62,6 +62,57 @@ public class SandboxBrokerE2ETests
         }
     }
 
+    [Fact]
+    public async Task Broker_injects_a_git_credential_the_sandbox_never_holds()
+    {
+        if (Environment.GetEnvironmentVariable("MINTOKEI_SANDBOX_DOCKER_ITEST") != "1")
+            Assert.Skip("opt-in only: set MINTOKEI_SANDBOX_DOCKER_ITEST=1 (needs Docker) to run the broker injection e2e");
+        var root = FindRepoRoot();
+        if (root is null)
+            Assert.Skip("could not locate the repo root (Dockerfile.broker) from the test output dir");
+
+        var tag = "mintokei/sandbox-broker:itest";
+        Assert.Equal(0, await Docker(["build", "-f", Path.Combine(root, "Dockerfile.broker"), "-t", tag, root], TimeSpan.FromMinutes(6)));
+
+        var helper = Path.Combine(root, "scripts", "sandbox", "git-credential-broker.sh");
+        Assert.True(File.Exists(helper), $"helper script missing: {helper}");
+
+        var net = DockerNetwork.Name($"inj-{Guid.NewGuid():N}"[..14]);
+        var broker = $"mk-inj-broker-{Guid.NewGuid():N}"[..24];
+        Assert.Equal(0, await Docker(DockerNetwork.CreateArgs(net)));
+        try
+        {
+            // Broker holds the credential (mint on :3129). No bridge/internet needed — fully hermetic: the sandbox
+            // only talks to the broker's mint endpoint over the --internal network.
+            Assert.Equal(0, await Docker(
+                ["run", "-d", "--name", broker, "--network", net, "-e", "BROKER_GIT_CREDS=example.test=botuser:s3cr3t-TOKEN", tag]));
+            await Task.Delay(TimeSpan.FromSeconds(3));
+
+            // In the sandbox: install the helper, point it at the broker, and ask git for example.test's credential.
+            // The sandbox has NO token in its env/filesystem — git obtains it purely via the broker.
+            var script = string.Join(" && ",
+                "cp /helper /usr/local/bin/git-credential-broker",
+                "chmod +x /usr/local/bin/git-credential-broker",
+                "git config --global credential.helper /usr/local/bin/git-credential-broker",
+                $"export MINTOKEI_BROKER_CRED_URL=http://{broker}:3129/git-credential",
+                "export GIT_TERMINAL_PROMPT=0",
+                "printf 'protocol=https\\nhost=example.test\\n\\n' | git credential fill");
+
+            var (exit, output) = await DockerCapture(
+                ["run", "--rm", "--network", net, "-v", $"{helper}:/helper:ro", Workload, "sh", "-c", script],
+                TimeSpan.FromMinutes(2));
+
+            Assert.Equal(0, exit);
+            Assert.Contains("username=botuser", output);       // git received the injected credential…
+            Assert.Contains("password=s3cr3t-TOKEN", output);  // …a token that never lived in the sandbox
+        }
+        finally
+        {
+            await Docker(["rm", "-f", broker]);
+            await Docker(DockerNetwork.RemoveArgs(net));
+        }
+    }
+
     private static string? FindRepoRoot()
     {
         for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
@@ -71,13 +122,18 @@ public class SandboxBrokerE2ETests
     }
 
     private static async Task<int> Docker(IReadOnlyList<string> args, TimeSpan? timeout = null)
+        => (await DockerCapture(args, timeout)).Exit;
+
+    private static async Task<(int Exit, string Output)> DockerCapture(IReadOnlyList<string> args, TimeSpan? timeout = null)
     {
         var psi = new ProcessStartInfo("docker") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
         foreach (var a in args) psi.ArgumentList.Add(a);
         using var p = Process.Start(psi)!;
         using var cts = new CancellationTokenSource(timeout ?? TimeSpan.FromSeconds(30));
+        var stdout = p.StandardOutput.ReadToEndAsync(cts.Token);
+        var stderr = p.StandardError.ReadToEndAsync(cts.Token);
         try { await p.WaitForExitAsync(cts.Token); }
-        catch (OperationCanceledException) { try { p.Kill(true); } catch { /* already gone */ } return -1; }
-        return p.ExitCode;
+        catch (OperationCanceledException) { try { p.Kill(true); } catch { /* already gone */ } return (-1, ""); }
+        return (p.ExitCode, await stdout + await stderr);
     }
 }

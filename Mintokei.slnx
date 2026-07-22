@@ -9,6 +9,7 @@
     <Project Path="src/Mintokei.Runner.Client/Mintokei.Runner.Client.csproj" />
     <Project Path="src/Mintokei.Runner/Mintokei.Runner.csproj" />
     <Project Path="src/Mintokei.Sandbox/Mintokei.Sandbox.csproj" />
+    <Project Path="src/Mintokei.Sandbox.Broker/Mintokei.Sandbox.Broker.csproj" />
     <Project Path="src/Mintokei.Runner.Host.Hosting/Mintokei.Runner.Host.Hosting.csproj" />
   </Folder>
   <Folder Name="/tests/">

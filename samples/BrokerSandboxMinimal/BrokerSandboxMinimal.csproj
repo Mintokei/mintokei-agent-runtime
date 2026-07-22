@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>BrokerSandboxMinimal</RootNamespace>
+  </PropertyGroup>
+
+  <!-- Backend (Runner.Host + control plane + gRPC + SQLite + JWT) + the sandbox layer, which via
+       AddMintokeiRemoteSandbox() adds the remote runtime, the credential stager, AND the broker
+       orchestrator (ISandboxBroker / RemoteSandboxBroker) used by the "hardened" broker profile. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Mintokei.Runner.Host.Hosting\Mintokei.Runner.Host.Hosting.csproj" />
+    <ProjectReference Include="..\..\src\Mintokei.Sandbox\Mintokei.Sandbox.csproj" />
+  </ItemGroup>
+
+</Project>

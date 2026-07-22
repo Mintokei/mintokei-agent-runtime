@@ -38,6 +38,7 @@
                          Or '$(MSBuildProjectName)' == 'RemoteRunnerMinimal'
                          Or '$(MSBuildProjectName)' == 'ControlPlaneLocal'
                          Or '$(MSBuildProjectName)' == 'LocalAgentMinimal'
+                         Or '$(MSBuildProjectName)' == 'BrokerSandboxMinimal'
                          Or '$(MSBuildProjectName)' == 'Mintokei.AgentEngine.Tests'">
     <IsPackable>false</IsPackable>
   </PropertyGroup>

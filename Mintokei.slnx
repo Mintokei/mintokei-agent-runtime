@@ -27,5 +27,6 @@
     <Project Path="samples/SandboxSessionMinimal/SandboxSessionMinimal.csproj" />
     <Project Path="samples/SandboxRunnerHostMinimal/SandboxRunnerHostMinimal.csproj" />
     <Project Path="samples/RemoteSandboxMinimal/RemoteSandboxMinimal.csproj" />
+    <Project Path="samples/BrokerSandboxMinimal/BrokerSandboxMinimal.csproj" />
   </Folder>
 </Solution>

@@ -172,6 +172,7 @@ public class RemoteSandboxManagerTests
         var run = fake.Calls.First(c => c.Exe == "docker" && c.Args.Count > 0 && c.Args[0] == "run").Args;
         Assert.Contains("--network", run);
         Assert.Contains("net-x", run);                                          // joined the broker's --internal net
+        Assert.Contains("NO_PROXY=sbx-1-broker", run);                          // broker host bypasses its own CONNECT proxy (plaintext git-mint/model)
     }
 
     [Fact]

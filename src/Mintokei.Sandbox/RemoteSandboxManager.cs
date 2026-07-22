@@ -127,6 +127,12 @@ public sealed class RemoteSandboxManager(
     private static SandboxSpec WithBrokerWiring(SandboxSpec spec, BrokerEndpoint e)
     {
         var env = new Dictionary<string, string>(spec.Env) { ["MINTOKEI_BROKER_CRED_URL"] = e.GitMintUrl };
+        // The broker itself must NOT be reached through the CONNECT proxy: the git-mint (:3129) and model
+        // reverse-proxy (:3130) are PLAINTEXT services on the broker host, but DockerCommand sets HTTP(S)_PROXY to
+        // the broker's CONNECT proxy (:3128). A client that honors HTTP_PROXY (e.g. Claude Code / undici) would
+        // otherwise forward the plaintext model call THROUGH the CONNECT proxy, which only does CONNECT → 501/hang.
+        // Exempt the broker host so those calls go direct; external egress still flows through the proxy+allowlist.
+        env["NO_PROXY"] = env["no_proxy"] = e.ContainerName;
         if (e.ModelUrl is not null)
         {
             env["ANTHROPIC_BASE_URL"] = e.ModelUrl;

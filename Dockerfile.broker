@@ -1,0 +1,16 @@
+# Per-session sandbox broker: an allowlisting HTTP CONNECT egress proxy (no MITM). Runs as its own container
+# attached to the session's --internal network + a normal network, so it is the sandbox's only route out.
+# Config via env: BROKER_PORT (default 3128), BROKER_ALLOW (comma/space-separated hosts; exact or ".suffix").
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
+COPY src/Mintokei.Sandbox.Broker/ ./src/Mintokei.Sandbox.Broker/
+RUN dotnet publish src/Mintokei.Sandbox.Broker/Mintokei.Sandbox.Broker.csproj -c Release -o /app
+
+FROM mcr.microsoft.com/dotnet/runtime:10.0
+WORKDIR /app
+COPY --from=build /app ./
+# Non-root (the broker needs no privileges — it just relays TCP).
+RUN groupadd -g 10002 broker && useradd -u 10002 -g 10002 broker
+USER 10002:10002
+ENV BROKER_PORT=3128
+ENTRYPOINT ["dotnet", "Mintokei.Sandbox.Broker.dll"]

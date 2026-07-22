@@ -23,6 +23,11 @@ allow.AddRange(Split(Environment.GetEnvironmentVariable("BROKER_ALLOW") ?? ""));
 var mintPort = int.TryParse(Environment.GetEnvironmentVariable("BROKER_MINT_PORT"), out var mp) ? mp : 3129;
 var creds = GitCredentialMint.ParseCreds(Environment.GetEnvironmentVariable("BROKER_GIT_CREDS") ?? "");
 
+// Optional model-API injection: re-originate the sandbox's plaintext model call over TLS with the key added.
+var modelUpstream = Environment.GetEnvironmentVariable("BROKER_MODEL_UPSTREAM"); // e.g. https://api.anthropic.com
+var modelPort = int.TryParse(Environment.GetEnvironmentVariable("BROKER_MODEL_PORT"), out var xp) ? xp : 3130;
+var modelHeaders = ModelApiReverseProxy.ParseHeaders(Environment.GetEnvironmentVariable("BROKER_MODEL_AUTH") ?? "");
+
 static IEnumerable<string> Split(string s) =>
     s.Split([',', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
@@ -30,8 +35,18 @@ using var loggerFactory = LoggerFactory.Create(b => b.AddSimpleConsole(o => o.Si
 using var cts = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
 
-var proxy = new AllowlistForwardProxy(allow, loggerFactory.CreateLogger("sandbox-broker"));
-var mint = new GitCredentialMint(creds, loggerFactory.CreateLogger("sandbox-broker"));
-await Task.WhenAll(
+var log = loggerFactory.CreateLogger("sandbox-broker");
+var proxy = new AllowlistForwardProxy(allow, log);
+var mint = new GitCredentialMint(creds, log);
+
+var tasks = new List<Task>
+{
     proxy.RunAsync(port, cts.Token),
-    mint.RunAsync(mintPort, cts.Token));
+    mint.RunAsync(mintPort, cts.Token),
+};
+if (!string.IsNullOrWhiteSpace(modelUpstream))
+{
+    var model = new ModelApiReverseProxy(modelUpstream, modelHeaders, log);
+    tasks.Add(model.RunAsync(modelPort, cts.Token));
+}
+await Task.WhenAll(tasks);

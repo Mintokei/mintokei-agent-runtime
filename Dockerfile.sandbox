@@ -61,9 +61,12 @@ COPY --from=build /out/ /opt/runner/
 # Workspace provisioning (Step 2): the entrypoint provisions a source repo from the
 # RO mirror via git alternates before the runner connects (only when SANDBOX_REPO_URL
 # is set), then execs the runner.
-COPY scripts/sandbox/prepare-workspace.sh  /usr/local/bin/prepare-workspace
-COPY scripts/sandbox/sandbox-entrypoint.sh /usr/local/bin/sandbox-entrypoint
-RUN chmod +x /usr/local/bin/prepare-workspace /usr/local/bin/sandbox-entrypoint
+COPY scripts/sandbox/prepare-workspace.sh     /usr/local/bin/prepare-workspace
+COPY scripts/sandbox/sandbox-entrypoint.sh    /usr/local/bin/sandbox-entrypoint
+# git credential helper for broker egress (SandboxEgress.Broker): fetches a per-session credential from the
+# broker on demand so no token is seeded into the box. Inert unless the entrypoint wires it up (broker mode).
+COPY scripts/sandbox/git-credential-broker.sh /usr/local/bin/git-credential-broker
+RUN chmod +x /usr/local/bin/prepare-workspace /usr/local/bin/sandbox-entrypoint /usr/local/bin/git-credential-broker
 
 # NOTE: Runner:* config must come via CLI FLAGS, not env vars — Program.cs re-adds
 # appsettings.json (which ships BackendUrl + an empty EnrollmentToken) AFTER the

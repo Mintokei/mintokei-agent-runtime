@@ -37,6 +37,16 @@ seed_creds() {
 }
 seed_creds
 
+# Broker egress (SandboxEgress.Broker): point git at the per-session broker's credential mint so tokens are
+# fetched on demand and NEVER written to disk. MINTOKEI_BROKER_CRED_URL is set by the runtime in broker mode;
+# HTTP(S)_PROXY (egress) and ANTHROPIC_BASE_URL/OPENAI_BASE_URL (model injection) are picked up from env
+# directly by git/curl and the agent CLIs, so no extra wiring is needed for those.
+configure_broker() {
+  [[ -n "${MINTOKEI_BROKER_CRED_URL:-}" ]] || return 0
+  git config --global credential.helper /usr/local/bin/git-credential-broker
+}
+configure_broker
+
 if [[ -n "${SANDBOX_REPO_URL:-}" || -n "${SANDBOX_REPOS:-}" ]]; then
   prepare-workspace || { echo "sandbox-entrypoint: prepare-workspace failed" >&2; exit 1; }
 fi

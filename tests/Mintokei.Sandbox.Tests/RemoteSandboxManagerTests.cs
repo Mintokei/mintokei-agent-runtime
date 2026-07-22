@@ -173,6 +173,25 @@ public class RemoteSandboxManagerTests
         Assert.Contains("--network", run);
         Assert.Contains("net-x", run);                                          // joined the broker's --internal net
         Assert.Contains("NO_PROXY=sbx-1-broker", run);                          // broker host bypasses its own CONNECT proxy (plaintext git-mint/model)
+        Assert.DoesNotContain(run, a => a.StartsWith("ANTHROPIC_AUTH_TOKEN=")); // no model injection here → no placeholder credential
+    }
+
+    [Fact]
+    public async Task Launch_in_broker_mode_with_model_injection_points_the_cli_at_the_broker_and_seeds_a_placeholder_credential()
+    {
+        var (mgr, fake, broker) = NewBroker(BrokerRunner());
+        broker.Endpoint = broker.Endpoint with { ModelUrl = "http://sbx-1-broker:3130" }; // broker holds the real key
+
+        await using var s = await mgr.LaunchAsync(Guid.NewGuid(), Guid.NewGuid(), Request(), _ => true,
+            profile: "hardened", brokerSecrets: new SandboxBrokerSecrets(ModelUpstream: "https://api.anthropic.com"));
+
+        var run = fake.Calls.First(c => c.Exe == "docker" && c.Args.Count > 0 && c.Args[0] == "run").Args;
+        Assert.Contains("ANTHROPIC_BASE_URL=http://sbx-1-broker:3130", run);     // CLI talks to the broker, not the API
+        Assert.Contains("OPENAI_BASE_URL=http://sbx-1-broker:3130", run);
+        // A placeholder credential so the CLI ATTEMPTS the call (else it refuses / prompts login); the broker
+        // replaces the auth header with the real key, so the sandbox never holds a real credential.
+        Assert.Contains("ANTHROPIC_AUTH_TOKEN=mintokei-broker-injects-the-real-credential", run);
+        Assert.Contains("OPENAI_API_KEY=mintokei-broker-injects-the-real-credential", run);
     }
 
     [Fact]

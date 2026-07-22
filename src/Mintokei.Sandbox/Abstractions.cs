@@ -82,6 +82,15 @@ public sealed record SandboxSpec
 
     /// <summary>Add host.docker.internal → host-gateway (dev only; prod reaches a real ingress).</summary>
     public bool AddHostGateway { get; init; }
+
+    /// <summary>
+    /// The secrets a per-session broker should hold and inject in <see cref="SandboxEgress.Broker"/> mode (git
+    /// creds, model upstreams, a GitHub token for Copilot) — NEVER seeded into the box. Carried on the spec so
+    /// the provisioning backend can start the broker; the Docker worker path passes secrets to
+    /// <c>RemoteSandboxManager.LaunchAsync</c> directly instead. Null → the broker runs deny-by-default with no
+    /// injected credentials.
+    /// </summary>
+    public SandboxBrokerSecrets? BrokerSecrets { get; init; }
 }
 
 /// <summary>

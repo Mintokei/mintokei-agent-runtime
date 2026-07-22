@@ -82,7 +82,7 @@ public sealed class RemoteSandboxManager(
 
         var spec = specFactory.Build(resolved, request);
         if (brokered)
-            spec = WithBrokerWiring(spec, endpoint!);
+            spec = SandboxBrokerWiring.Apply(spec, endpoint!);
 
         SandboxHandle handle;
         try
@@ -122,51 +122,6 @@ public sealed class RemoteSandboxManager(
         throw new SandboxRuntimeException($"sandbox '{request.Name}' did not come online within {onlineTimeoutSeconds}s.");
     }
 
-    // A non-secret sentinel handed to the sandbox in broker mode so the agent CLI attempts its model call; the
-    // broker's reverse-proxy overwrites the auth header with the real credential, so this value never leaves the box.
-    private const string PlaceholderModelCredential = "mintokei-broker-injects-the-real-credential";
-
-    // The GitHub-token placeholder for the Copilot CLI. Copilot validates the token FORMAT locally before any
-    // network call (rejects classic `ghp_`), so this must look like a fine-grained PAT; the broker overwrites the
-    // Authorization on Copilot's GitHub API calls with the real token, so this value never leaves the box either.
-    private const string PlaceholderGitHubToken =
-        "github_pat_11BROKERINJECTS0000000_brokerReplacesThisPlaceholderWithTheRealGitHubTokenXXXX";
-
-    // Inject the broker's runtime-resolved address into the spec: join its --internal net, route egress through
-    // its proxy, and hand the sandbox the git-mint + model base URLs (env the entrypoint / agent CLI read).
-    private static SandboxSpec WithBrokerWiring(SandboxSpec spec, BrokerEndpoint e)
-    {
-        var env = new Dictionary<string, string>(spec.Env) { ["MINTOKEI_BROKER_CRED_URL"] = e.GitMintUrl };
-        // The broker itself must NOT be reached through the CONNECT proxy: the git-mint (:3129) and model
-        // reverse-proxy (:3130) are PLAINTEXT services on the broker host, but DockerCommand sets HTTP(S)_PROXY to
-        // the broker's CONNECT proxy (:3128). A client that honors HTTP_PROXY (e.g. Claude Code / undici) would
-        // otherwise forward the plaintext model call THROUGH the CONNECT proxy, which only does CONNECT → 501/hang.
-        // Exempt the broker host so those calls go direct; external egress still flows through the proxy+allowlist.
-        env["NO_PROXY"] = env["no_proxy"] = e.ContainerName;
-        // Point each configured provider's base URL at its broker reverse-proxy, and seed a harmless PLACEHOLDER
-        // credential. Agent CLIs won't even ATTEMPT a model call unless SOME credential is present locally (they
-        // look for ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN / OpenAI key, else they stop and ask to log in); in
-        // broker mode the REAL key is held by the broker and injected at its reverse-proxy, which overwrites the
-        // auth header before it leaves. TryAdd so a caller/image that supplied its own value still wins. Each
-        // provider has its own port, so one broker can serve several at once (Anthropic + OpenAI + …).
-        if (e.ModelUrls is { } modelUrls)
-            foreach (var (provider, url) in modelUrls)
-            {
-                if (ModelProviders.Find(provider) is not { } p) continue;
-                env[p.BaseUrlVar] = url;
-                env.TryAdd(p.CredentialVar, PlaceholderModelCredential);
-            }
-        // GitHub-token mint (Copilot CLI): point Copilot's GitHub API at the broker + seed a format-valid
-        // placeholder so Copilot passes its LOCAL token check and makes the call. The broker overwrites the
-        // Authorization with the real GitHub token, which is held broker-side and never enters the box; Copilot
-        // gets back only a short-lived Copilot token from the token exchange.
-        if (e.GitHubApiUrl is { } githubApiUrl)
-        {
-            env["COPILOT_DEBUG_GITHUB_API_URL"] = githubApiUrl;
-            env.TryAdd("COPILOT_GITHUB_TOKEN", PlaceholderGitHubToken);
-        }
-        return spec with { NetworkName = e.NetworkName, EgressProxyUrl = e.ProxyUrl, Env = env };
-    }
 
     private async Task RecycleAsync(Guid workerId, string name, SandboxHandle handle, BrokerEndpoint? endpoint)
     {

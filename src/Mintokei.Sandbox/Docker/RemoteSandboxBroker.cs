@@ -24,32 +24,10 @@ public sealed class RemoteSandboxBroker(
         var net = DockerNetwork.Name(request.SessionName);
         var container = BrokerContainerName(request.SessionName);
 
-        // Resolve each configured model provider → the env to hand the broker (one reverse-proxy per provider on
-        // its registry port) and the URL the sandbox reaches it at. Unknown provider names are skipped.
-        var modelEnv = new List<string>();
-        var modelUrls = new Dictionary<string, string>();
-        foreach (var m in request.Secrets?.EffectiveModelUpstreams ?? [])
-        {
-            if (ModelProviders.Find(m.Provider) is not { } p)
-            {
-                logger.LogWarning("broker: unknown model provider '{Provider}' — skipping (known: {Known})",
-                    m.Provider, string.Join(", ", ModelProviders.All.Select(x => x.Name)));
-                continue;
-            }
-            var key = p.Name.ToUpperInvariant();
-            modelEnv.AddRange(["--env", $"BROKER_MODEL_{key}_UPSTREAM={m.Upstream}", "--env", $"BROKER_MODEL_{key}_PORT={p.Port}"]);
-            if (!string.IsNullOrWhiteSpace(m.Auth))
-                modelEnv.AddRange(["--env", $"BROKER_MODEL_{key}_AUTH={m.Auth}"]);
-            modelUrls[p.Name] = $"http://{container}:{p.Port}";
-        }
-
-        // GitHub-token mint for Copilot: hold the long-lived token broker-side, inject it on Copilot's GitHub API
-        // calls (Copilot points COPILOT_DEBUG_GITHUB_API_URL at this URL), so it never enters the box.
-        const int githubPort = 3132;
-        var githubToken = request.Secrets?.GitHubToken;
-        var githubApiUrl = string.IsNullOrWhiteSpace(githubToken) ? null : $"http://{container}:{githubPort}";
-        if (githubApiUrl is not null)
-            modelEnv.AddRange(["--env", $"BROKER_GITHUB_TOKEN={githubToken}", "--env", $"BROKER_GITHUB_PORT={githubPort}"]);
+        // The BROKER_* env is backend-agnostic; the sandbox-facing URLs are container-name based here.
+        var brokerEnv = BrokerEnvironment.Build(request);
+        var modelUrls = brokerEnv.ModelPorts.ToDictionary(kv => kv.Key, kv => $"http://{container}:{kv.Value}");
+        var githubApiUrl = brokerEnv.HasGitHub ? $"http://{container}:{BrokerEnvironment.GitHubPort}" : null;
 
         var endpoint = new BrokerEndpoint(
             net, container,
@@ -65,12 +43,9 @@ public sealed class RemoteSandboxBroker(
         var run = new List<string>
         {
             "run", "--detach", "--name", container, "--network", net, "--label", $"{DockerCommand.ManagedLabel}=1",
-            "--env", $"BROKER_ALLOW={string.Join(',', request.EgressAllowlist)}",
         };
-        var s = request.Secrets;
-        if (!string.IsNullOrWhiteSpace(s?.GitCredentials))
-            run.AddRange(["--env", $"BROKER_GIT_CREDS={s!.GitCredentials}"]);
-        run.AddRange(modelEnv);
+        foreach (var (k, v) in brokerEnv.Env)
+            run.AddRange(["--env", $"{k}={v}"]);
         run.Add(_options.BrokerImage);
 
         (exit, _, stderr) = await DockerAsync(workerId, run, ct);

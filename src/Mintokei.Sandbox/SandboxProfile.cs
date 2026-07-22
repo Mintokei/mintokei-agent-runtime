@@ -68,6 +68,14 @@ public sealed class SandboxOptions
     /// <summary>Timeout (seconds) for a <c>docker run</c> dispatched to a remote worker
     /// (<see cref="Docker.RemoteDockerSandboxRuntime"/>) — generous, since it may implicitly pull the image.</summary>
     public int RemoteRunTimeoutSeconds { get; set; } = 90;
+
+    /// <summary>Image for the per-session broker container (egress proxy + credential injection) in
+    /// <see cref="SandboxEgress.Broker"/> mode. Built from <c>Dockerfile.broker</c>.</summary>
+    public string BrokerImage { get; set; } = "mintokei/sandbox-broker:latest";
+
+    /// <summary>Docker network the broker is also attached to so it (and only it) can reach the outside; the
+    /// sandbox stays on the deny-by-default <c>--internal</c> net. Default: the daemon's <c>bridge</c>.</summary>
+    public string BrokerEgressNetwork { get; set; } = "bridge";
 }
 
 /// <summary>One isolation tier: an OCI runtime + resource caps + egress posture.</summary>

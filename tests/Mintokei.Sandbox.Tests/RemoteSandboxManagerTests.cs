@@ -177,19 +177,50 @@ public class RemoteSandboxManagerTests
     }
 
     [Fact]
-    public async Task Launch_in_broker_mode_with_model_injection_points_the_cli_at_the_broker_and_seeds_a_placeholder_credential()
+    public async Task Launch_in_broker_mode_with_model_injection_points_that_providers_cli_at_the_broker_with_a_placeholder()
     {
         var (mgr, fake, broker) = NewBroker(BrokerRunner());
-        broker.Endpoint = broker.Endpoint with { ModelUrl = "http://sbx-1-broker:3130" }; // broker holds the real key
+        broker.Endpoint = broker.Endpoint with                                  // broker holds the real key
+        {
+            ModelUrls = new Dictionary<string, string> { ["anthropic"] = "http://sbx-1-broker:3130" },
+        };
 
         await using var s = await mgr.LaunchAsync(Guid.NewGuid(), Guid.NewGuid(), Request(), _ => true,
             profile: "hardened", brokerSecrets: new SandboxBrokerSecrets(ModelUpstream: "https://api.anthropic.com"));
 
         var run = fake.Calls.First(c => c.Exe == "docker" && c.Args.Count > 0 && c.Args[0] == "run").Args;
         Assert.Contains("ANTHROPIC_BASE_URL=http://sbx-1-broker:3130", run);     // CLI talks to the broker, not the API
-        Assert.Contains("OPENAI_BASE_URL=http://sbx-1-broker:3130", run);
         // A placeholder credential so the CLI ATTEMPTS the call (else it refuses / prompts login); the broker
         // replaces the auth header with the real key, so the sandbox never holds a real credential.
+        Assert.Contains("ANTHROPIC_AUTH_TOKEN=mintokei-broker-injects-the-real-credential", run);
+        // A provider that ISN'T configured gets neither its base URL redirected nor a placeholder.
+        Assert.DoesNotContain(run, a => a.StartsWith("OPENAI_BASE_URL="));
+        Assert.DoesNotContain(run, a => a.StartsWith("OPENAI_API_KEY="));
+    }
+
+    [Fact]
+    public async Task Launch_in_broker_mode_with_two_providers_points_each_cli_at_its_own_broker_port()
+    {
+        var (mgr, fake, broker) = NewBroker(BrokerRunner());
+        broker.Endpoint = broker.Endpoint with
+        {
+            ModelUrls = new Dictionary<string, string>
+            {
+                ["anthropic"] = "http://sbx-1-broker:3130",
+                ["openai"] = "http://sbx-1-broker:3131",
+            },
+        };
+
+        await using var s = await mgr.LaunchAsync(Guid.NewGuid(), Guid.NewGuid(), Request(), _ => true,
+            profile: "hardened", brokerSecrets: new SandboxBrokerSecrets(ModelUpstreams:
+            [
+                new("anthropic", "https://api.anthropic.com", "Authorization: Bearer ant"),
+                new("openai", "https://api.openai.com", "Authorization: Bearer oai"),
+            ]));
+
+        var run = fake.Calls.First(c => c.Exe == "docker" && c.Args.Count > 0 && c.Args[0] == "run").Args;
+        Assert.Contains("ANTHROPIC_BASE_URL=http://sbx-1-broker:3130", run);     // each provider → its own port
+        Assert.Contains("OPENAI_BASE_URL=http://sbx-1-broker:3131", run);
         Assert.Contains("ANTHROPIC_AUTH_TOKEN=mintokei-broker-injects-the-real-credential", run);
         Assert.Contains("OPENAI_API_KEY=mintokei-broker-injects-the-real-credential", run);
     }

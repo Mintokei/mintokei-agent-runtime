@@ -23,10 +23,10 @@ allow.AddRange(Split(Environment.GetEnvironmentVariable("BROKER_ALLOW") ?? ""));
 var mintPort = int.TryParse(Environment.GetEnvironmentVariable("BROKER_MINT_PORT"), out var mp) ? mp : 3129;
 var creds = GitCredentialMint.ParseCreds(Environment.GetEnvironmentVariable("BROKER_GIT_CREDS") ?? "");
 
-// Optional model-API injection: re-originate the sandbox's plaintext model call over TLS with the key added.
-var modelUpstream = Environment.GetEnvironmentVariable("BROKER_MODEL_UPSTREAM"); // e.g. https://api.anthropic.com
-var modelPort = int.TryParse(Environment.GetEnvironmentVariable("BROKER_MODEL_PORT"), out var xp) ? xp : 3130;
-var modelHeaders = ModelApiReverseProxy.ParseHeaders(Environment.GetEnvironmentVariable("BROKER_MODEL_AUTH") ?? "");
+// Optional model-API injection: one reverse-proxy per configured provider — the legacy single upstream
+// (BROKER_MODEL_UPSTREAM) and/or any number of named providers (BROKER_MODEL_<NAME>_UPSTREAM), each on its own
+// port. Re-originates the sandbox's plaintext model call over TLS with the key added.
+var modelUpstreams = ModelUpstreamConfig.FromEnvironment();
 
 static IEnumerable<string> Split(string s) =>
     s.Split([',', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -44,9 +44,6 @@ var tasks = new List<Task>
     proxy.RunAsync(port, cts.Token),
     mint.RunAsync(mintPort, cts.Token),
 };
-if (!string.IsNullOrWhiteSpace(modelUpstream))
-{
-    var model = new ModelApiReverseProxy(modelUpstream, modelHeaders, log);
-    tasks.Add(model.RunAsync(modelPort, cts.Token));
-}
+foreach (var m in modelUpstreams)
+    tasks.Add(new ModelApiReverseProxy(m.Upstream, m.Headers, log).RunAsync(m.Port, cts.Token));
 await Task.WhenAll(tasks);

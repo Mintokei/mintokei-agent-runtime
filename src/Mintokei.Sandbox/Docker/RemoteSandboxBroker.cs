@@ -23,11 +23,31 @@ public sealed class RemoteSandboxBroker(
     {
         var net = DockerNetwork.Name(request.SessionName);
         var container = BrokerContainerName(request.SessionName);
+
+        // Resolve each configured model provider → the env to hand the broker (one reverse-proxy per provider on
+        // its registry port) and the URL the sandbox reaches it at. Unknown provider names are skipped.
+        var modelEnv = new List<string>();
+        var modelUrls = new Dictionary<string, string>();
+        foreach (var m in request.Secrets?.EffectiveModelUpstreams ?? [])
+        {
+            if (ModelProviders.Find(m.Provider) is not { } p)
+            {
+                logger.LogWarning("broker: unknown model provider '{Provider}' — skipping (known: {Known})",
+                    m.Provider, string.Join(", ", ModelProviders.All.Select(x => x.Name)));
+                continue;
+            }
+            var key = p.Name.ToUpperInvariant();
+            modelEnv.AddRange(["--env", $"BROKER_MODEL_{key}_UPSTREAM={m.Upstream}", "--env", $"BROKER_MODEL_{key}_PORT={p.Port}"]);
+            if (!string.IsNullOrWhiteSpace(m.Auth))
+                modelEnv.AddRange(["--env", $"BROKER_MODEL_{key}_AUTH={m.Auth}"]);
+            modelUrls[p.Name] = $"http://{container}:{p.Port}";
+        }
+
         var endpoint = new BrokerEndpoint(
             net, container,
             ProxyUrl: $"http://{container}:3128",
             GitMintUrl: $"http://{container}:3129/git-credential",
-            ModelUrl: string.IsNullOrWhiteSpace(request.Secrets?.ModelUpstream) ? null : $"http://{container}:3130");
+            ModelUrls: modelUrls.Count > 0 ? modelUrls : null);
 
         var (exit, _, stderr) = await DockerAsync(workerId, DockerNetwork.CreateArgs(net), ct);
         if (exit != 0)
@@ -41,12 +61,7 @@ public sealed class RemoteSandboxBroker(
         var s = request.Secrets;
         if (!string.IsNullOrWhiteSpace(s?.GitCredentials))
             run.AddRange(["--env", $"BROKER_GIT_CREDS={s!.GitCredentials}"]);
-        if (!string.IsNullOrWhiteSpace(s?.ModelUpstream))
-        {
-            run.AddRange(["--env", $"BROKER_MODEL_UPSTREAM={s!.ModelUpstream}"]);
-            if (!string.IsNullOrWhiteSpace(s.ModelAuth))
-                run.AddRange(["--env", $"BROKER_MODEL_AUTH={s.ModelAuth}"]);
-        }
+        run.AddRange(modelEnv);
         run.Add(_options.BrokerImage);
 
         (exit, _, stderr) = await DockerAsync(workerId, run, ct);
@@ -66,7 +81,8 @@ public sealed class RemoteSandboxBroker(
         }
 
         logger.LogInformation("broker {Container} up on worker {Worker} (net {Net}, {N} allow-rules{Model})",
-            container, workerId, net, request.EgressAllowlist.Count, endpoint.ModelUrl is null ? "" : ", model-inject");
+            container, workerId, net, request.EgressAllowlist.Count,
+            endpoint.ModelUrls is null ? "" : $", model-inject({string.Join(",", endpoint.ModelUrls.Keys)})");
         return endpoint;
     }
 

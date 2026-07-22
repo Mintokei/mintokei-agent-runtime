@@ -41,24 +41,58 @@ public class RemoteSandboxBrokerTests
         Assert.Contains("brk:1", run);
         Assert.Contains("BROKER_ALLOW=github.com,api.anthropic.com", run);
         Assert.Contains("BROKER_GIT_CREDS=github.com=x:tok", run);
-        Assert.Contains("BROKER_MODEL_UPSTREAM=https://api.anthropic.com", run);
-        Assert.Contains("BROKER_MODEL_AUTH=x-api-key=sk", run);
+        Assert.Contains("BROKER_MODEL_ANTHROPIC_UPSTREAM=https://api.anthropic.com", run); // legacy scalar → anthropic provider
+        Assert.Contains("BROKER_MODEL_ANTHROPIC_PORT=3130", run);
+        Assert.Contains("BROKER_MODEL_ANTHROPIC_AUTH=x-api-key=sk", run);
         Assert.Contains(fake.Calls, c => c.Contains("network") && c.Contains("connect") && c.Contains("bridge"));
 
         Assert.Equal("sbx-1-broker", e.ContainerName);
         Assert.Equal("http://sbx-1-broker:3128", e.ProxyUrl);
         Assert.Equal("http://sbx-1-broker:3129/git-credential", e.GitMintUrl);
-        Assert.Equal("http://sbx-1-broker:3130", e.ModelUrl);
+        Assert.Equal("http://sbx-1-broker:3130", e.ModelUrls!["anthropic"]);
     }
 
     [Fact]
-    public async Task StartAsync_without_model_leaves_model_url_null_and_omits_model_env()
+    public async Task StartAsync_with_multiple_providers_emits_a_group_and_a_distinct_port_per_provider()
     {
         var fake = new FakeRunner();
-        var e = await New(fake).StartAsync(Guid.NewGuid(), new SandboxBrokerRequest("sbx-2", ["github.com"]));
+        var e = await New(fake).StartAsync(Guid.NewGuid(), new SandboxBrokerRequest(
+            "sbx-1", ["api.anthropic.com", "api.openai.com"],
+            new SandboxBrokerSecrets(ModelUpstreams:
+            [
+                new("anthropic", "https://api.anthropic.com", "Authorization: Bearer ant"),
+                new("openai",    "https://api.openai.com",    "Authorization: Bearer oai"),
+            ])));
 
-        Assert.Null(e.ModelUrl);
-        Assert.DoesNotContain(fake.Calls, c => c.Any(a => a.StartsWith("BROKER_MODEL_UPSTREAM")));
+        var run = fake.Calls.First(c => c.Contains("run"));
+        Assert.Contains("BROKER_MODEL_ANTHROPIC_UPSTREAM=https://api.anthropic.com", run);
+        Assert.Contains("BROKER_MODEL_ANTHROPIC_PORT=3130", run);
+        Assert.Contains("BROKER_MODEL_ANTHROPIC_AUTH=Authorization: Bearer ant", run);
+        Assert.Contains("BROKER_MODEL_OPENAI_UPSTREAM=https://api.openai.com", run);
+        Assert.Contains("BROKER_MODEL_OPENAI_PORT=3131", run);
+        Assert.Equal("http://sbx-1-broker:3130", e.ModelUrls!["anthropic"]);
+        Assert.Equal("http://sbx-1-broker:3131", e.ModelUrls["openai"]);       // distinct port → one broker, two providers
+    }
+
+    [Fact]
+    public async Task StartAsync_skips_unknown_providers()
+    {
+        var fake = new FakeRunner();
+        var e = await New(fake).StartAsync(Guid.NewGuid(), new SandboxBrokerRequest(
+            "sbx-2", ["x"], new SandboxBrokerSecrets(ModelUpstreams: [new("mystery", "https://api.example.com", "k=v")])));
+
+        Assert.Null(e.ModelUrls);
+        Assert.DoesNotContain(fake.Calls, c => c.Any(a => a.StartsWith("BROKER_MODEL_")));
+    }
+
+    [Fact]
+    public async Task StartAsync_without_model_leaves_model_urls_null_and_omits_model_env()
+    {
+        var fake = new FakeRunner();
+        var e = await New(fake).StartAsync(Guid.NewGuid(), new SandboxBrokerRequest("sbx-3", ["github.com"]));
+
+        Assert.Null(e.ModelUrls);
+        Assert.DoesNotContain(fake.Calls, c => c.Any(a => a.StartsWith("BROKER_MODEL_")));
     }
 
     [Fact]

@@ -86,13 +86,27 @@ public class RemoteSandboxBrokerTests
     }
 
     [Fact]
+    public async Task StartAsync_with_a_github_token_mints_it_for_copilot_and_never_seeds_it()
+    {
+        var fake = new FakeRunner();
+        var e = await New(fake).StartAsync(Guid.NewGuid(), new SandboxBrokerRequest(
+            "sbx-1", ["api.github.com"], new SandboxBrokerSecrets(GitHubToken: "gho_realtoken")));
+
+        var run = fake.Calls.First(c => c.Contains("run"));
+        Assert.Contains("BROKER_GITHUB_TOKEN=gho_realtoken", run);               // held broker-side
+        Assert.Contains("BROKER_GITHUB_PORT=3132", run);
+        Assert.Equal("http://sbx-1-broker:3132", e.GitHubApiUrl);               // Copilot's GitHub API points here
+    }
+
+    [Fact]
     public async Task StartAsync_without_model_leaves_model_urls_null_and_omits_model_env()
     {
         var fake = new FakeRunner();
         var e = await New(fake).StartAsync(Guid.NewGuid(), new SandboxBrokerRequest("sbx-3", ["github.com"]));
 
         Assert.Null(e.ModelUrls);
-        Assert.DoesNotContain(fake.Calls, c => c.Any(a => a.StartsWith("BROKER_MODEL_")));
+        Assert.Null(e.GitHubApiUrl);
+        Assert.DoesNotContain(fake.Calls, c => c.Any(a => a.StartsWith("BROKER_MODEL_") || a.StartsWith("BROKER_GITHUB_")));
     }
 
     [Fact]

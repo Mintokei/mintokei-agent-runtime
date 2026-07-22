@@ -226,6 +226,21 @@ public class RemoteSandboxManagerTests
     }
 
     [Fact]
+    public async Task Launch_in_broker_mode_with_a_github_token_points_copilot_at_the_broker_with_a_placeholder()
+    {
+        var (mgr, fake, broker) = NewBroker(BrokerRunner());
+        broker.Endpoint = broker.Endpoint with { GitHubApiUrl = "http://sbx-1-broker:3132" };
+
+        await using var s = await mgr.LaunchAsync(Guid.NewGuid(), Guid.NewGuid(), Request(), _ => true,
+            profile: "hardened", brokerSecrets: new SandboxBrokerSecrets(GitHubToken: "gho_realtoken"));
+
+        var run = fake.Calls.First(c => c.Exe == "docker" && c.Args.Count > 0 && c.Args[0] == "run").Args;
+        Assert.Contains("COPILOT_DEBUG_GITHUB_API_URL=http://sbx-1-broker:3132", run);     // Copilot's GitHub API → broker
+        Assert.Contains(run, a => a.StartsWith("COPILOT_GITHUB_TOKEN=github_pat_"));        // format-valid placeholder
+        Assert.DoesNotContain(run, a => a.Contains("gho_realtoken"));                       // the REAL token never reaches the box
+    }
+
+    [Fact]
     public async Task Dispose_in_broker_mode_stops_the_broker_not_the_stager()
     {
         var (mgr, fake, broker) = NewBroker(BrokerRunner());

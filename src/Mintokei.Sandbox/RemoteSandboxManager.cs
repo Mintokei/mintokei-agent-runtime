@@ -126,6 +126,12 @@ public sealed class RemoteSandboxManager(
     // broker's reverse-proxy overwrites the auth header with the real credential, so this value never leaves the box.
     private const string PlaceholderModelCredential = "mintokei-broker-injects-the-real-credential";
 
+    // The GitHub-token placeholder for the Copilot CLI. Copilot validates the token FORMAT locally before any
+    // network call (rejects classic `ghp_`), so this must look like a fine-grained PAT; the broker overwrites the
+    // Authorization on Copilot's GitHub API calls with the real token, so this value never leaves the box either.
+    private const string PlaceholderGitHubToken =
+        "github_pat_11BROKERINJECTS0000000_brokerReplacesThisPlaceholderWithTheRealGitHubTokenXXXX";
+
     // Inject the broker's runtime-resolved address into the spec: join its --internal net, route egress through
     // its proxy, and hand the sandbox the git-mint + model base URLs (env the entrypoint / agent CLI read).
     private static SandboxSpec WithBrokerWiring(SandboxSpec spec, BrokerEndpoint e)
@@ -150,6 +156,15 @@ public sealed class RemoteSandboxManager(
                 env[p.BaseUrlVar] = url;
                 env.TryAdd(p.CredentialVar, PlaceholderModelCredential);
             }
+        // GitHub-token mint (Copilot CLI): point Copilot's GitHub API at the broker + seed a format-valid
+        // placeholder so Copilot passes its LOCAL token check and makes the call. The broker overwrites the
+        // Authorization with the real GitHub token, which is held broker-side and never enters the box; Copilot
+        // gets back only a short-lived Copilot token from the token exchange.
+        if (e.GitHubApiUrl is { } githubApiUrl)
+        {
+            env["COPILOT_DEBUG_GITHUB_API_URL"] = githubApiUrl;
+            env.TryAdd("COPILOT_GITHUB_TOKEN", PlaceholderGitHubToken);
+        }
         return spec with { NetworkName = e.NetworkName, EgressProxyUrl = e.ProxyUrl, Env = env };
     }
 

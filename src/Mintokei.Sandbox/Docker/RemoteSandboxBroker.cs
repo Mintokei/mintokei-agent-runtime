@@ -43,11 +43,20 @@ public sealed class RemoteSandboxBroker(
             modelUrls[p.Name] = $"http://{container}:{p.Port}";
         }
 
+        // GitHub-token mint for Copilot: hold the long-lived token broker-side, inject it on Copilot's GitHub API
+        // calls (Copilot points COPILOT_DEBUG_GITHUB_API_URL at this URL), so it never enters the box.
+        const int githubPort = 3132;
+        var githubToken = request.Secrets?.GitHubToken;
+        var githubApiUrl = string.IsNullOrWhiteSpace(githubToken) ? null : $"http://{container}:{githubPort}";
+        if (githubApiUrl is not null)
+            modelEnv.AddRange(["--env", $"BROKER_GITHUB_TOKEN={githubToken}", "--env", $"BROKER_GITHUB_PORT={githubPort}"]);
+
         var endpoint = new BrokerEndpoint(
             net, container,
             ProxyUrl: $"http://{container}:3128",
             GitMintUrl: $"http://{container}:3129/git-credential",
-            ModelUrls: modelUrls.Count > 0 ? modelUrls : null);
+            ModelUrls: modelUrls.Count > 0 ? modelUrls : null,
+            GitHubApiUrl: githubApiUrl);
 
         var (exit, _, stderr) = await DockerAsync(workerId, DockerNetwork.CreateArgs(net), ct);
         if (exit != 0)
@@ -80,9 +89,11 @@ public sealed class RemoteSandboxBroker(
             throw new SandboxRuntimeException($"broker egress attach failed on worker {workerId}: {stderr.Trim()}");
         }
 
-        logger.LogInformation("broker {Container} up on worker {Worker} (net {Net}, {N} allow-rules{Model})",
-            container, workerId, net, request.EgressAllowlist.Count,
-            endpoint.ModelUrls is null ? "" : $", model-inject({string.Join(",", endpoint.ModelUrls.Keys)})");
+        var extras = new List<string>();
+        if (endpoint.ModelUrls is not null) extras.Add($"model-inject({string.Join(",", endpoint.ModelUrls.Keys)})");
+        if (endpoint.GitHubApiUrl is not null) extras.Add("github-token");
+        logger.LogInformation("broker {Container} up on worker {Worker} (net {Net}, {N} allow-rules{Extra})",
+            container, workerId, net, request.EgressAllowlist.Count, extras.Count == 0 ? "" : ", " + string.Join(", ", extras));
         return endpoint;
     }
 

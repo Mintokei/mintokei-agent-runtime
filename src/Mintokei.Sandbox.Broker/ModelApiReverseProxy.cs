@@ -25,16 +25,18 @@ public sealed class ModelApiReverseProxy : IDisposable
     private readonly IReadOnlyList<KeyValuePair<string, string>> _inject;
     private readonly HttpClient _http;
     private readonly ILogger _logger;
+    private readonly string _label;
     private readonly TaskCompletionSource<int> _bound = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public ModelApiReverseProxy(
         string upstreamBaseUrl, IReadOnlyList<KeyValuePair<string, string>> injectHeaders,
-        ILogger? logger = null, HttpMessageHandler? handler = null)
+        ILogger? logger = null, HttpMessageHandler? handler = null, string label = "model-api")
     {
         _upstream = new Uri(upstreamBaseUrl, UriKind.Absolute);
         _inject = injectHeaders;
         _http = new HttpClient(handler ?? new SocketsHttpHandler { AllowAutoRedirect = false });
         _logger = logger ?? NullLogger.Instance;
+        _label = label;
     }
 
     /// <summary>Resolves to the listen port once <see cref="RunAsync"/> starts.</summary>
@@ -116,8 +118,8 @@ public sealed class ModelApiReverseProxy : IDisposable
         listener.Prefixes.Add($"http://+:{port}/");
         listener.Start();
         _bound.TrySetResult(port);
-        _logger.LogInformation("sandbox broker model-api reverse proxy on :{Port} → {Upstream} (+{Headers} injected header(s))",
-            port, _upstream, _inject.Count);
+        _logger.LogInformation("sandbox broker {Label} reverse proxy on :{Port} → {Upstream} (+{Headers} injected header(s))",
+            _label, port, _upstream, _inject.Count);
         using var reg = ct.Register(listener.Stop);
         try
         {

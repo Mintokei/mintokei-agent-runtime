@@ -28,6 +28,13 @@ var creds = GitCredentialMint.ParseCreds(Environment.GetEnvironmentVariable("BRO
 // port. Re-originates the sandbox's plaintext model call over TLS with the key added.
 var modelUpstreams = ModelUpstreamConfig.FromEnvironment();
 
+// Optional GitHub-token mint for the Copilot CLI: inject the long-lived GitHub token on Copilot's GitHub API
+// calls (it points COPILOT_DEBUG_GITHUB_API_URL here) so it NEVER enters the box — Copilot gets back only a
+// short-lived Copilot token from the exchange. Same auth-injecting reverse-proxy as the model path.
+var githubToken = Environment.GetEnvironmentVariable("BROKER_GITHUB_TOKEN");
+var githubPort = int.TryParse(Environment.GetEnvironmentVariable("BROKER_GITHUB_PORT"), out var gp) ? gp : 3132;
+var githubUpstream = Environment.GetEnvironmentVariable("BROKER_GITHUB_UPSTREAM") ?? "https://api.github.com";
+
 static IEnumerable<string> Split(string s) =>
     s.Split([',', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
@@ -46,4 +53,7 @@ var tasks = new List<Task>
 };
 foreach (var m in modelUpstreams)
     tasks.Add(new ModelApiReverseProxy(m.Upstream, m.Headers, log).RunAsync(m.Port, cts.Token));
+if (!string.IsNullOrWhiteSpace(githubToken))
+    tasks.Add(new ModelApiReverseProxy(githubUpstream, [new("Authorization", $"Bearer {githubToken}")], log, label: "github-token")
+        .RunAsync(githubPort, cts.Token));
 await Task.WhenAll(tasks);

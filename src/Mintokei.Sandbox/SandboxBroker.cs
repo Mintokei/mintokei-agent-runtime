@@ -8,14 +8,16 @@ public sealed record ModelUpstreamSpec(string Provider, string Upstream, string?
 
 /// <summary>
 /// Secret material the broker holds on the worker for one session — NEVER seeded into the sandbox. Git
-/// credentials as <c>"host=user:token"</c> lines (served on demand via the git-credential mint), and/or one or
-/// more model-API upstreams + auth header(s) to inject (re-originated over TLS). All optional.
+/// credentials as <c>"host=user:token"</c> lines (served on demand via the git-credential mint), one or more
+/// model-API upstreams + auth header(s) to inject, and/or a GitHub token minted for the Copilot CLI (injected
+/// on its GitHub API calls). All optional; all re-originated over TLS, none seeded into the box.
 /// </summary>
 public sealed record SandboxBrokerSecrets(
     string? GitCredentials = null,
     string? ModelUpstream = null,
     string? ModelAuth = null,
-    IReadOnlyList<ModelUpstreamSpec>? ModelUpstreams = null)
+    IReadOnlyList<ModelUpstreamSpec>? ModelUpstreams = null,
+    string? GitHubToken = null)
 {
     /// <summary>The providers the broker injects for: the explicit <see cref="ModelUpstreams"/> if any, else the
     /// legacy scalar <see cref="ModelUpstream"/>/<see cref="ModelAuth"/> normalized to a single <c>"anthropic"</c>
@@ -33,12 +35,14 @@ public sealed record SandboxBrokerRequest(string SessionName, IReadOnlyList<stri
 /// How the sandbox reaches its broker. The sandbox joins <see cref="NetworkName"/> (the deny-by-default
 /// <c>--internal</c> net) and routes egress through <see cref="ProxyUrl"/>; the in-sandbox git helper calls
 /// <see cref="GitMintUrl"/>; each configured model provider's base URL points at its entry in
-/// <see cref="ModelUrls"/> (provider name → broker URL) when model injection is configured. All URLs address the
-/// broker by its container name on the internal network.
+/// <see cref="ModelUrls"/> (provider name → broker URL); and the Copilot CLI's GitHub API base URL points at
+/// <see cref="GitHubApiUrl"/> when a GitHub token is minted. All URLs address the broker by its container name
+/// on the internal network.
 /// </summary>
 public sealed record BrokerEndpoint(
     string NetworkName, string ContainerName, string ProxyUrl, string GitMintUrl,
-    IReadOnlyDictionary<string, string>? ModelUrls = null);
+    IReadOnlyDictionary<string, string>? ModelUrls = null,
+    string? GitHubApiUrl = null);
 
 /// <summary>
 /// Orchestrates a per-session broker: create the deny-by-default <c>--internal</c> network, run the broker

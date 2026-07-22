@@ -46,6 +46,7 @@
        infra but is NOT published to NuGet yet — flip IsPackable and add a Description/PackageTags
        block below when it's ready to ship. -->
   <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Mintokei.Sandbox'
+                         Or '$(MSBuildProjectName)' == 'Mintokei.Sandbox.Broker'
                          Or '$(MSBuildProjectName)' == 'Mintokei.Sandbox.Tests'">
     <IsPackable>false</IsPackable>
   </PropertyGroup>

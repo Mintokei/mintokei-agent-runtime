@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Mintokei.Sandbox\Mintokei.Sandbox.csproj" />
+    <ProjectReference Include="..\..\src\Mintokei.Sandbox.Broker\Mintokei.Sandbox.Broker.csproj" />
   </ItemGroup>
 
 </Project>

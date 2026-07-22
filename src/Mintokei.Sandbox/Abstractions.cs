@@ -55,6 +55,13 @@ public sealed record SandboxSpec
     /// </summary>
     public IReadOnlyList<string> EgressAllowlist { get; init; } = [];
 
+    /// <summary>
+    /// Per-session Docker network the container joins — the deny-by-default <c>--internal</c> net in
+    /// <see cref="SandboxEgress.Broker"/> mode (its only exit is the session broker). Null = the daemon's
+    /// default bridge (Open/Proxy). Required when <see cref="Egress"/> is <see cref="SandboxEgress.Broker"/>.
+    /// </summary>
+    public string? NetworkName { get; init; }
+
     public IReadOnlyList<SandboxMount> Mounts { get; init; } = [];
     public IReadOnlyDictionary<string, string> Env { get; init; } = new Dictionary<string, string>();
 

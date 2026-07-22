@@ -14,12 +14,12 @@ public static class DockerCommand
 
     public static IReadOnlyList<string> BuildRunArgs(SandboxSpec spec)
     {
-        // Fail closed: broker egress requires a per-session network broker (deny-by-default network + credential
-        // injection) that this build does not yet provide. Refuse rather than launch an unenforced sandbox that
-        // looks brokered but has open network and no creds. (The enforcing broker lands in a follow-up.)
-        if (spec.Egress == SandboxEgress.Broker)
+        // Fail closed: broker egress must join a per-session --internal network (deny-by-default; its only exit
+        // is the session broker). Until that network is provisioned (spec.NetworkName set by the manager),
+        // refuse — an unenforced "brokered" container would have open network and no creds.
+        if (spec.Egress == SandboxEgress.Broker && string.IsNullOrWhiteSpace(spec.NetworkName))
             throw new SandboxRuntimeException(
-                "broker egress is configured but the per-session network broker is not available in this build — refusing to launch (fail-closed).");
+                "broker egress is configured but no per-session broker network is provisioned — refusing to launch (fail-closed).");
 
         var a = new List<string> { "run", "--detach", "--name", spec.Name };
 
@@ -64,6 +64,14 @@ public static class DockerCommand
             a.Add($"{target}:uid={SandboxImage.AgentUid},gid={SandboxImage.AgentUid},mode=0700");
         }
 
+        // Broker egress: join the per-session --internal network. That network is the ENFORCEMENT — a process
+        // that ignores the proxy env below still has no route off it; its only reachable peer is the broker.
+        if (spec.Egress == SandboxEgress.Broker)
+        {
+            a.Add("--network");
+            a.Add(spec.NetworkName!);
+        }
+
         if (spec.AddHostGateway)
         {
             a.Add("--add-host");
@@ -82,8 +90,10 @@ public static class DockerCommand
             a.Add($"{key}={value}");
         }
 
-        // Proxy egress: force the container through an allowlisting HTTP CONNECT proxy.
-        if (spec.Egress == SandboxEgress.Proxy && !string.IsNullOrWhiteSpace(spec.EgressProxyUrl))
+        // Route egress through an allowlisting HTTP CONNECT proxy. In Proxy mode this is advisory (env only); in
+        // Broker mode the --internal network above makes it enforced — the proxy is simply how allowed traffic
+        // actually leaves (via the session broker), since there is no other route out.
+        if (spec.Egress is SandboxEgress.Proxy or SandboxEgress.Broker && !string.IsNullOrWhiteSpace(spec.EgressProxyUrl))
         {
             a.Add("--env");
             a.Add($"HTTPS_PROXY={spec.EgressProxyUrl}");

@@ -81,13 +81,33 @@ public sealed class ModelApiReverseProxy : IDisposable
                 req.Headers.TryAddWithoutValidation(name, value);
         }
 
-        foreach (var (name, value) in _inject) // injected key wins over anything the sandbox sent
+        foreach (var (name, value) in _inject)
         {
-            req.Headers.Remove(name);
-            req.Headers.TryAddWithoutValidation(name, value);
+            // `anthropic-beta` is a comma-separated list of feature flags, and the client (e.g. Claude Code) sends
+            // its OWN required betas (context-management, fine-grained tool streaming, …). MERGE our injected beta
+            // (e.g. the OAuth `oauth-2025-04-20` flag) with the caller's instead of clobbering it — otherwise the
+            // caller's body references a beta whose header we just dropped and upstream 400s. Auth headers still WIN.
+            if (IsMergeableListHeader(name) && req.Headers.TryGetValues(name, out var present))
+            {
+                var merged = present.Concat([value])
+                    .SelectMany(v => v.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+                    .Distinct(StringComparer.OrdinalIgnoreCase);
+                req.Headers.Remove(name);
+                req.Headers.TryAddWithoutValidation(name, string.Join(", ", merged));
+            }
+            else
+            {
+                req.Headers.Remove(name); // injected key wins over anything the sandbox sent
+                req.Headers.TryAddWithoutValidation(name, value);
+            }
         }
         return req;
     }
+
+    /// <summary>Headers whose value is a comma-separated set the injected value should UNION with (not replace),
+    /// so injecting one flag (e.g. the OAuth beta) never strips flags the caller needs.</summary>
+    private static bool IsMergeableListHeader(string name) =>
+        string.Equals(name, "anthropic-beta", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Listen on <paramref name="port"/> and reverse-proxy each request to the upstream, injecting auth.</summary>
     public async Task RunAsync(int port, CancellationToken ct)

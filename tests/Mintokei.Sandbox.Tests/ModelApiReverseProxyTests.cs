@@ -37,6 +37,32 @@ public class ModelApiReverseProxyTests
     }
 
     [Fact]
+    public void BuildUpstreamRequest_merges_anthropic_beta_instead_of_clobbering_the_clients_flags()
+    {
+        // The OAuth auth path injects `anthropic-beta: oauth-2025-04-20`, but the client (Claude Code) sends its
+        // OWN required betas whose bodies it references (e.g. context-management). Clobbering them upstream-400s;
+        // the injected beta must UNION with the caller's.
+        var proxy = new ModelApiReverseProxy("https://api.anthropic.com",
+        [
+            new("Authorization", "Bearer sk-INJECTED"),
+            new("anthropic-beta", "oauth-2025-04-20"),
+        ]);
+        using var req = proxy.BuildUpstreamRequest(
+            "POST", "/v1/messages",
+            [
+                new("anthropic-beta", "context-management-2025-06-27, fine-grained-tool-streaming-2025-05-14"),
+                new("Authorization", "Bearer sk-CLIENT-SHOULD-NOT-WIN"),
+            ],
+            new MemoryStream("{}"u8.ToArray()));
+
+        var beta = Assert.Single(req.Headers.GetValues("anthropic-beta"));
+        Assert.Contains("context-management-2025-06-27", beta);             // client's flag preserved
+        Assert.Contains("fine-grained-tool-streaming-2025-05-14", beta);    // and its second flag
+        Assert.Contains("oauth-2025-04-20", beta);                          // our injected flag added
+        Assert.Equal("Bearer sk-INJECTED", Assert.Single(req.Headers.GetValues("Authorization"))); // auth still WINS (replace)
+    }
+
+    [Fact]
     public async Task Reverse_proxy_injects_the_key_upstream_without_the_client_ever_sending_it()
     {
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));

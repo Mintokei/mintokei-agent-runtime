@@ -17,6 +17,20 @@ public sealed class SandboxSpecFactory(IOptions<SandboxOptions> options)
         var mounts = new List<SandboxMount>();
         var env = new Dictionary<string, string>();
 
+        // Broker egress is the hardened posture: no long-lived secret is seeded into the box (the broker injects
+        // short-lived, scoped creds), so egress must be genuinely bounded. Fail closed on a misconfiguration
+        // rather than silently launching an unbounded or credential-less sandbox.
+        var brokered = profile.Egress == SandboxEgress.Broker;
+        if (brokered)
+        {
+            if (profile.EgressAllowlist.Count == 0)
+                throw new SandboxRuntimeException(
+                    $"profile '{profile.Name}' uses broker egress but its EgressAllowlist is empty — refusing to launch (fail-closed).");
+            if (req.AddHostGateway)
+                throw new SandboxRuntimeException(
+                    $"profile '{profile.Name}' uses broker egress, which is incompatible with AddHostGateway (host reachability defeats containment).");
+        }
+
         var args = new List<string>
         {
             "--backend", req.BackendUrl,
@@ -43,14 +57,19 @@ public sealed class SandboxSpecFactory(IOptions<SandboxOptions> options)
                 mounts.Add(new SandboxMount(req.RepoCacheHostPath!, "/repo-cache", ReadOnly: true));
         }
 
-        if (!string.IsNullOrWhiteSpace(req.ClaudeConfigHostDir))
-            mounts.Add(new SandboxMount(req.ClaudeConfigHostDir!, "/seed/.claude", ReadOnly: true));
-        if (!string.IsNullOrWhiteSpace(req.ClaudeConfigJsonHostFile))
-            mounts.Add(new SandboxMount(req.ClaudeConfigJsonHostFile!, "/seed/.claude.json", ReadOnly: true));
-        if (!string.IsNullOrWhiteSpace(req.CodexConfigHostDir))
-            mounts.Add(new SandboxMount(req.CodexConfigHostDir!, "/seed/.codex", ReadOnly: true));
-        if (!string.IsNullOrWhiteSpace(req.GitCredentialsHostDir))
-            mounts.Add(new SandboxMount(req.GitCredentialsHostDir!, "/seed/git", ReadOnly: true));
+        // Credential seeding (RO mounts under /seed) — SKIPPED in broker mode, whose whole point is that no
+        // long-lived secret ever enters the container; the broker injects short-lived, scoped creds instead.
+        if (!brokered)
+        {
+            if (!string.IsNullOrWhiteSpace(req.ClaudeConfigHostDir))
+                mounts.Add(new SandboxMount(req.ClaudeConfigHostDir!, "/seed/.claude", ReadOnly: true));
+            if (!string.IsNullOrWhiteSpace(req.ClaudeConfigJsonHostFile))
+                mounts.Add(new SandboxMount(req.ClaudeConfigJsonHostFile!, "/seed/.claude.json", ReadOnly: true));
+            if (!string.IsNullOrWhiteSpace(req.CodexConfigHostDir))
+                mounts.Add(new SandboxMount(req.CodexConfigHostDir!, "/seed/.codex", ReadOnly: true));
+            if (!string.IsNullOrWhiteSpace(req.GitCredentialsHostDir))
+                mounts.Add(new SandboxMount(req.GitCredentialsHostDir!, "/seed/git", ReadOnly: true));
+        }
 
         // Under a read-only rootfs the paths the runner + agent CLIs must write to (data dir, HOME, /tmp, and
         // the repos root) have to be writable tmpfs. The repos root also appears as a persisted volume mount when
@@ -67,6 +86,7 @@ public sealed class SandboxSpecFactory(IOptions<SandboxOptions> options)
             Limits = profile.Limits,
             Egress = profile.Egress,
             EgressProxyUrl = profile.EgressProxyUrl,
+            EgressAllowlist = profile.EgressAllowlist,
             Mounts = mounts,
             Env = env,
             Args = args,

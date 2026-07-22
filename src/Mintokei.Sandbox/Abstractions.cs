@@ -26,7 +26,14 @@ public sealed record SandboxResourceLimits(long MemoryBytes, double Cpus, int Pi
 
 public sealed record SandboxMount(string Source, string Target, bool ReadOnly);
 
-public enum SandboxEgress { Open, Proxy }
+/// <summary>
+/// Egress posture for a session. <c>Open</c>: unrestricted network + credentials seeded into the box.
+/// <c>Proxy</c>: route through an allowlisting HTTP CONNECT proxy (advisory — honoured only by clients that
+/// obey <c>HTTP(S)_PROXY</c>), creds still seeded. <c>Broker</c>: deny-by-default egress that the sandbox can
+/// only leave through a per-session broker, which injects short-lived, scoped credentials — so no long-lived
+/// secret is ever seeded into the container (<see cref="SandboxSpec.EgressAllowlist"/> bounds where it may go).
+/// </summary>
+public enum SandboxEgress { Open, Proxy, Broker }
 
 /// <summary>
 /// Everything needed to launch one sandbox. <see cref="RuntimeClass"/> is the OCI runtime the
@@ -41,6 +48,13 @@ public sealed record SandboxSpec
     public required SandboxResourceLimits Limits { get; init; }
     public SandboxEgress Egress { get; init; } = SandboxEgress.Open;
     public string? EgressProxyUrl { get; init; }
+
+    /// <summary>
+    /// Hostnames the session is allowed to reach in <see cref="SandboxEgress.Broker"/> mode (git host, package
+    /// registries, model API, the control-plane backend). Everything else is denied. Empty in Open/Proxy mode.
+    /// </summary>
+    public IReadOnlyList<string> EgressAllowlist { get; init; } = [];
+
     public IReadOnlyList<SandboxMount> Mounts { get; init; } = [];
     public IReadOnlyDictionary<string, string> Env { get; init; } = new Dictionary<string, string>();
 

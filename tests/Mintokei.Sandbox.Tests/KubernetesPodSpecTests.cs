@@ -34,6 +34,14 @@ public class KubernetesPodSpecTests
     }
 
     [Fact]
+    public void Broker_egress_fails_closed()
+    {
+        var spec = Spec() with { Egress = SandboxEgress.Broker, EgressAllowlist = ["github.com"] };
+        var ex = Assert.Throws<SandboxRuntimeException>(() => KubernetesPodSpec.Build(spec));
+        Assert.Contains("fail-closed", ex.Message);
+    }
+
+    [Fact]
     public void Container_carries_image_and_runner_flag_args()
     {
         var c = Container(KubernetesPodSpec.Build(Spec()));

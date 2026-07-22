@@ -73,6 +73,16 @@ public class DockerCommandTests
         Assert.Contains($"/data:uid={SandboxImage.AgentUid},gid={SandboxImage.AgentUid},mode=0700", a); // /data still tmpfs
     }
 
+    [Fact]
+    public void Broker_egress_fails_closed()
+    {
+        // The enforcing per-session broker isn't wired yet, so the backend must refuse rather than launch an
+        // unenforced "brokered" container (open network + no creds).
+        var spec = Spec() with { Egress = SandboxEgress.Broker, EgressAllowlist = ["github.com"] };
+        var ex = Assert.Throws<SandboxRuntimeException>(() => DockerCommand.BuildRunArgs(spec));
+        Assert.Contains("fail-closed", ex.Message);
+    }
+
     private static string ValueAfter(List<string> a, string flag) => a[a.IndexOf(flag) + 1];
 }
 
@@ -145,6 +155,47 @@ public class SandboxProfileResolverTests
     {
         var o = new SandboxOptions { DefaultProfile = "standard", AllowedProfiles = ["standard"] };
         Assert.False(Resolver(o).Resolve().ReadOnlyRootfs);
+    }
+
+    [Fact]
+    public void Maps_broker_egress_and_carries_allowlist()
+    {
+        var o = new SandboxOptions
+        {
+            DefaultProfile = "hardened",
+            AllowedProfiles = ["hardened"],
+            Profiles =
+            {
+                ["hardened"] = new SandboxProfileConfig
+                {
+                    Runtime = "runsc",
+                    Egress = "broker",
+                    EgressAllowlist = ["github.com", "api.anthropic.com"],
+                },
+            },
+        };
+
+        var p = Resolver(o).Resolve();
+
+        Assert.Equal(SandboxEgress.Broker, p.Egress);
+        Assert.Equal(["github.com", "api.anthropic.com"], p.EgressAllowlist);
+    }
+
+    [Fact]
+    public void Allowlist_empty_when_not_broker()
+    {
+        var o = new SandboxOptions
+        {
+            DefaultProfile = "standard",
+            AllowedProfiles = ["standard"],
+            // An allowlist on a non-broker profile is inert — it only takes effect under broker egress.
+            Profiles = { ["standard"] = new SandboxProfileConfig { Egress = "open", EgressAllowlist = ["github.com"] } },
+        };
+
+        var p = Resolver(o).Resolve();
+
+        Assert.Equal(SandboxEgress.Open, p.Egress);
+        Assert.Empty(p.EgressAllowlist);
     }
 }
 
@@ -254,5 +305,64 @@ public class SandboxSpecFactoryTests
 
         Assert.False(spec.ReadOnlyRootfs);
         Assert.Equal(["/data"], spec.Tmpfs);
+    }
+
+    private static SandboxProfile BrokerProfile(params string[] allowlist) =>
+        new("hardened", "runsc", new SandboxResourceLimits(1, 1, 1), SandboxEgress.Broker, null)
+        {
+            EgressAllowlist = allowlist,
+        };
+
+    [Fact]
+    public void Broker_mode_omits_credential_seed_mounts_and_carries_allowlist()
+    {
+        var factory = new SandboxSpecFactory(Options.Create(new SandboxOptions { Image = "img:1" }));
+
+        var spec = factory.Build(BrokerProfile("github.com"), new SandboxSessionRequest
+        {
+            BackendUrl = "https://api",
+            EnrollmentToken = "tok",
+            Name = "sess-1",
+            // All creds provided — broker mode must still refuse to seed any of them into the box.
+            ClaudeConfigHostDir = "/root/.claude",
+            ClaudeConfigJsonHostFile = "/root/.claude.json",
+            CodexConfigHostDir = "/root/.codex",
+            GitCredentialsHostDir = "/root/git-creds",
+            // A non-credential RO mirror is still allowed through.
+            Repos = [new SandboxRepoSpec("https://github.com/acme/app.git")],
+            RepoCacheHostPath = "/cache",
+        });
+
+        Assert.Equal(SandboxEgress.Broker, spec.Egress);
+        Assert.Equal(["github.com"], spec.EgressAllowlist);
+        Assert.DoesNotContain(spec.Mounts, m => m.Target.StartsWith("/seed"));  // no secret seeded
+        Assert.Contains(spec.Mounts, m => m is { Target: "/repo-cache", ReadOnly: true }); // mirror still mounted
+    }
+
+    [Fact]
+    public void Broker_mode_without_allowlist_throws()
+    {
+        var factory = new SandboxSpecFactory(Options.Create(new SandboxOptions { Image = "img:1" }));
+
+        var ex = Assert.Throws<SandboxRuntimeException>(() => factory.Build(BrokerProfile(), new SandboxSessionRequest
+        {
+            BackendUrl = "https://api", EnrollmentToken = "tok", Name = "sess-1",
+        }));
+
+        Assert.Contains("EgressAllowlist is empty", ex.Message);
+    }
+
+    [Fact]
+    public void Broker_mode_with_host_gateway_throws()
+    {
+        var factory = new SandboxSpecFactory(Options.Create(new SandboxOptions { Image = "img:1" }));
+
+        var ex = Assert.Throws<SandboxRuntimeException>(() => factory.Build(BrokerProfile("github.com"),
+            new SandboxSessionRequest
+            {
+                BackendUrl = "https://api", EnrollmentToken = "tok", Name = "sess-1", AddHostGateway = true,
+            }));
+
+        Assert.Contains("AddHostGateway", ex.Message);
     }
 }

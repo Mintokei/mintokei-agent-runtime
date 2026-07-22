@@ -14,6 +14,13 @@ public static class DockerCommand
 
     public static IReadOnlyList<string> BuildRunArgs(SandboxSpec spec)
     {
+        // Fail closed: broker egress requires a per-session network broker (deny-by-default network + credential
+        // injection) that this build does not yet provide. Refuse rather than launch an unenforced sandbox that
+        // looks brokered but has open network and no creds. (The enforcing broker lands in a follow-up.)
+        if (spec.Egress == SandboxEgress.Broker)
+            throw new SandboxRuntimeException(
+                "broker egress is configured but the per-session network broker is not available in this build — refusing to launch (fail-closed).");
+
         var a = new List<string> { "run", "--detach", "--name", spec.Name };
 
         // Isolation runtime chosen by the profile. runc is Docker's default, but passing it is valid + explicit.

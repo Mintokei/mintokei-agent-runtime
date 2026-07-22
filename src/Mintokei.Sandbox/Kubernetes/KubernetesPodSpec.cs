@@ -38,6 +38,13 @@ public static class KubernetesPodSpec
     /// default. Set "Never" when the sandbox image is node-imported (see <c>SandboxOptions</c>).</param>
     public static V1Pod Build(SandboxSpec spec, string? imagePullPolicy = null)
     {
+        // Fail closed: broker egress requires a per-session credential broker + a default-deny egress
+        // NetworkPolicy that this build does not yet provide. Refuse rather than launch an unenforced Pod that
+        // looks brokered but has open egress and no creds. (The enforcing broker lands in a follow-up.)
+        if (spec.Egress == SandboxEgress.Broker)
+            throw new SandboxRuntimeException(
+                "broker egress is configured but the per-session credential broker is not available in this build — refusing to launch (fail-closed).");
+
         var volumes = new List<V1Volume>();
         var mounts = new List<V1VolumeMount>();
 

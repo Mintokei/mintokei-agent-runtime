@@ -79,9 +79,14 @@ public sealed class SandboxProfileConfig
     public double Cpus { get; set; } = 2;
     public int PidsLimit { get; set; } = 512;
 
-    /// <summary>"open" | "proxy" (allowlist egress via an HTTP CONNECT proxy).</summary>
+    /// <summary>"open" | "proxy" (allowlist egress via an HTTP CONNECT proxy) | "broker" (deny-by-default egress
+    /// through a per-session credential broker; no secrets seeded into the box). See <see cref="SandboxEgress"/>.</summary>
     public string Egress { get; set; } = "open";
     public string? EgressProxyUrl { get; set; }
+
+    /// <summary>Hostnames the session may reach in "broker" mode (git host, registries, model API, backend);
+    /// everything else is denied. Ignored in "open"/"proxy" mode. See <see cref="SandboxSpec.EgressAllowlist"/>.</summary>
+    public List<string> EgressAllowlist { get; set; } = [];
 
     /// <summary>Mount the container rootfs read-only (opt-in hardening; see <see cref="SandboxSpec.ReadOnlyRootfs"/>).</summary>
     public bool ReadOnlyRootfs { get; set; }
@@ -94,7 +99,11 @@ public sealed record SandboxProfile(
     SandboxResourceLimits Limits,
     SandboxEgress Egress,
     string? EgressProxyUrl,
-    bool ReadOnlyRootfs = false);
+    bool ReadOnlyRootfs = false)
+{
+    /// <summary>Hostnames the session may reach in <see cref="SandboxEgress.Broker"/> mode; empty otherwise.</summary>
+    public IReadOnlyList<string> EgressAllowlist { get; init; } = [];
+}
 
 /// <summary>
 /// Resolves the isolation profile for a session with precedence
@@ -120,9 +129,12 @@ public sealed class SandboxProfileResolver(IOptions<SandboxOptions> options)
             name = _options.DefaultProfile;
         }
 
-        var egress = string.Equals(cfg.Egress, "proxy", StringComparison.OrdinalIgnoreCase)
-            ? SandboxEgress.Proxy
-            : SandboxEgress.Open;
+        var egress = cfg.Egress?.Trim().ToLowerInvariant() switch
+        {
+            "broker" => SandboxEgress.Broker,
+            "proxy" => SandboxEgress.Proxy,
+            _ => SandboxEgress.Open,
+        };
 
         return new SandboxProfile(
             name,
@@ -130,7 +142,14 @@ public sealed class SandboxProfileResolver(IOptions<SandboxOptions> options)
             new SandboxResourceLimits(checked((long)cfg.MemoryMb * 1024 * 1024), cfg.Cpus, cfg.PidsLimit),
             egress,
             cfg.EgressProxyUrl,
-            cfg.ReadOnlyRootfs);
+            cfg.ReadOnlyRootfs)
+        {
+            // The allowlist only takes effect under broker egress; keep it empty otherwise so the resolved
+            // profile reflects what is actually enforced (an allowlist on an open/proxy profile is inert).
+            EgressAllowlist = egress == SandboxEgress.Broker && cfg.EgressAllowlist.Count > 0
+                ? cfg.EgressAllowlist.ToArray()
+                : [],
+        };
     }
 
     private bool TryGetProfile(string name, out SandboxProfileConfig cfg)

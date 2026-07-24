@@ -47,6 +47,29 @@ configure_broker() {
 }
 configure_broker
 
+# Broker egress: the sandbox's ONLY route out is the per-session broker's CONNECT proxy (HTTPS_PROXY). The broker
+# (a separate container/Pod) may still be starting when we boot, so WAIT for its proxy port to accept a connection
+# before we clone the repo or the runner enrolls — both dial out THROUGH it, and a first attempt against a
+# not-yet-listening broker fails with "connection refused" and the box exits (never comes online). Bounded; a
+# best-effort continue after the bound so a genuinely-dead broker still surfaces as a clean enrollment error.
+wait_for_broker() {
+  local proxy="${HTTPS_PROXY:-${https_proxy:-}}"
+  [[ -n "$proxy" ]] || return 0
+  local hostport="${proxy#*://}"; hostport="${hostport%%/*}"
+  local host="${hostport%%:*}" port="${hostport##*:}"
+  [[ -n "$host" && -n "$port" && "$host" != "$port" ]] || return 0
+  echo "sandbox-entrypoint: waiting for broker proxy ${host}:${port}..."
+  for _ in $(seq 1 90); do
+    if (exec 3<>"/dev/tcp/${host}/${port}") 2>/dev/null; then
+      echo "sandbox-entrypoint: broker proxy reachable"
+      return 0
+    fi
+    sleep 1
+  done
+  echo "sandbox-entrypoint: broker proxy ${host}:${port} still unreachable after 90s; continuing" >&2
+}
+wait_for_broker
+
 if [[ -n "${SANDBOX_REPO_URL:-}" || -n "${SANDBOX_REPOS:-}" ]]; then
   prepare-workspace || { echo "sandbox-entrypoint: prepare-workspace failed" >&2; exit 1; }
 fi

@@ -30,6 +30,8 @@ public class KubernetesBrokerSpecTests
         Assert.Contains("ALL", c.SecurityContext.Capabilities.Drop);
         Assert.True(c.SecurityContext.RunAsNonRoot);
         Assert.Equal(10002, c.SecurityContext.RunAsUser);
+        // Readiness gated on the CONNECT proxy listening, so the Service only routes when the broker is up.
+        Assert.Equal("3128", c.ReadinessProbe.TcpSocket.Port.Value);
     }
 
     [Fact]

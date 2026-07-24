@@ -33,6 +33,17 @@ public class KubernetesBrokerSpecTests
     }
 
     [Fact]
+    public void Broker_pod_applies_the_image_pull_policy_to_the_broker_and_init_containers()
+    {
+        // Node-imported broker image: both the broker container and the staging init must use IfNotPresent, else
+        // kubelet's :latest default (Always) tries a registry pull that fails → ImagePullBackOff.
+        var mounts = new[] { new Mintokei.Sandbox.SandboxBrokerCredentialMount("/root/.claude", "/creds/claude") };
+        var pod = KubernetesBrokerSpec.BuildBrokerPod(Session, "brk:latest", [], mounts, "IfNotPresent");
+        Assert.Equal("IfNotPresent", Assert.Single(pod.Spec.Containers).ImagePullPolicy);
+        Assert.Equal("IfNotPresent", Assert.Single(pod.Spec.InitContainers).ImagePullPolicy);
+    }
+
+    [Fact]
     public void Broker_pod_without_credential_mounts_has_no_init_or_volumes()
     {
         var pod = KubernetesBrokerSpec.BuildBrokerPod(Session, "brk:1", []);

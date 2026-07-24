@@ -62,6 +62,19 @@ public class SandboxCredentialStagerTests
         Assert.Contains("mintokei-stage-seed", call.Args);   // $0 label
         Assert.Contains("/root/.claude", call.Args);         // sources handed to the script, not interpolated
         Assert.Contains("/root/creds", call.Args);
+        Assert.Contains("10001", call.Args);                 // default: chown to the sandbox uid ($6)
+    }
+
+    [Fact]
+    public async Task Stage_chowns_to_the_requested_uid_so_the_broker_can_read_its_creds()
+    {
+        var fake = new FakeCommandRunner { Handler = (_, _) => new RunCommandResponse("", 0, "STAGED .claude\n", "", null) };
+
+        await New(fake).StageAsync(Guid.NewGuid(), "sbx-brk",
+            new SandboxSeedSources("/root/.claude", null, null, null), CancellationToken.None,
+            uid: SandboxImage.BrokerUid);
+
+        Assert.Contains("10002", Assert.Single(fake.Calls).Args); // nested broker mode → chown to the broker uid
     }
 
     [Fact]

@@ -12,6 +12,11 @@ public static class SandboxImage
 {
     public const long AgentUid = 10001;
 
+    /// <summary>The non-root uid/gid the broker image runs as (Dockerfile.broker: <c>useradd -u 10002 broker</c>).
+    /// Credentials staged for the broker to read (nested-runner broker) are chown'd to this so the broker can read
+    /// them while staying non-root; keep in lockstep with Dockerfile.broker + <c>KubernetesBrokerSpec</c>.</summary>
+    public const long BrokerUid = 10002;
+
     /// <summary>The agent user's HOME (Dockerfile.sandbox: <c>useradd -m</c> + <c>ENV HOME</c>). Under a
     /// read-only rootfs it must be a writable tmpfs so the entrypoint can seed creds and the CLIs can write.</summary>
     public const string AgentHome = "/home/agent";

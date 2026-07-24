@@ -97,8 +97,11 @@ public sealed class RemoteSandboxBroker(
         catch (Exception ex) when (ex is not OperationCanceledException) { logger.LogDebug(ex, "broker network rm failed"); }
     }
 
-    /// <summary>The broker container / DNS name the sandbox reaches on the internal network (session-derived).</summary>
-    internal static string BrokerContainerName(string sessionName)
+    /// <summary>The broker container / DNS name for a session (session-derived) — the name the sandbox reaches on
+    /// the internal network, and the name to remove on teardown. Public so an out-of-band GC (the ephemeral-machine
+    /// reaper's orphan reconcile) can forward-map a live session to its broker container and thus tell a LIVE broker
+    /// apart from an orphan.</summary>
+    public static string BrokerContainerName(string sessionName)
     {
         var seg = new string(sessionName.Select(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_' ? c : '-').ToArray());
         return (seg.Length == 0 ? "session" : seg) + "-broker";

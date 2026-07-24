@@ -138,6 +138,16 @@ public static class KubernetesBrokerSpec
                         ImagePullPolicy = imagePullPolicy, // null → kubelet default; set "IfNotPresent" for a node-imported image
                         Env = env.Count > 0 ? env.Select(kv => new V1EnvVar { Name = kv.Key, Value = kv.Value }).ToList() : null,
                         Ports = BrokerPorts.Select(p => new V1ContainerPort { Name = p.Name, ContainerPort = p.Port }).ToList(),
+                        // Gate the Service on the CONNECT proxy actually LISTENING, so the sandbox's Service DNS only
+                        // routes once the broker is up — complements the sandbox's wait-for-broker (belt + braces
+                        // against the start-up race that otherwise gives the sandbox "connection refused").
+                        ReadinessProbe = new V1Probe
+                        {
+                            TcpSocket = new V1TCPSocketAction { Port = 3128 },
+                            InitialDelaySeconds = 1,
+                            PeriodSeconds = 2,
+                            FailureThreshold = 30,
+                        },
                         VolumeMounts = brokerMounts.Count > 0 ? brokerMounts : null,
                         Resources = new V1ResourceRequirements
                         {

@@ -13,6 +13,8 @@ namespace Mintokei.Sandbox.Broker;
 ///   <item><c>${file:/path}</c> — the file's contents, trimmed (for a file that IS the token).</item>
 ///   <item><c>${json:/path#a.b.c}</c> — a nested string field of a JSON file (e.g. Claude's
 ///     <c>.credentials.json#claudeAiOauth.accessToken</c>).</item>
+///   <item><c>${gitcreds:/path}</c> — a git <c>.git-credentials</c> store (<c>https://user:token@host</c> lines)
+///     reshaped to the git mint's <c>host=user:token</c> form, one per line.</item>
 /// </list>
 /// A missing / unreadable / malformed file resolves to empty — the injected header is then unauthenticated and
 /// upstream returns 401 (surfaced), rather than the broker crashing.
@@ -24,9 +26,12 @@ public static partial class SecretRef
         if (string.IsNullOrEmpty(value) || !value.Contains("${", StringComparison.Ordinal))
             return value ?? "";
 
-        return RefRegex().Replace(value, m => m.Groups[1].Value == "file"
-            ? ReadFile(m.Groups[2].Value)
-            : ReadJson(m.Groups[2].Value));
+        return RefRegex().Replace(value, m => m.Groups[1].Value switch
+        {
+            "file" => ReadFile(m.Groups[2].Value),
+            "gitcreds" => ReadGitCreds(m.Groups[2].Value),
+            _ => ReadJson(m.Groups[2].Value),
+        });
     }
 
     private static string ReadFile(string path)
@@ -54,6 +59,30 @@ public static partial class SecretRef
         catch (Exception) { return ""; }
     }
 
-    [GeneratedRegex(@"\$\{(file|json):([^}]+)\}")]
+    // spec = "/path/.git-credentials" → the store's "https://user:token@host" lines reshaped to the git mint's
+    // "host=user:token" form (newline-joined; BROKER_GIT_CREDS/GitCredentialMint.ParseCreds consume that shape).
+    // Mirrors Mintokei.Sandbox's SandboxCredentialSources.GitCredentialLines — the broker image can't reference
+    // that library, so the nested-runner broker reshapes the runner's OWN git store here, token never leaving it.
+    private static string ReadGitCreds(string path)
+    {
+        try
+        {
+            if (!File.Exists(path)) return "";
+            var lines = new List<string>();
+            foreach (var raw in File.ReadAllLines(path))
+            {
+                if (string.IsNullOrWhiteSpace(raw) || !Uri.TryCreate(raw.Trim(), UriKind.Absolute, out var uri)) continue;
+                var ui = uri.UserInfo.Split(':', 2);
+                if (ui[0].Length == 0) continue; // no username → not a usable store line
+                var user = Uri.UnescapeDataString(ui[0]);
+                var token = ui.Length > 1 ? Uri.UnescapeDataString(ui[1]) : "";
+                lines.Add($"{uri.Host}={user}:{token}");
+            }
+            return string.Join('\n', lines);
+        }
+        catch (Exception) { return ""; } // best-effort: unreadable → no git creds, never a crash
+    }
+
+    [GeneratedRegex(@"\$\{(file|json|gitcreds):([^}]+)\}")]
     private static partial Regex RefRegex();
 }

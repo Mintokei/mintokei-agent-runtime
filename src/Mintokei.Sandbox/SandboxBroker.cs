@@ -81,6 +81,14 @@ public sealed record SandboxBrokerSecrets(
     /// <summary>Set the git-credential lines the mint serves (see <see cref="GitCredentialLine"/>).</summary>
     public SandboxBrokerSecrets WithGitCredentials(string credentials) => this with { GitCredentials = credentials };
 
+    /// <summary>Set git-credential lines read from a mounted <c>.git-credentials</c> store
+    /// (<c>https://user:token@host</c>) at broker startup, reshaped to the mint's <c>host=user:token</c> form by the
+    /// broker's <c>${gitcreds:…}</c> resolver — the real token stays on the runner (nested-runner broker). Pass the
+    /// path AS SEEN INSIDE the broker container (the mount target), and mount the store's dir via a
+    /// <see cref="SandboxBrokerCredentialMount"/>.</summary>
+    public SandboxBrokerSecrets WithGitCredentialsFromFile(string gitCredentialsPath) =>
+        this with { GitCredentials = $"${{gitcreds:{gitCredentialsPath}}}" };
+
     /// <summary>Set the GitHub token minted for the Copilot CLI's GitHub API calls.</summary>
     public SandboxBrokerSecrets WithGitHubToken(string token) => this with { GitHubToken = token };
 }

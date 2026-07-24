@@ -7,7 +7,8 @@ using Mintokei.Sandbox.Broker;
 //   --port <n>       (or BROKER_PORT,      default 3128)  CONNECT egress-proxy port
 //   --allow a,b,.c   (or BROKER_ALLOW)                    egress allowlist (exact host or ".suffix")
 //   (or BROKER_MINT_PORT, default 3129)                   git-credential mint port
-//   (or BROKER_GIT_CREDS)                                 "host=user:token, host2=user2:token2" (never seeded in-box)
+//   (or BROKER_GIT_CREDS)                                 "host=user:token, ..." OR a ${gitcreds:/path} reference
+//                                                          the broker resolves from a mounted store (never seeded in-box)
 
 var port = 3128;
 var allow = new List<string>();
@@ -21,7 +22,10 @@ if (int.TryParse(Environment.GetEnvironmentVariable("BROKER_PORT"), out var envP
 allow.AddRange(Split(Environment.GetEnvironmentVariable("BROKER_ALLOW") ?? ""));
 
 var mintPort = int.TryParse(Environment.GetEnvironmentVariable("BROKER_MINT_PORT"), out var mp) ? mp : 3129;
-var creds = GitCredentialMint.ParseCreds(Environment.GetEnvironmentVariable("BROKER_GIT_CREDS") ?? "");
+// Resolve any ${gitcreds:…}/${file:…}/${json:…} reference first (nested-runner broker: the token is read HERE from
+// the runner's own store mounted RO, never carried through the control plane); a plain "host=user:token" list has
+// no reference and passes through unchanged (inline-token mode, e.g. the K8s path).
+var creds = GitCredentialMint.ParseCreds(SecretRef.Resolve(Environment.GetEnvironmentVariable("BROKER_GIT_CREDS") ?? ""));
 
 // Optional model-API injection: one reverse-proxy per configured provider — the legacy single upstream
 // (BROKER_MODEL_UPSTREAM) and/or any number of named providers (BROKER_MODEL_<NAME>_UPSTREAM), each on its own

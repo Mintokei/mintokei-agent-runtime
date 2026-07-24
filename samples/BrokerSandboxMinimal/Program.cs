@@ -34,6 +34,9 @@ builder.Services.AddMintokeiRemoteSandbox();                  // RemoteSandboxMa
 if (builder.Configuration.GetValue<bool>("Sandbox:LocalDocker"))
     builder.Services.AddMintokeiLocalCommandRunner();
 builder.Services.Configure<BrokerDemoOptions>(builder.Configuration.GetSection(BrokerDemoOptions.Section));
+// The product's per-session secret source: turns (here) config into the secrets the broker injects, using the
+// library's convention builders. The runtime resolves it at provision time in broker mode — see DemoBrokerSecrets.
+builder.Services.AddMintokeiSandboxBrokerSecrets<DemoBrokerSecrets>();
 
 var app = builder.Build();
 app.MapMintokeiRunnerHost();
@@ -87,19 +90,14 @@ app.MapPost("/demo/broker-sandbox-run", async (
         Repos = string.IsNullOrWhiteSpace(repo) ? [] : [new SandboxRepoSpec(repo)],
     };
 
-    // ── The secrets the broker holds on the worker (never seeded into the sandbox). ──
-    var secrets = new SandboxBrokerSecrets(
-        GitCredentials: o.GitCredentials,
-        ModelUpstream: o.ModelUpstream,
-        ModelAuth: o.ModelAuth);
-
     // ── ONE call: start the broker + net → docker run on the worker (joined to the internal net) → wait
-    //    online. `await using` recycles the container AND the broker. ──
+    //    online. The broker's secrets come from the registered ISandboxBrokerSecretsProvider (DemoBrokerSecrets);
+    //    pass `brokerSecrets:` here only to override per call. `await using` recycles the container AND broker. ──
     RemoteSandboxSession sandbox;
     try
     {
         sandbox = await sandboxes.LaunchAsync(workerId, machineId, request, plane.IsRunnerConnected,
-            profile: "hardened", brokerSecrets: secrets, ct: ct);
+            profile: "hardened", ct: ct);
     }
     catch (SandboxRuntimeException ex)
     {

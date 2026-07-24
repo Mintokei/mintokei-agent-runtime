@@ -56,10 +56,60 @@ public static class KubernetesBrokerSpec
         [RoleLabel] = SandboxRole,
     };
 
-    /// <summary>The broker Pod: the broker image + its env, non-root, minimal resources, labelled per session.</summary>
-    public static V1Pod BuildBrokerPod(string sessionName, string image, IReadOnlyList<KeyValuePair<string, string>> env)
+    /// <summary>
+    /// The broker Pod: the broker image + its env, non-root, minimal resources, labelled per session.
+    /// <paramref name="credentialMounts"/> (optional) are node cred dirs the broker resolves <c>${json:…}</c>/
+    /// <c>${gitcreds:…}</c> refs from — but they are <c>0600 root</c> and the broker runs non-root, so (exactly as
+    /// <see cref="KubernetesPodSpec"/> does for the sandbox) a ROOT initContainer stages a broker-uid-owned copy
+    /// into an in-memory emptyDir the broker reads. The real token is read HERE in the broker Pod, never by the
+    /// control plane and never written to a k8s Secret.
+    /// </summary>
+    public static V1Pod BuildBrokerPod(
+        string sessionName, string image, IReadOnlyList<KeyValuePair<string, string>> env,
+        IReadOnlyList<SandboxBrokerCredentialMount>? credentialMounts = null)
     {
         var session = Session(sessionName);
+
+        var volumes = new List<V1Volume>();
+        var brokerMounts = new List<V1VolumeMount>();
+        var initContainers = new List<V1Container>();
+
+        var mounts = credentialMounts ?? [];
+        if (mounts.Count > 0)
+        {
+            var initMounts = new List<V1VolumeMount>();
+            var cps = new List<string>();
+            for (var i = 0; i < mounts.Count; i++)
+            {
+                var m = mounts[i];
+                var srcVol = $"bcred-src-{i}";
+                var stagedVol = $"bcred-{i}";
+                volumes.Add(new V1Volume { Name = srcVol, HostPath = new V1HostPathVolumeSource { Path = m.HostDir } });
+                volumes.Add(new V1Volume { Name = stagedVol, EmptyDir = new V1EmptyDirVolumeSource { Medium = "Memory" } });
+                initMounts.Add(new V1VolumeMount { Name = srcVol, MountPath = $"/stage-in/{i}", ReadOnlyProperty = true });
+                initMounts.Add(new V1VolumeMount { Name = stagedVol, MountPath = $"/stage-out/{i}" });
+                // The broker reads the STAGED copy at the ref path (e.g. /creds/claude) — not the raw hostPath.
+                brokerMounts.Add(new V1VolumeMount { Name = stagedVol, MountPath = m.ContainerDir, ReadOnlyProperty = true });
+                cps.Add($"cp -aL /stage-in/{i}/. /stage-out/{i}/ 2>/dev/null || true");
+            }
+            var script = string.Join("; ", cps) + $"; chown -R {BrokerUid}:{BrokerUid} /stage-out";
+            initContainers.Add(new V1Container
+            {
+                Name = "stage-creds",
+                Image = image, // reuse the broker image (already scheduled) — no extra pull
+                Command = ["sh", "-c", script],
+                VolumeMounts = initMounts,
+                SecurityContext = new V1SecurityContext
+                {
+                    RunAsNonRoot = false,
+                    RunAsUser = 0,       // root: the only thing that can read the 0600 root-owned node creds
+                    RunAsGroup = 0,
+                    AllowPrivilegeEscalation = false,
+                    Capabilities = new V1Capabilities { Drop = ["ALL"], Add = ["CHOWN", "DAC_OVERRIDE", "FOWNER"] },
+                },
+            });
+        }
+
         return new V1Pod
         {
             ApiVersion = "v1",
@@ -77,6 +127,7 @@ public static class KubernetesBrokerSpec
             Spec = new V1PodSpec
             {
                 RestartPolicy = "Always", // stays up for the whole session; torn down explicitly on stop
+                InitContainers = initContainers.Count > 0 ? initContainers : null,
                 Containers =
                 [
                     new V1Container
@@ -85,6 +136,7 @@ public static class KubernetesBrokerSpec
                         Image = image,
                         Env = env.Count > 0 ? env.Select(kv => new V1EnvVar { Name = kv.Key, Value = kv.Value }).ToList() : null,
                         Ports = BrokerPorts.Select(p => new V1ContainerPort { Name = p.Name, ContainerPort = p.Port }).ToList(),
+                        VolumeMounts = brokerMounts.Count > 0 ? brokerMounts : null,
                         Resources = new V1ResourceRequirements
                         {
                             Limits = new Dictionary<string, ResourceQuantity>
@@ -103,6 +155,7 @@ public static class KubernetesBrokerSpec
                         },
                     },
                 ],
+                Volumes = volumes.Count > 0 ? volumes : null,
             },
         };
     }

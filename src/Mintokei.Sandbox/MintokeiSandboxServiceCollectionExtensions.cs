@@ -84,6 +84,16 @@ public static class MintokeiSandboxServiceCollectionExtensions
         services.AddMintokeiSandboxBrokerSecrets<HostCredentialsBrokerSecretsProvider>();
 
     /// <summary>
+    /// Register the <see cref="HostCredentialsFileRefBrokerSecretsProvider"/>: the file-REFERENCE variant for
+    /// backends where the control plane can't read the node creds (the Kubernetes broker — non-root API pod,
+    /// <c>0600 root</c> creds). It emits <c>${json:…}</c>/<c>${gitcreds:…}</c> refs + the cred dirs to mount, and
+    /// the broker Pod stages + resolves them itself (so the token never touches the API pod or a k8s Secret).
+    /// Sources the same <see cref="SandboxOptions.BrokerCredentials"/> locations as the reading provider.
+    /// </summary>
+    public static IServiceCollection AddMintokeiHostCredentialsFileRefBrokerSecrets(this IServiceCollection services) =>
+        services.AddMintokeiSandboxBrokerSecrets<HostCredentialsFileRefBrokerSecretsProvider>();
+
+    /// <summary>
     /// Run the remote-sandbox path (<see cref="AddMintokeiRemoteSandbox"/>) on THIS machine with NO enrolled
     /// worker — the broker + sandbox containers launch on the local Docker daemon. Replaces the
     /// <see cref="Mintokei.Runner.Contracts.IRemoteCommandRunner"/> with a local process runner, so call it

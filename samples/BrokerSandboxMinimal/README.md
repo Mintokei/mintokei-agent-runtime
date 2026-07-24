@@ -37,8 +37,16 @@ the broker.
 - `Sandbox:BackendUrl` / `Sandbox:GrpcBackendUrl` — `https://`, host allowlisted.
 - `Sandbox:GitCredentials` — `host=user:token` lines the broker injects (prefer a short-lived, repo-scoped
   token, e.g. a GitHub App installation token).
-- `Sandbox:ModelUpstream` + `Sandbox:ModelAuth` — optional model injection (e.g. `https://api.anthropic.com` +
-  `x-api-key=sk-ant-...`).
+- `Sandbox:AnthropicOAuthToken` — optional Anthropic subscription OAuth token (`sk-ant-oat…`). The broker
+  injects it on the sandbox's model calls; no header is hand-formatted (see below).
+- `Sandbox:GitHubToken` — optional GitHub token minted for the Copilot CLI.
+
+These map to the broker's injected secrets in [`DemoBrokerSecrets`](DemoBrokerSecrets.cs) — an
+`ISandboxBrokerSecretsProvider` that builds `SandboxBrokerSecrets` with the library's convention helpers
+(`ModelUpstreamSpec.AnthropicOAuth(token)`, `SandboxBrokerSecrets.GitCredentialLine(...)`, `WithGitHubToken(...)`)
+so no consumer re-derives header shapes. It's registered with `AddMintokeiSandboxBrokerSecrets<DemoBrokerSecrets>()`
+and the runtime calls it at provision time. A real product implements this same interface, sourcing each session's
+credentials from its own per-tenant store (keyed off `SandboxSessionRequest.Name`) instead of config.
 
 ## Run (remote worker)
 

@@ -29,11 +29,14 @@ public sealed class BrokerDemoOptions
     /// by the broker; never seeded into the sandbox.</summary>
     public string? GitCredentials { get; set; }
 
-    /// <summary>Optional model-API injection: the real upstream base URL (e.g. <c>https://api.anthropic.com</c>).
-    /// When set, the sandbox's model base URL is pointed at the broker, which adds the key below.</summary>
-    public string? ModelUpstream { get; set; }
+    /// <summary>Anthropic subscription (Max/Pro) OAuth access token (<c>sk-ant-oat…</c>, e.g. from
+    /// <c>~/.claude/.credentials.json</c>). <see cref="DemoBrokerSecrets"/> turns it into the right injected
+    /// header via <see cref="Mintokei.Sandbox.ModelUpstreamSpec.AnthropicOAuth"/> — no hand-formatting. Held on
+    /// the worker; never seeded into the sandbox. (For a raw x-api-key or another provider, build a
+    /// <c>ModelUpstreamSpec</c> directly.)</summary>
+    public string? AnthropicOAuthToken { get; set; }
 
-    /// <summary>Auth header(s) the broker injects into model calls: <c>Name: value</c> / <c>Name=value</c>
-    /// (e.g. <c>x-api-key=sk-ant-...</c>). Held on the worker; never seeded into the sandbox.</summary>
-    public string? ModelAuth { get; set; }
+    /// <summary>Optional GitHub token minted for the Copilot CLI's GitHub API calls (fine-grained
+    /// <c>github_pat_…</c>). Held on the worker; never seeded into the sandbox.</summary>
+    public string? GitHubToken { get; set; }
 }

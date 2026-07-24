@@ -21,11 +21,17 @@ public sealed class SandboxSpecFactory(IOptions<SandboxOptions> options)
         // short-lived, scoped creds), so egress must be genuinely bounded. Fail closed on a misconfiguration
         // rather than silently launching an unbounded or credential-less sandbox.
         var brokered = profile.Egress == SandboxEgress.Broker;
+
+        // The per-session allowlist (set by the product from the session's tool) wins over the profile's, so ONE
+        // broker profile can serve tools with different egress needs without resorting to an allow-all list.
+        var egressAllowlist = req.Broker?.Allowlist is { Count: > 0 } perSession ? perSession : profile.EgressAllowlist;
+
         if (brokered)
         {
-            if (profile.EgressAllowlist.Count == 0)
+            if (egressAllowlist.Count == 0)
                 throw new SandboxRuntimeException(
-                    $"profile '{profile.Name}' uses broker egress but its EgressAllowlist is empty — refusing to launch (fail-closed).");
+                    $"profile '{profile.Name}' uses broker egress but its allowlist is empty (neither the profile nor the " +
+                    "session supplied one) — refusing to launch (fail-closed).");
             if (req.AddHostGateway)
                 throw new SandboxRuntimeException(
                     $"profile '{profile.Name}' uses broker egress, which is incompatible with AddHostGateway (host reachability defeats containment).");
@@ -96,7 +102,7 @@ public sealed class SandboxSpecFactory(IOptions<SandboxOptions> options)
             Limits = profile.Limits,
             Egress = profile.Egress,
             EgressProxyUrl = profile.EgressProxyUrl,
-            EgressAllowlist = profile.EgressAllowlist,
+            EgressAllowlist = egressAllowlist,
             Mounts = mounts,
             Env = env,
             Args = args,

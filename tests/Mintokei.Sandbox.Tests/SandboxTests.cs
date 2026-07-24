@@ -266,6 +266,24 @@ public class SandboxSpecFactoryTests
     }
 
     [Fact]
+    public void Per_session_broker_allowlist_wins_over_the_profiles()
+    {
+        var factory = new SandboxSpecFactory(Options.Create(new SandboxOptions { Image = "img:1" }));
+        var profile = new SandboxProfile("broker", "runc", new SandboxResourceLimits(1, 1, 1), SandboxEgress.Broker, null)
+        { EgressAllowlist = ["github.com"] };
+
+        var spec = factory.Build(profile, new SandboxSessionRequest
+        {
+            BackendUrl = "https://api",
+            EnrollmentToken = "tok",
+            Name = "sess-1",
+            Broker = new SandboxBrokerNeeds(["anthropic"], Allowlist: ["api.anthropic.com"]),
+        });
+
+        Assert.Equal(["api.anthropic.com"], spec.EgressAllowlist); // the tight per-session list, not the profile's
+    }
+
+    [Fact]
     public void Encodes_multiple_repos_into_SANDBOX_REPOS()
     {
         var factory = new SandboxSpecFactory(Options.Create(new SandboxOptions { Image = "img:1" }));
@@ -389,7 +407,7 @@ public class SandboxSpecFactoryTests
             BackendUrl = "https://api", EnrollmentToken = "tok", Name = "sess-1",
         }));
 
-        Assert.Contains("EgressAllowlist is empty", ex.Message);
+        Assert.Contains("allowlist is empty", ex.Message);
     }
 
     [Fact]

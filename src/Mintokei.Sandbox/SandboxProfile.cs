@@ -76,6 +76,27 @@ public sealed class SandboxOptions
     /// <summary>Docker network the broker is also attached to so it (and only it) can reach the outside; the
     /// sandbox stays on the deny-by-default <c>--internal</c> net. Default: the daemon's <c>bridge</c>.</summary>
     public string BrokerEgressNetwork { get; set; } = "bridge";
+
+    /// <summary>Where the real credentials live, read by <see cref="HostCredentialsBrokerSecretsProvider"/> and
+    /// injected by the per-session broker (never seeded into the box). Bound from <c>Sandbox:BrokerCredentials</c>.</summary>
+    public SandboxBrokerCredentialLocations BrokerCredentials { get; set; } = new();
+}
+
+/// <summary>Filesystem locations (+ the GitHub token) the default broker-secrets provider reads from. Point each
+/// at the directory holding that CLI's standard credential file — see <see cref="SandboxCredentialSources"/>.</summary>
+public sealed class SandboxBrokerCredentialLocations
+{
+    /// <summary>Directory holding <c>.credentials.json</c> (Anthropic subscription OAuth token).</summary>
+    public string? AnthropicDir { get; set; }
+
+    /// <summary>Directory holding Codex <c>auth.json</c> (OpenAI API key).</summary>
+    public string? OpenAiDir { get; set; }
+
+    /// <summary>Directory holding <c>.git-credentials</c> (git store lines).</summary>
+    public string? GitDir { get; set; }
+
+    /// <summary>GitHub token minted for the Copilot CLI — supplied directly (no standard on-disk source).</summary>
+    public string? GitHubToken { get; set; }
 }
 
 /// <summary>One isolation tier: an OCI runtime + resource caps + egress posture.</summary>

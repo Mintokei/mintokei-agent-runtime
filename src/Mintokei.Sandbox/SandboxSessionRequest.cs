@@ -34,4 +34,9 @@ public sealed record SandboxSessionRequest
     // host dir holding .git-credentials (+ optional .ssh/). Not needed when SANDBOX_REPO_URL is public or
     // served from a local RO mirror (RepoCacheHostPath).
     public string? GitCredentialsHostDir { get; init; }
+
+    // Broker egress: what this session needs the per-session broker to inject (model providers / git / GitHub)
+    // and its tight egress allowlist — set by the product from the session's tool. Null for non-broker sessions.
+    // See SandboxBrokerNeeds; consumed by HostCredentialsBrokerSecretsProvider + SandboxSpecFactory (allowlist).
+    public SandboxBrokerNeeds? Broker { get; init; }
 }

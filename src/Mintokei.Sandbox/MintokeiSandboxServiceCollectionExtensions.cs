@@ -75,6 +75,15 @@ public static class MintokeiSandboxServiceCollectionExtensions
     }
 
     /// <summary>
+    /// Register the built-in <see cref="HostCredentialsBrokerSecretsProvider"/>: it reads the standard CLI cred
+    /// files from the configured <see cref="SandboxOptions.BrokerCredentials"/> locations and injects only what a
+    /// session declares via <see cref="SandboxSessionRequest.Broker"/>. The common case — a host supplies just the
+    /// locations (config) + the per-session needs (its tool); no custom provider needed until per-tenant sourcing.
+    /// </summary>
+    public static IServiceCollection AddMintokeiHostCredentialsBrokerSecrets(this IServiceCollection services) =>
+        services.AddMintokeiSandboxBrokerSecrets<HostCredentialsBrokerSecretsProvider>();
+
+    /// <summary>
     /// Run the remote-sandbox path (<see cref="AddMintokeiRemoteSandbox"/>) on THIS machine with NO enrolled
     /// worker — the broker + sandbox containers launch on the local Docker daemon. Replaces the
     /// <see cref="Mintokei.Runner.Contracts.IRemoteCommandRunner"/> with a local process runner, so call it

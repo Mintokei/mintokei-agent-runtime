@@ -16,6 +16,23 @@ public class ModelApiReverseProxyTests
     }
 
     [Fact]
+    public void Injected_header_secret_refs_are_resolved_from_mounted_files_at_construction()
+    {
+        var dir = Directory.CreateTempSubdirectory("mk-mrp").FullName;
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, ".credentials.json"), """{"claudeAiOauth":{"accessToken":"sk-ant-oat-REAL"}}""");
+            var authRef = $"Bearer ${{json:{Path.Combine(dir, ".credentials.json")}#claudeAiOauth.accessToken}}";
+
+            var proxy = new ModelApiReverseProxy("https://api.anthropic.com", [new("Authorization", authRef)]);
+            using var req = proxy.BuildUpstreamRequest("POST", "/v1/messages", [], null);
+
+            Assert.Equal("Bearer sk-ant-oat-REAL", Assert.Single(req.Headers.GetValues("Authorization")));
+        }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { /* temp */ } }
+    }
+
+    [Fact]
     public void BuildUpstreamRequest_rewrites_url_injects_auth_and_drops_hop_by_hop()
     {
         var proxy = new ModelApiReverseProxy("https://api.anthropic.com", [new("x-api-key", "sk-secret")]);

@@ -33,7 +33,9 @@ public sealed class ModelApiReverseProxy : IDisposable
         ILogger? logger = null, HttpMessageHandler? handler = null, string label = "model-api")
     {
         _upstream = new Uri(upstreamBaseUrl, UriKind.Absolute);
-        _inject = injectHeaders;
+        // Resolve any ${file:...}/${json:...} references NOW (once, at startup) against the runner's creds mounted
+        // into this container — so the real token is read here on the worker, never carried by the control plane.
+        _inject = injectHeaders.Select(h => new KeyValuePair<string, string>(h.Key, SecretRef.Resolve(h.Value))).ToList();
         _http = new HttpClient(handler ?? new SocketsHttpHandler { AllowAutoRedirect = false });
         _logger = logger ?? NullLogger.Instance;
         _label = label;

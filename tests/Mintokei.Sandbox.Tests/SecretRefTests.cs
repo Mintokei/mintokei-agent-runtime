@@ -29,10 +29,32 @@ public sealed class SecretRefTests : IDisposable
     }
 
     [Fact]
+    public void Gitcreds_ref_reshapes_the_store_to_the_mint_host_user_token_form()
+    {
+        // The nested-runner broker resolves the runner's own .git-credentials store into the git mint's
+        // "host=user:token" lines — one per stored host, so a broker-mode session can clone/push private repos.
+        File.WriteAllText(F(".git-credentials"),
+            "https://alice:ghp_TOKEN1@github.com\nhttps://x-access-token:ghs_TOKEN2@git.example.test\n");
+        Assert.Equal(
+            "github.com=alice:ghp_TOKEN1\ngit.example.test=x-access-token:ghs_TOKEN2",
+            SecretRef.Resolve($"${{gitcreds:{F(".git-credentials")}}}"));
+    }
+
+    [Fact]
+    public void Gitcreds_ref_url_decodes_the_token_and_skips_junk_lines()
+    {
+        // A token can be percent-encoded in the store (e.g. a '/' as %2F); it is decoded back. Blank / non-URL
+        // lines are skipped rather than emitted as garbage credentials.
+        File.WriteAllText(F(".git-credentials"), "\n# a comment\nhttps://bob:tok%2Fen@github.com\n");
+        Assert.Equal("github.com=bob:tok/en", SecretRef.Resolve($"${{gitcreds:{F(".git-credentials")}}}"));
+    }
+
+    [Fact]
     public void Missing_or_malformed_resolves_to_empty_never_throws()
     {
         Assert.Equal("Bearer ", SecretRef.Resolve($"Bearer ${{file:{F("nope")}}}"));       // missing file
         Assert.Equal("Bearer ", SecretRef.Resolve($"Bearer ${{json:{F("nope")}#a.b}}"));   // missing json file
+        Assert.Equal("", SecretRef.Resolve($"${{gitcreds:{F("nope")}}}"));                 // missing git store
         File.WriteAllText(F("x.json"), "not json");
         Assert.Equal("", SecretRef.Resolve($"${{json:{F("x.json")}#a}}"));                  // malformed json
     }

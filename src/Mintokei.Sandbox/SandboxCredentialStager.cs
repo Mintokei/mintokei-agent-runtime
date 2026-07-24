@@ -35,15 +35,19 @@ public sealed class SandboxCredentialStager(IRemoteCommandRunner commandRunner, 
     /// <summary>Stage the present sources into a per-session dir readable by the sandbox uid; returns the staged
     /// paths to bind-mount (null for a source that did not exist, so the caller drops that mount).</summary>
     public async Task<StagedSeedCreds> StageAsync(
-        Guid hostMachineId, string sessionName, SandboxSeedSources sources, CancellationToken ct = default)
+        Guid hostMachineId, string sessionName, SandboxSeedSources sources, CancellationToken ct = default,
+        long uid = SandboxImage.AgentUid)
     {
         var dir = SeedStagingDir(sessionName);
         // Paths go as POSITIONAL ARGS to `sh -c` (never interpolated into the script), so a path can't break
-        // out of the script. $1=dir, $2..$5 = the four sources (empty string when absent → the script skips it).
+        // out of the script. $1=dir, $2..$5 = the four sources (empty when absent → skipped), $6 = the uid the
+        // staged copy is chown'd to (the container that will MOUNT it — the sandbox by default, the broker uid
+        // in nested broker mode so the non-root broker can read the creds it injects).
         var result = await commandRunner.RunAsync(hostMachineId, "/", "sh",
             ["-c", StagingScript, "mintokei-stage-seed", dir,
              sources.ClaudeConfigDir ?? "", sources.ClaudeConfigJsonFile ?? "",
-             sources.CodexConfigDir ?? "", sources.GitCredentialsDir ?? ""],
+             sources.CodexConfigDir ?? "", sources.GitCredentialsDir ?? "",
+             uid.ToString(System.Globalization.CultureInfo.InvariantCulture)],
             30_000, ct);
 
         if (result.ExitCode != 0)
@@ -85,10 +89,10 @@ public sealed class SandboxCredentialStager(IRemoteCommandRunner commandRunner, 
         return chars.Length == 0 ? "session" : new string(chars);
     }
 
-    // POSIX sh, no braces (so raw-string {{ }} only marks the interpolated uid). Copies each present source into
-    // the staging dir, echoes a STAGED marker per success, then hands ownership to the sandbox uid (or, if the
-    // runner isn't root and chown fails, makes the copies world-readable so the uid can still read them).
-    private static readonly string StagingScript = $$"""
+    // POSIX sh. Copies each present source into the staging dir, echoes a STAGED marker per success, then hands
+    // ownership to the uid passed as $6 (the container that mounts the copy — sandbox by default, broker uid in
+    // nested broker mode) — or, if the runner isn't root and chown fails, makes the copies world-readable.
+    private const string StagingScript = """
         set -eu
         S=$1
         rm -rf "$S"
@@ -102,6 +106,6 @@ public sealed class SandboxCredentialStager(IRemoteCommandRunner commandRunner, 
           if [ -e "$5/.ssh" ]; then mkdir -p "$S/git"; cp -aL "$5/.ssh" "$S/git/"; g=1; fi
           if [ "$g" = 1 ]; then echo "STAGED git"; fi
         fi
-        chown -R {{SandboxImage.AgentUid}}:{{SandboxImage.AgentUid}} "$S" 2>/dev/null || chmod -R a+rX "$S"
+        chown -R "$6":"$6" "$S" 2>/dev/null || chmod -R a+rX "$S"
         """;
 }

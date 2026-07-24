@@ -21,7 +21,10 @@ namespace Mintokei.Sandbox.Kubernetes;
 ///   <item><b>AddHostGateway</b> (Docker's dev-only host.docker.internal) is ignored: in-cluster the sandbox
 ///     runner reaches the control plane via the API's Service DNS, configured in the runner's backend URLs.</item>
 ///   <item><b>Mounts</b> become <c>hostPath</c> volumes — node-local, correct for a single-node host (creds /
-///     repo-cache live on the node); a multi-node cluster would need a different distribution mechanism.</item>
+///     repo-cache live on the node); a multi-node cluster would need a different distribution mechanism. The
+///     credential <c>/seed/*</c> mounts are the exception: they are <c>0600 root</c>-owned and a non-root pod
+///     can't read a raw hostPath of them, so a root <b>initContainer</b> stages a uid-owned copy into an
+///     in-memory <c>emptyDir</c> the agent reads (the in-pod analogue of the nested path's credential stager).</item>
 /// </list>
 /// </summary>
 public static class KubernetesPodSpec
@@ -67,13 +70,66 @@ public static class KubernetesPodSpec
             mounts.Add(new V1VolumeMount { Name = name, MountPath = target });
         }
 
-        // Host mounts (RO creds/repo-cache) → hostPath volumes (Docker's -v src:target:ro). Node-local.
+        // Host mounts split by kind:
+        //   * cred "/seed/*" mounts are 0600 ROOT-owned node creds — a non-root pod (uid AgentUid) cannot read a
+        //     raw hostPath of them (hostPath gets no fsGroup remap), so a ROOT initContainer stages a uid-owned
+        //     copy into an in-memory emptyDir the agent reads. This is the in-pod analogue of the nested path's
+        //     SandboxCredentialStager (root copies + chowns per session); the node creds stay 0600 and the staged
+        //     copy dies with the Pod.
+        //   * everything else (repo cache, the persisted /repos volume) → a direct RO hostPath, as before.
+        const string SeedRoot = "/seed";
+        static bool IsSeed(SandboxMount m) =>
+            m.Target == SeedRoot || m.Target.StartsWith(SeedRoot + "/", StringComparison.Ordinal);
+
         var h = 0;
         foreach (var m in spec.Mounts)
         {
+            if (IsSeed(m)) continue; // staged below, not mounted directly
             var name = $"host-{h++}";
             volumes.Add(new V1Volume { Name = name, HostPath = new V1HostPathVolumeSource { Path = m.Source } });
             mounts.Add(new V1VolumeMount { Name = name, MountPath = m.Target, ReadOnlyProperty = m.ReadOnly });
+        }
+
+        var initContainers = new List<V1Container>();
+        var seedMounts = spec.Mounts.Where(IsSeed).ToList();
+        if (seedMounts.Count > 0)
+        {
+            const string staged = "seed-staged";
+            volumes.Add(new V1Volume { Name = staged, EmptyDir = new V1EmptyDirVolumeSource { Medium = "Memory" } });
+
+            // The init reads each source (as root) at /stage-in/<rel-under-/seed> and writes the emptyDir at /stage-out.
+            var initMounts = new List<V1VolumeMount>();
+            foreach (var m in seedMounts)
+            {
+                var name = $"seed-src-{h++}";
+                var rel = m.Target[SeedRoot.Length..].TrimStart('/'); // .claude | .claude.json | .codex | git
+                volumes.Add(new V1Volume { Name = name, HostPath = new V1HostPathVolumeSource { Path = m.Source } });
+                initMounts.Add(new V1VolumeMount { Name = name, MountPath = $"/stage-in/{rel}", ReadOnlyProperty = true });
+            }
+            initMounts.Add(new V1VolumeMount { Name = staged, MountPath = "/stage-out" });
+
+            // The agent reads the staged, uid-owned copy at /seed — NOT the unreadable raw hostPath.
+            mounts.Add(new V1VolumeMount { Name = staged, MountPath = SeedRoot });
+
+            var uid = SandboxImage.AgentUid.ToString(CultureInfo.InvariantCulture);
+            initContainers.Add(new V1Container
+            {
+                Name = "stage-creds",
+                Image = spec.Image,                 // reuse the sandbox image (already on the node) — no extra pull
+                ImagePullPolicy = imagePullPolicy,
+                // Copy the mounted creds into the emptyDir preserving structure, then hand ownership to the agent
+                // uid so the non-root main container can read them. Best-effort per source (missing → skipped).
+                Command = ["sh", "-c", $"cp -aL /stage-in/. /stage-out/ 2>/dev/null || true; chown -R {uid}:{uid} /stage-out"],
+                VolumeMounts = initMounts,
+                SecurityContext = new V1SecurityContext
+                {
+                    RunAsNonRoot = false,
+                    RunAsUser = 0,                  // root: the only thing that can read the 0600 root-owned creds
+                    RunAsGroup = 0,
+                    AllowPrivilegeEscalation = false,
+                    Capabilities = new V1Capabilities { Drop = ["ALL"], Add = ["CHOWN", "DAC_OVERRIDE", "FOWNER"] },
+                },
+            });
         }
 
         var env = spec.Env.Select(kv => new V1EnvVar { Name = kv.Key, Value = kv.Value }).ToList();
@@ -133,6 +189,7 @@ public static class KubernetesPodSpec
                 // FsGroup makes the in-memory /data emptyDir group-owned + writable by the non-root agent
                 // (the kubelet does not chown emptyDir to the container uid on its own).
                 SecurityContext = new V1PodSecurityContext { FsGroup = SandboxImage.AgentUid },
+                InitContainers = initContainers.Count > 0 ? initContainers : null,
                 Containers = [container],
                 Volumes = volumes.Count > 0 ? volumes : null,
             },

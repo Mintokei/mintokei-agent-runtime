@@ -106,6 +106,54 @@ public class KubernetesPodSpecTests
         Assert.Contains(c.VolumeMounts, m => m.MountPath == "/repo-cache" && m.ReadOnlyProperty == true);
     }
 
+    private static SandboxSpec SpecWithSeed() => Spec() with
+    {
+        Mounts =
+        [
+            new SandboxMount("/repo-cache", "/repo-cache", ReadOnly: true),
+            new SandboxMount("/root/.claude", "/seed/.claude", ReadOnly: true),
+            new SandboxMount("/root/.claude.json", "/seed/.claude.json", ReadOnly: true),
+            new SandboxMount("/root/sandbox-git-creds", "/seed/git", ReadOnly: true),
+        ],
+    };
+
+    [Fact]
+    public void Seed_creds_are_staged_by_a_root_initContainer_the_agent_then_reads_from_an_emptydir()
+    {
+        var pod = KubernetesPodSpec.Build(SpecWithSeed(), "Never");
+        var main = Container(pod);
+
+        // A ROOT initContainer stages the creds — the only thing that can read the 0600 root-owned node files.
+        var init = Assert.Single(pod.Spec.InitContainers);
+        Assert.Equal(0, init.SecurityContext.RunAsUser);
+        Assert.False(init.SecurityContext.RunAsNonRoot);
+        Assert.Contains("CHOWN", init.SecurityContext.Capabilities.Add);
+        Assert.Equal("Never", init.ImagePullPolicy); // reuses the sandbox image (already on the node)
+
+        // It mounts each cred SOURCE under /stage-in and the shared emptyDir at /stage-out, then chowns to the agent uid.
+        Assert.Contains(init.VolumeMounts, m => m.MountPath == "/stage-in/.claude" && m.ReadOnlyProperty == true);
+        Assert.Contains(init.VolumeMounts, m => m.MountPath == "/stage-in/.claude.json");
+        Assert.Contains(init.VolumeMounts, m => m.MountPath == "/stage-in/git");
+        Assert.Contains(init.VolumeMounts, m => m.MountPath == "/stage-out");
+        Assert.Contains($"chown -R {SandboxImage.AgentUid}:{SandboxImage.AgentUid} /stage-out", init.Command[^1]);
+
+        // The AGENT reads the staged copy at /seed from an in-memory emptyDir — never a raw hostPath of the creds.
+        var seed = Assert.Single(main.VolumeMounts, m => m.MountPath == "/seed");
+        Assert.Contains(pod.Spec.Volumes, v => v.Name == seed.Name && v.EmptyDir?.Medium == "Memory");
+        Assert.DoesNotContain(main.VolumeMounts, m => m.MountPath.StartsWith("/seed/", StringComparison.Ordinal));
+        // The cred hostPaths exist (for the init) but are NOT mounted into the main container.
+        var credVolNames = pod.Spec.Volumes.Where(v => v.HostPath?.Path is "/root/.claude" or "/root/sandbox-git-creds").Select(v => v.Name).ToHashSet();
+        Assert.DoesNotContain(main.VolumeMounts, m => credVolNames.Contains(m.Name));
+
+        // A non-cred mount (repo cache) is still a direct RO hostPath on the main container.
+        Assert.Contains(main.VolumeMounts, m => m.MountPath == "/repo-cache");
+        Assert.Contains(pod.Spec.Volumes, v => v.HostPath?.Path == "/repo-cache");
+    }
+
+    [Fact]
+    public void No_seed_mounts_means_no_init_container()
+        => Assert.Null(KubernetesPodSpec.Build(Spec()).Spec.InitContainers); // only /repo-cache, no /seed/*
+
     [Fact]
     public void Tmpfs_targets_become_in_memory_emptydir_volumes()
     {

@@ -18,6 +18,18 @@ public class SandboxBrokerSecretsTests
     }
 
     [Fact]
+    public void AnthropicOAuthFromFile_builds_a_json_reference_not_a_token()
+    {
+        var m = ModelUpstreamSpec.AnthropicOAuthFromFile("/creds/claude/.credentials.json");
+
+        Assert.Equal("anthropic", m.Provider);
+        // A ${json:…} REFERENCE — no token here; the broker resolves it from the mounted file at startup.
+        Assert.Equal(
+            "Authorization: Bearer ${json:/creds/claude/.credentials.json#claudeAiOauth.accessToken};anthropic-beta: oauth-2025-04-20",
+            m.Auth);
+    }
+
+    [Fact]
     public void OpenAiApiKey_builds_a_bearer_on_the_openai_provider()
     {
         var m = ModelUpstreamSpec.OpenAiApiKey("sk-openai-123");

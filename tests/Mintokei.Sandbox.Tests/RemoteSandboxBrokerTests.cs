@@ -110,6 +110,27 @@ public class RemoteSandboxBrokerTests
     }
 
     [Fact]
+    public async Task StartAsync_mounts_credential_dirs_read_only_and_injects_a_reference_not_a_token()
+    {
+        var fake = new FakeRunner();
+
+        await New(fake).StartAsync(Guid.NewGuid(), new SandboxBrokerRequest(
+            "sbx-1", ["api.anthropic.com"],
+            new SandboxBrokerSecrets(ModelUpstreams: [ModelUpstreamSpec.AnthropicOAuthFromFile("/creds/claude/.credentials.json")])
+            {
+                CredentialMounts = [new SandboxBrokerCredentialMount("/root/.claude", "/creds/claude")],
+            }));
+
+        var run = fake.Calls.First(c => c.Contains("run"));
+        Assert.Contains("--volume", run);
+        Assert.Contains("/root/.claude:/creds/claude:ro", run);                          // runner creds, RO
+        // The AUTH env carries a ${json:…} REFERENCE — the broker resolves the real token from the mount at startup.
+        Assert.Contains(run, a => a.StartsWith("BROKER_MODEL_ANTHROPIC_AUTH=", StringComparison.Ordinal)
+            && a.Contains("${json:/creds/claude/.credentials.json#claudeAiOauth.accessToken}"));
+        Assert.DoesNotContain(run, a => a.Contains("sk-ant-oat")); // no real token in the docker args
+    }
+
+    [Fact]
     public async Task StartAsync_fails_closed_and_removes_network_when_the_run_fails()
     {
         var fake = new FakeRunner { Handler = args => args.Contains("run") ? new("", 1, "", "boom", null) : new("", 0, "", "", null) };

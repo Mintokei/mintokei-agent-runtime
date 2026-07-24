@@ -46,6 +46,10 @@ public sealed class RemoteSandboxBroker(
         };
         foreach (var (k, v) in brokerEnv.Env)
             run.AddRange(["--env", $"{k}={v}"]);
+        // Mount the runner's own cred dirs RO so the broker resolves ${json:…}/${file:…} references itself — the
+        // real token is read here on the worker and never carried through the control plane (nested-runner path).
+        foreach (var mount in request.Secrets?.CredentialMounts ?? [])
+            run.AddRange(["--volume", $"{mount.HostDir}:{mount.ContainerDir}:ro"]);
         run.Add(_options.BrokerImage);
 
         (exit, _, stderr) = await DockerAsync(workerId, run, ct);

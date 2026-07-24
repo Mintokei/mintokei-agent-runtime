@@ -20,7 +20,26 @@ public sealed record ModelUpstreamSpec(string Provider, string Upstream, string?
     /// real key. Served on the openai broker port.</summary>
     public static ModelUpstreamSpec OpenAiApiKey(string apiKey, string upstream = "https://api.openai.com") =>
         new("openai", upstream, $"Authorization: Bearer {apiKey}");
+
+    // ── File-reference builders (nested-runner broker) ────────────────────────────────────────────────────
+    // Same header shapes, but the token is a ${json:…}/${file:…} REFERENCE the broker resolves from the runner's
+    // creds mounted into it (see the broker's SecretRef) — so the real token stays on the runner, never carried
+    // through the control plane. Pass the path AS SEEN INSIDE the broker container (the mount target).
+
+    /// <summary>Anthropic subscription OAuth read from a mounted <c>.credentials.json</c>
+    /// (<c>claudeAiOauth.accessToken</c>) at broker startup — the token never leaves the runner.</summary>
+    public static ModelUpstreamSpec AnthropicOAuthFromFile(string credentialsJsonPath, string upstream = "https://api.anthropic.com") =>
+        new("anthropic", upstream, $"Authorization: Bearer ${{json:{credentialsJsonPath}#claudeAiOauth.accessToken}};anthropic-beta: oauth-2025-04-20");
+
+    /// <summary>OpenAI key read from a mounted Codex <c>auth.json</c> (<c>OPENAI_API_KEY</c>) at broker startup.</summary>
+    public static ModelUpstreamSpec OpenAiApiKeyFromFile(string authJsonPath, string upstream = "https://api.openai.com") =>
+        new("openai", upstream, $"Authorization: Bearer ${{json:{authJsonPath}#OPENAI_API_KEY}}");
 }
+
+/// <summary>A read-only bind of a credential directory ON THE WORKER/RUNNER (<paramref name="HostDir"/>) into the
+/// broker container (<paramref name="ContainerDir"/>), so the broker can resolve <c>${json:…}</c>/<c>${file:…}</c>
+/// references (see <see cref="ModelUpstreamSpec.AnthropicOAuthFromFile"/>) from the runner's own creds.</summary>
+public sealed record SandboxBrokerCredentialMount(string HostDir, string ContainerDir);
 
 /// <summary>
 /// Secret material the broker holds on the worker for one session — NEVER seeded into the sandbox. Git
@@ -35,6 +54,11 @@ public sealed record SandboxBrokerSecrets(
     IReadOnlyList<ModelUpstreamSpec>? ModelUpstreams = null,
     string? GitHubToken = null)
 {
+    /// <summary>Credential directories to mount RO into the broker container so it can resolve
+    /// <c>${json:…}</c>/<c>${file:…}</c> references from the runner's own creds (nested-runner broker) — the token
+    /// is then read broker-side and never travels through the control plane. Empty for inline-token mode.</summary>
+    public IReadOnlyList<SandboxBrokerCredentialMount> CredentialMounts { get; init; } = [];
+
     /// <summary>The providers the broker injects for: the explicit <see cref="ModelUpstreams"/> if any, else the
     /// legacy scalar <see cref="ModelUpstream"/>/<see cref="ModelAuth"/> normalized to a single <c>"anthropic"</c>
     /// upstream (back-compat). Empty when no model injection is configured.</summary>

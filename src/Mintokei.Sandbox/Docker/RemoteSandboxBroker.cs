@@ -76,11 +76,24 @@ public sealed class RemoteSandboxBroker(
         return endpoint;
     }
 
-    public async Task StopAsync(Guid workerId, BrokerEndpoint endpoint, CancellationToken ct = default)
+    public Task StopAsync(Guid workerId, BrokerEndpoint endpoint, CancellationToken ct = default) =>
+        RemoveContainerAndNetworkAsync(workerId, endpoint.ContainerName, endpoint.NetworkName, ct);
+
+    /// <summary>
+    /// Tear a session's broker down from its SESSION NAME alone — deriving the container + network names the
+    /// same way <see cref="StartAsync"/> built them — for callers that don't hold the <see cref="BrokerEndpoint"/>
+    /// (the ephemeral-machine reaper GC'ing a completed or orphaned session). Best-effort; never throws.
+    /// </summary>
+    public Task StopBySessionAsync(Guid workerId, string sessionName, CancellationToken ct = default) =>
+        RemoveContainerAndNetworkAsync(workerId, BrokerContainerName(sessionName), DockerNetwork.Name(sessionName), ct);
+
+    // Remove the broker container then its per-session --internal network. Container first: while it is still a
+    // member, `network rm` would fail — removing it detaches the last member so the network rm succeeds.
+    private async Task RemoveContainerAndNetworkAsync(Guid workerId, string container, string network, CancellationToken ct)
     {
-        try { await DockerAsync(workerId, ["rm", "--force", endpoint.ContainerName], ct); }
+        try { await DockerAsync(workerId, ["rm", "--force", container], ct); }
         catch (Exception ex) when (ex is not OperationCanceledException) { logger.LogDebug(ex, "broker rm failed"); }
-        try { await DockerAsync(workerId, DockerNetwork.RemoveArgs(endpoint.NetworkName), ct); }
+        try { await DockerAsync(workerId, DockerNetwork.RemoveArgs(network), ct); }
         catch (Exception ex) when (ex is not OperationCanceledException) { logger.LogDebug(ex, "broker network rm failed"); }
     }
 

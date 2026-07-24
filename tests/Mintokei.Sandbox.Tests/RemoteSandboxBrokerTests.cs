@@ -150,4 +150,16 @@ public class RemoteSandboxBrokerTests
         Assert.Contains(fake.Calls, c => c.Contains("rm") && c.Contains("--force") && c.Contains("sbx-broker"));
         Assert.Contains(fake.Calls, c => c.Contains("network") && c.Contains("rm") && c.Contains("net-x"));
     }
+
+    [Fact]
+    public async Task StopBySessionAsync_derives_the_container_and_network_from_the_session_name()
+    {
+        // The reaper doesn't hold the BrokerEndpoint — it tears the broker down from the session name, which
+        // must reproduce EXACTLY the names StartAsync built (<session>-broker + the per-session --internal net).
+        var fake = new FakeRunner();
+        await New(fake).StopBySessionAsync(Guid.NewGuid(), "sbx-7");
+
+        Assert.Contains(fake.Calls, c => c.Contains("rm") && c.Contains("--force") && c.Contains("sbx-7-broker"));
+        Assert.Contains(fake.Calls, c => c.Contains("network") && c.Contains("rm") && c.Contains(DockerNetwork.Name("sbx-7")));
+    }
 }

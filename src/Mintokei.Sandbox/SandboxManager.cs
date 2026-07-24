@@ -18,7 +18,8 @@ public sealed class SandboxManager(
     SandboxProfileResolver profiles,
     SandboxSpecFactory specs,
     IOptions<SandboxOptions> options,
-    ILogger<SandboxManager> logger)
+    ILogger<SandboxManager> logger,
+    ISandboxBrokerSecretsProvider brokerSecrets)
 {
     private readonly SandboxOptions _options = options.Value;
     private readonly ConcurrentDictionary<string, SandboxLease> _leases = new();
@@ -59,7 +60,15 @@ public sealed class SandboxManager(
         CancellationToken ct = default)
     {
         var profile = profiles.Resolve(profileOverride, workspaceProfile);
-        var handle = await runtime.ProvisionAsync(specs.Build(profile, request), ct);
+        var spec = specs.Build(profile, request);
+
+        // Broker egress: the product supplies the secrets the per-session broker injects (model auth / git /
+        // GitHub) — the runtime can't know the tenant. The K8s runtime reads them off the spec. Non-broker
+        // profiles never touch the provider (and stage creds the classic way instead).
+        if (profile.Egress == SandboxEgress.Broker)
+            spec = spec with { BrokerSecrets = await brokerSecrets.ResolveAsync(request, profile, ct) };
+
+        var handle = await runtime.ProvisionAsync(spec, ct);
         var lease = new SandboxLease(handle, profile.Name, warm);
         _leases[request.Name] = lease;
         logger.LogInformation("Sandbox {Name} provisioned (profile={Profile}, warm={Warm})",

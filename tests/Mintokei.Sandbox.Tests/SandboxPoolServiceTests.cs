@@ -55,7 +55,7 @@ public class SandboxPoolServiceTests
         var runtime = new FakeRuntime();
         var manager = new SandboxManager(
             runtime, new SandboxProfileResolver(options), new SandboxSpecFactory(options), options,
-            NullLogger<SandboxManager>.Instance);
+            NullLogger<SandboxManager>.Instance, new NoSandboxBrokerSecrets());
         var source = new CountingSource();
         var service = new SandboxPoolService(manager, source, options, NullLogger<SandboxPoolService>.Instance);
         return (service, runtime, source);

@@ -125,8 +125,14 @@ public static class MintokeiSandboxServiceCollectionExtensions
                 // in-cluster ServiceAccount as a Pod, else the ambient kubeconfig).
                 services.AddSingleton<IKubernetes>(sp =>
                     new Kubernetes(BuildKubernetesConfig(sp.GetRequiredService<IOptions<SandboxOptions>>().Value)));
-                services.AddSingleton<ISandboxBroker, KubernetesSandboxBroker>(); // broker-egress on K8s
-                services.AddSingleton<ISandboxRuntime, KubernetesSandboxRuntime>();
+                // Register the K8s broker as a concrete singleton AND expose it as ISandboxBroker, then wire the
+                // runtime to THIS broker EXPLICITLY. On a host that also runs the nested path, RemoteSandboxBroker
+                // is registered as ISandboxBroker too, and a single-service injection would non-deterministically
+                // pick the wrong one — dispatching K8s provisioning to a Docker runner ("runner not connected").
+                services.AddSingleton<KubernetesSandboxBroker>(); // broker-egress on K8s
+                services.AddSingleton<ISandboxBroker>(sp => sp.GetRequiredService<KubernetesSandboxBroker>());
+                services.AddSingleton<ISandboxRuntime>(sp => ActivatorUtilities.CreateInstance<KubernetesSandboxRuntime>(
+                    sp, sp.GetRequiredService<KubernetesSandboxBroker>()));
                 break;
 
             case null or "" or "docker":

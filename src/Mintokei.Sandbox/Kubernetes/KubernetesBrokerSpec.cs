@@ -66,7 +66,7 @@ public static class KubernetesBrokerSpec
     /// </summary>
     public static V1Pod BuildBrokerPod(
         string sessionName, string image, IReadOnlyList<KeyValuePair<string, string>> env,
-        IReadOnlyList<SandboxBrokerCredentialMount>? credentialMounts = null)
+        IReadOnlyList<SandboxBrokerCredentialMount>? credentialMounts = null, string? imagePullPolicy = null)
     {
         var session = Session(sessionName);
 
@@ -97,6 +97,7 @@ public static class KubernetesBrokerSpec
             {
                 Name = "stage-creds",
                 Image = image, // reuse the broker image (already scheduled) — no extra pull
+                ImagePullPolicy = imagePullPolicy,
                 Command = ["sh", "-c", script],
                 VolumeMounts = initMounts,
                 SecurityContext = new V1SecurityContext
@@ -134,6 +135,7 @@ public static class KubernetesBrokerSpec
                     {
                         Name = "broker",
                         Image = image,
+                        ImagePullPolicy = imagePullPolicy, // null → kubelet default; set "IfNotPresent" for a node-imported image
                         Env = env.Count > 0 ? env.Select(kv => new V1EnvVar { Name = kv.Key, Value = kv.Value }).ToList() : null,
                         Ports = BrokerPorts.Select(p => new V1ContainerPort { Name = p.Name, ContainerPort = p.Port }).ToList(),
                         VolumeMounts = brokerMounts.Count > 0 ? brokerMounts : null,

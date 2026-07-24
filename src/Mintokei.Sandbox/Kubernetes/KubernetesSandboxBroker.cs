@@ -44,7 +44,9 @@ public sealed class KubernetesSandboxBroker(
         try
         {
             await client.CoreV1.CreateNamespacedPodAsync(
-                KubernetesBrokerSpec.BuildBrokerPod(request.SessionName, _options.BrokerImage, brokerEnv.Env, request.Secrets?.CredentialMounts),
+                KubernetesBrokerSpec.BuildBrokerPod(
+                    request.SessionName, _options.BrokerImage, brokerEnv.Env,
+                    request.Secrets?.CredentialMounts, _options.KubernetesImagePullPolicy),
                 _namespace, cancellationToken: ct);
             await client.CoreV1.CreateNamespacedServiceAsync(
                 KubernetesBrokerSpec.BuildBrokerService(request.SessionName), _namespace, cancellationToken: ct);

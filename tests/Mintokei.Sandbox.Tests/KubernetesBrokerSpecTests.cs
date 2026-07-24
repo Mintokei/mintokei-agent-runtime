@@ -33,6 +33,42 @@ public class KubernetesBrokerSpecTests
     }
 
     [Fact]
+    public void Broker_pod_without_credential_mounts_has_no_init_or_volumes()
+    {
+        var pod = KubernetesBrokerSpec.BuildBrokerPod(Session, "brk:1", []);
+        Assert.Null(pod.Spec.InitContainers);
+        Assert.Null(pod.Spec.Volumes);
+        Assert.Null(Assert.Single(pod.Spec.Containers).VolumeMounts);
+    }
+
+    [Fact]
+    public void Broker_pod_stages_credential_mounts_via_a_root_init_the_broker_reads_from_an_emptydir()
+    {
+        var mounts = new[]
+        {
+            new Mintokei.Sandbox.SandboxBrokerCredentialMount("/root/.claude", "/creds/claude"),
+            new Mintokei.Sandbox.SandboxBrokerCredentialMount("/root/sandbox-git-creds", "/creds/git"),
+        };
+        var pod = KubernetesBrokerSpec.BuildBrokerPod(Session, "brk:1", [], mounts);
+
+        // A ROOT initContainer stages the node creds (only root can read the 0600 files) and chowns to the broker uid.
+        var init = Assert.Single(pod.Spec.InitContainers);
+        Assert.Equal(0, init.SecurityContext.RunAsUser);
+        Assert.False(init.SecurityContext.RunAsNonRoot);
+        Assert.Contains("CHOWN", init.SecurityContext.Capabilities.Add);
+        Assert.Contains("chown -R 10002:10002 /stage-out", init.Command[^1]);
+        Assert.Contains(init.VolumeMounts, m => m.MountPath == "/stage-in/0" && m.ReadOnlyProperty == true);
+        Assert.Contains(init.VolumeMounts, m => m.MountPath == "/stage-out/1");
+
+        // The node creds are hostPath'd into the INIT (via /stage-in) but the BROKER reads the staged emptyDir copy.
+        Assert.Contains(pod.Spec.Volumes, v => v.HostPath?.Path == "/root/.claude");
+        var broker = Assert.Single(pod.Spec.Containers);
+        var claudeMount = Assert.Single(broker.VolumeMounts, m => m.MountPath == "/creds/claude");
+        Assert.Contains(pod.Spec.Volumes, v => v.Name == claudeMount.Name && v.EmptyDir?.Medium == "Memory");
+        Assert.Contains(broker.VolumeMounts, m => m.MountPath == "/creds/git");
+    }
+
+    [Fact]
     public void Service_selects_the_broker_pod_and_exposes_every_port()
     {
         var svc = KubernetesBrokerSpec.BuildBrokerService(Session);

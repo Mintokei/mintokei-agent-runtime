@@ -44,7 +44,8 @@ public sealed class KubernetesSandboxBroker(
         try
         {
             await client.CoreV1.CreateNamespacedPodAsync(
-                KubernetesBrokerSpec.BuildBrokerPod(request.SessionName, _options.BrokerImage, brokerEnv.Env), _namespace, cancellationToken: ct);
+                KubernetesBrokerSpec.BuildBrokerPod(request.SessionName, _options.BrokerImage, brokerEnv.Env, request.Secrets?.CredentialMounts),
+                _namespace, cancellationToken: ct);
             await client.CoreV1.CreateNamespacedServiceAsync(
                 KubernetesBrokerSpec.BuildBrokerService(request.SessionName), _namespace, cancellationToken: ct);
             // The containment: deny-by-default egress on the sandbox (broker + DNS only) + scope the broker.

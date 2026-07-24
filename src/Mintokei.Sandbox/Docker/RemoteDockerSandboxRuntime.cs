@@ -187,6 +187,53 @@ public sealed class RemoteDockerSandboxRuntime(
         }
     }
 
+    /// <summary>
+    /// Inventory the worker's managed sandbox resources — containers AND per-session <c>--internal</c> networks,
+    /// label-filtered to ours (<c>mintokei.sandbox=1</c>). This is the backstop for the disconnect / crash / API-
+    /// restart case: no explicit handle survives, so the reaper reconciles by comparing this inventory against the
+    /// live machine rows and removes what's orphaned. The shared broker egress network is UNLABELLED, so it never
+    /// appears here and can never be a reconcile target. Empty on any error (never throws).
+    /// </summary>
+    public async Task<RemoteManagedResources> ListManagedAsync(Guid hostMachineId, CancellationToken ct = default)
+    {
+        var containers = await ListNamesAsync(hostMachineId,
+            ["ps", "-a", "--filter", $"label={DockerCommand.ManagedLabel}=1", "--format", "{{.Names}}"], ct);
+        var networks = await ListNamesAsync(hostMachineId,
+            ["network", "ls", "--filter", $"label={DockerCommand.ManagedLabel}=1", "--format", "{{.Name}}"], ct);
+        return new RemoteManagedResources(containers, networks);
+    }
+
+    private async Task<IReadOnlyList<string>> ListNamesAsync(Guid hostMachineId, IReadOnlyList<string> argv, CancellationToken ct)
+    {
+        try
+        {
+            var (exit, stdout, _) = await DockerAsync(hostMachineId, argv, 15_000, ct);
+            return exit != 0 ? [] : stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogDebug(ex, "docker managed-resource list failed on runner {Host}", hostMachineId);
+            return [];
+        }
+    }
+
+    /// <summary>Best-effort removal of an orphaned per-session sandbox network. Docker refuses while a container is
+    /// still attached, so the reconcile removes the containers first; a "no such network" is a no-op. Never throws.</summary>
+    public async Task RemoveNetworkAsync(Guid hostMachineId, string networkName, CancellationToken ct = default)
+    {
+        try
+        {
+            var (exit, _, stderr) = await DockerAsync(hostMachineId, DockerNetwork.RemoveArgs(networkName), 15_000, ct);
+            if (exit != 0 && !stderr.Contains("No such network", StringComparison.OrdinalIgnoreCase)
+                          && !stderr.Contains("not found", StringComparison.OrdinalIgnoreCase))
+                logger.LogDebug("docker network rm '{Name}' on runner {Host} did not remove it: {Err}", networkName, hostMachineId, stderr.Trim());
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogDebug(ex, "could not dispatch 'docker network rm' to runner {Host} for '{Name}'", hostMachineId, networkName);
+        }
+    }
+
     private async Task<(int Exit, string Stdout, string Stderr)> DockerAsync(
         Guid hostMachineId, IReadOnlyList<string> argv, int timeoutMs, CancellationToken ct)
     {
@@ -204,3 +251,9 @@ public sealed class RemoteDockerSandboxRuntime(
 
     private static string Short(string id) => id[..Math.Min(12, id.Length)];
 }
+
+/// <summary>A worker's managed sandbox inventory (label-filtered to <c>mintokei.sandbox=1</c>): sandbox + broker
+/// container names, and per-session <c>--internal</c> network names. Feeds the reaper's orphan reconcile — any
+/// resource whose session has no live machine row is removed. The shared broker egress network is unlabelled and
+/// never appears here, so it is never a reconcile target.</summary>
+public sealed record RemoteManagedResources(IReadOnlyList<string> Containers, IReadOnlyList<string> Networks);

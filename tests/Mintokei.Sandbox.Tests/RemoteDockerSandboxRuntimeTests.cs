@@ -108,4 +108,41 @@ public class RemoteDockerSandboxRuntimeTests
         Assert.Equal(id, parsed);
         Assert.False(RemoteDockerSandboxRuntime.TryParseWorkspaceTaskId("some-other-volume", out _));
     }
+
+    [Fact]
+    public async Task ListManaged_returns_label_filtered_containers_and_networks()
+    {
+        var fake = new FakeCommandRunner
+        {
+            Handler = args =>
+                args.Contains("ps") ? new RunCommandResponse("", 0, "sess-1\nsess-1-broker\n", "", null)
+                : args.Contains("network") && args.Contains("ls") ? new RunCommandResponse("", 0, "mintokei-sbx-sess-1\n", "", null)
+                : new RunCommandResponse("", 0, "", "", null),
+        };
+
+        var managed = await New(fake).ListManagedAsync(Guid.NewGuid(), CancellationToken.None);
+
+        Assert.Equal(["sess-1", "sess-1-broker"], managed.Containers);
+        Assert.Equal(["mintokei-sbx-sess-1"], managed.Networks);
+        // Both queries are label-scoped to ours, so the shared egress network (unlabelled) can never be listed.
+        Assert.Contains(fake.Calls, c => c.Args.Contains("ps") && c.Args.Contains($"label={DockerCommand.ManagedLabel}=1"));
+        Assert.Contains(fake.Calls, c => c.Args.Contains("ls") && c.Args.Contains($"label={DockerCommand.ManagedLabel}=1"));
+    }
+
+    [Fact]
+    public async Task ListManaged_is_empty_on_error_and_never_throws()
+    {
+        var fake = new FakeCommandRunner { Handler = _ => new RunCommandResponse("", 1, "", "daemon down", null) };
+        var managed = await New(fake).ListManagedAsync(Guid.NewGuid(), CancellationToken.None);
+        Assert.Empty(managed.Containers);
+        Assert.Empty(managed.Networks);
+    }
+
+    [Fact]
+    public async Task RemoveNetwork_dispatches_docker_network_rm()
+    {
+        var fake = new FakeCommandRunner();
+        await New(fake).RemoveNetworkAsync(Guid.NewGuid(), "mintokei-sbx-orphan", CancellationToken.None);
+        Assert.Contains(fake.Calls, c => c.Exe == "docker" && c.Args.Contains("network") && c.Args.Contains("rm") && c.Args.Contains("mintokei-sbx-orphan"));
+    }
 }

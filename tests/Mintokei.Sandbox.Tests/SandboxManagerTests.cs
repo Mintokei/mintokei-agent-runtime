@@ -51,7 +51,8 @@ public class SandboxManagerTests
             new SandboxProfileResolver(options),
             new SandboxSpecFactory(options),
             options,
-            NullLogger<SandboxManager>.Instance);
+            NullLogger<SandboxManager>.Instance,
+            new NoSandboxBrokerSecrets());
         return (manager, runtime);
     }
 

@@ -30,7 +30,7 @@ public class RemoteSandboxManagerTests
         var runtime = new RemoteDockerSandboxRuntime(fake, opts, NullLogger<RemoteDockerSandboxRuntime>.Instance);
         var stager = new SandboxCredentialStager(fake, opts);
         var mgr = new RemoteSandboxManager(runtime, stager, new SandboxSpecFactory(opts),
-            new SandboxProfileResolver(opts), NullLogger<RemoteSandboxManager>.Instance);
+            new SandboxProfileResolver(opts), NullLogger<RemoteSandboxManager>.Instance, new NoSandboxBrokerSecrets());
         return (mgr, fake);
     }
 
@@ -155,7 +155,8 @@ public class RemoteSandboxManagerTests
         var runtime = new RemoteDockerSandboxRuntime(fake, opts, NullLogger<RemoteDockerSandboxRuntime>.Instance);
         var broker = new FakeBroker();
         var mgr = new RemoteSandboxManager(runtime, new SandboxCredentialStager(fake, opts),
-            new SandboxSpecFactory(opts), new SandboxProfileResolver(opts), NullLogger<RemoteSandboxManager>.Instance, broker);
+            new SandboxSpecFactory(opts), new SandboxProfileResolver(opts), NullLogger<RemoteSandboxManager>.Instance,
+            new NoSandboxBrokerSecrets(), broker);
         return (mgr, fake, broker);
     }
 
@@ -261,7 +262,8 @@ public class RemoteSandboxManagerTests
         var fake = BrokerRunner();
         var runtime = new RemoteDockerSandboxRuntime(fake, opts, NullLogger<RemoteDockerSandboxRuntime>.Instance);
         var mgr = new RemoteSandboxManager(runtime, new SandboxCredentialStager(fake, opts),
-            new SandboxSpecFactory(opts), new SandboxProfileResolver(opts), NullLogger<RemoteSandboxManager>.Instance); // no broker
+            new SandboxSpecFactory(opts), new SandboxProfileResolver(opts), NullLogger<RemoteSandboxManager>.Instance,
+            new NoSandboxBrokerSecrets()); // no broker
 
         var ex = await Assert.ThrowsAsync<SandboxRuntimeException>(() =>
             mgr.LaunchAsync(Guid.NewGuid(), Guid.NewGuid(), Request(), _ => true, profile: "hardened"));

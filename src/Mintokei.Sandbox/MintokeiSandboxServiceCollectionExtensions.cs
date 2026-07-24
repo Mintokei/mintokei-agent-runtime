@@ -57,7 +57,20 @@ public static class MintokeiSandboxServiceCollectionExtensions
         services.AddSingleton<SandboxCredentialStager>();
         services.AddSingleton<Mintokei.Sandbox.Docker.RemoteDockerSandboxRuntime>();
         services.AddSingleton<ISandboxBroker, Mintokei.Sandbox.Docker.RemoteSandboxBroker>(); // broker-egress orchestration
+        services.TryAddSingleton<ISandboxBrokerSecretsProvider, NoSandboxBrokerSecrets>();     // product overrides via AddMintokeiSandboxBrokerSecrets
         services.AddSingleton<RemoteSandboxManager>();   // one-call facade over the above
+        return services;
+    }
+
+    /// <summary>
+    /// Register the product's <see cref="ISandboxBrokerSecretsProvider"/> — the per-session source of the
+    /// credentials a broker injects (model auth / git / GitHub). Overrides the no-op default, so broker mode
+    /// actually injects. The runtime asks it at provision time on both the pool and remote paths.
+    /// </summary>
+    public static IServiceCollection AddMintokeiSandboxBrokerSecrets<T>(this IServiceCollection services)
+        where T : class, ISandboxBrokerSecretsProvider
+    {
+        services.AddSingleton<ISandboxBrokerSecretsProvider, T>(); // last registration wins over the TryAdd default
         return services;
     }
 
@@ -78,6 +91,7 @@ public static class MintokeiSandboxServiceCollectionExtensions
     {
         services.AddSingleton<SandboxProfileResolver>();
         services.AddSingleton<SandboxSpecFactory>();
+        services.TryAddSingleton<ISandboxBrokerSecretsProvider, NoSandboxBrokerSecrets>(); // product overrides via AddMintokeiSandboxBrokerSecrets
         RegisterRuntime(services, backend);
         services.AddSingleton<SandboxManager>();
         return services;

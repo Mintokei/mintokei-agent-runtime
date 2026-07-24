@@ -29,6 +29,7 @@ public sealed class RemoteSandboxManager(
     SandboxSpecFactory specFactory,
     SandboxProfileResolver profiles,
     ILogger<RemoteSandboxManager> logger,
+    ISandboxBrokerSecretsProvider secretsProvider,
     ISandboxBroker? broker = null)
 {
     /// <summary>
@@ -60,9 +61,11 @@ public sealed class RemoteSandboxManager(
             if (broker is null)
                 throw new SandboxRuntimeException(
                     $"profile '{resolved.Name}' requests broker egress but no ISandboxBroker is registered — refusing to launch (fail-closed).");
-            // The broker holds the secrets and provides egress; nothing is staged into the box.
+            // The broker holds the secrets and provides egress; nothing is staged into the box. An explicit
+            // brokerSecrets arg wins; otherwise fall back to the registered provider (same seam the pool path uses).
+            var secrets = brokerSecrets ?? await secretsProvider.ResolveAsync(request, resolved, ct);
             endpoint = await broker.StartAsync(workerId,
-                new SandboxBrokerRequest(request.Name, resolved.EgressAllowlist, brokerSecrets), ct);
+                new SandboxBrokerRequest(request.Name, resolved.EgressAllowlist, secrets), ct);
         }
         else
         {

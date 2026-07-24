@@ -77,7 +77,7 @@ public sealed class RunnerFileServer : IHostedService
         Port = new Uri(first).Port;
         _app = app;
 
-        _logger.LogInformation("Runner file server bound to http://127.0.0.1:{Port}", Port);
+        RunnerFileServerLog.FileServerBound(_logger, Port);
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
@@ -85,4 +85,10 @@ public sealed class RunnerFileServer : IHostedService
         if (_app is not null)
             await _app.StopAsync(cancellationToken);
     }
+}
+
+internal static partial class RunnerFileServerLog
+{
+    [LoggerMessage(Level = LogLevel.Information, Message = "Runner file server bound to http://127.0.0.1:{Port}")]
+    public static partial void FileServerBound(ILogger logger, int port);
 }

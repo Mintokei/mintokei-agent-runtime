@@ -252,7 +252,7 @@ public sealed class AgentSession : IAgentSession
                 if (line.Type != OutputType.StdOut)
                 {
                     CaptureStderr(line.Line);
-                    _logger.LogDebug("[stderr] {Line}", line.Line);
+                    AgentSessionLog.Stderr(_logger, line.Line);
                     continue;
                 }
 
@@ -271,7 +271,7 @@ public sealed class AgentSession : IAgentSession
         }
         catch (OperationCanceledException)
         {
-            _logger.LogInformation("AgentSession {SessionId} pump cancelled", SessionId);
+            AgentSessionLog.PumpCancelled(_logger, SessionId);
         }
         catch (Exception ex)
         {
@@ -425,4 +425,13 @@ public sealed class AgentSession : IAgentSession
     }
 
     private readonly record struct PendingInteraction(UserInteractionData Interaction, string? CacheKey);
+}
+
+internal static partial class AgentSessionLog
+{
+    [LoggerMessage(Level = LogLevel.Debug, Message = "[stderr] {Line}")]
+    public static partial void Stderr(ILogger logger, string line);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "AgentSession {SessionId} pump cancelled")]
+    public static partial void PumpCancelled(ILogger logger, Guid sessionId);
 }

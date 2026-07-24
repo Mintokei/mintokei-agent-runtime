@@ -35,7 +35,7 @@ public sealed class EnrollmentService
         // Already enrolled
         if (_options.MachineId.HasValue && !string.IsNullOrEmpty(_options.Secret))
         {
-            _logger.LogInformation("Runner already enrolled as machine {MachineId}", _options.MachineId);
+            EnrollmentServiceLog.AlreadyEnrolled(_logger, _options.MachineId);
             return;
         }
 
@@ -47,7 +47,7 @@ public sealed class EnrollmentService
                 "or set Runner:EnrollmentToken. Generate a token from the Mintokei UI.");
         }
 
-        _logger.LogInformation("Enrolling runner with backend at {Url}...", _options.BackendUrl);
+        EnrollmentServiceLog.EnrollingWithBackend(_logger, _options.BackendUrl);
 
         using var http = new HttpClient { BaseAddress = new Uri(_options.BackendUrl) };
 
@@ -88,7 +88,7 @@ public sealed class EnrollmentService
         // Persist to credentials file
         await PersistCredentialsAsync(result.MachineId, result.Secret);
 
-        _logger.LogInformation("Enrollment successful. MachineId={MachineId}", result.MachineId);
+        EnrollmentServiceLog.EnrollmentSucceeded(_logger, result.MachineId);
     }
 
     private async Task PersistCredentialsAsync(Guid machineId, string secret)
@@ -177,4 +177,16 @@ public sealed class EnrollmentService
     }
 
     private sealed record EnrollmentResponse(Guid MachineId, string Secret);
+}
+
+internal static partial class EnrollmentServiceLog
+{
+    [LoggerMessage(Level = LogLevel.Information, Message = "Runner already enrolled as machine {MachineId}")]
+    public static partial void AlreadyEnrolled(ILogger logger, Guid? machineId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Enrolling runner with backend at {Url}...")]
+    public static partial void EnrollingWithBackend(ILogger logger, string url);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Enrollment successful. MachineId={MachineId}")]
+    public static partial void EnrollmentSucceeded(ILogger logger, Guid machineId);
 }

@@ -72,8 +72,7 @@ public sealed class RemoteProcessOutputDispatcher(
             .AnyAsync(m => m.RunnerMachineId == machineId && m.SequenceNumber == sequenceNumber);
         if (exists)
         {
-            logger.LogDebug("Skipping duplicate inbound message seq {Seq} from machine {MachineId}",
-                sequenceNumber, machineId);
+            RemoteProcessOutputDispatcherLog.DuplicateInboundSkipped(logger, sequenceNumber, machineId);
             return false;
         }
 
@@ -87,11 +86,8 @@ public sealed class RemoteProcessOutputDispatcher(
             // future seq once its predecessors land. Kept at Debug because
             // a persistent gap (no walk-forward catch-up over many sweeps)
             // is still useful diagnostic when investigating real loss.
-            logger.LogDebug(
-                "Inbound sequence gap from machine {MachineId}: expected {Expected}, got {Got}. " +
-                "Counter stays at {Counter} until gap is filled (normal with parallel OpenTask streams).",
-                machineId, machine.LastReceivedInboundSequence + 1, sequenceNumber,
-                machine.LastReceivedInboundSequence);
+            RemoteProcessOutputDispatcherLog.InboundSequenceGap(
+                logger, machineId, machine.LastReceivedInboundSequence + 1, sequenceNumber, machine.LastReceivedInboundSequence);
         }
 
         // Persist the dedup row in its own transaction so the walk-forward
@@ -216,9 +212,7 @@ public sealed class RemoteProcessOutputDispatcher(
                 var prompt = input.GetProperty("prompt").GetString() ?? "";
 
                 await EnqueueOrReplaceDelayedWakeupAsync(machineId, correlationId, delaySeconds, prompt);
-                logger.LogInformation(
-                    "ScheduleWakeup detected for correlation {CorrelationId}: delay={DelaySeconds}s",
-                    correlationId, delaySeconds);
+                RemoteProcessOutputDispatcherLog.ScheduleWakeupDetected(logger, correlationId, delaySeconds);
                 return;
             }
         }
@@ -259,9 +253,7 @@ public sealed class RemoteProcessOutputDispatcher(
             existing.PayloadJson = JsonSerializer.Serialize(payloadObject, JsonOptions);
             await db.SaveChangesAsync();
             outboxProcessor.NotifyDelayedMessage(machineId, deliverAt);
-            logger.LogInformation(
-                "Replaced existing delayed wakeup for correlation {CorrelationId}, new delivery at {DeliverAt}",
-                correlationId, deliverAt);
+            RemoteProcessOutputDispatcherLog.DelayedWakeupReplaced(logger, correlationId, deliverAt);
         }
         else
         {
@@ -288,9 +280,30 @@ public sealed class RemoteProcessOutputDispatcher(
 
         if (deleted > 0)
         {
-            logger.LogInformation(
-                "Cleaned up {Count} pending delayed wakeup message(s) for correlation {CorrelationId}",
-                deleted, correlationId);
+            RemoteProcessOutputDispatcherLog.DelayedWakeupsCleanedUp(logger, deleted, correlationId);
         }
     }
+}
+
+/// <summary>
+/// Source-generated, allocation-free log methods for <see cref="RemoteProcessOutputDispatcher"/> —
+/// keeps the Debug/Information inbound-dispatch logs from boxing their value-type arguments when the
+/// level is disabled (CA1873); message templates are unchanged.
+/// </summary>
+internal static partial class RemoteProcessOutputDispatcherLog
+{
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping duplicate inbound message seq {Seq} from machine {MachineId}")]
+    public static partial void DuplicateInboundSkipped(ILogger logger, long seq, Guid machineId);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Inbound sequence gap from machine {MachineId}: expected {Expected}, got {Got}. Counter stays at {Counter} until gap is filled (normal with parallel OpenTask streams).")]
+    public static partial void InboundSequenceGap(ILogger logger, Guid machineId, long expected, long got, long counter);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "ScheduleWakeup detected for correlation {CorrelationId}: delay={DelaySeconds}s")]
+    public static partial void ScheduleWakeupDetected(ILogger logger, Guid correlationId, double delaySeconds);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Replaced existing delayed wakeup for correlation {CorrelationId}, new delivery at {DeliverAt}")]
+    public static partial void DelayedWakeupReplaced(ILogger logger, Guid correlationId, DateTimeOffset deliverAt);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Cleaned up {Count} pending delayed wakeup message(s) for correlation {CorrelationId}")]
+    public static partial void DelayedWakeupsCleanedUp(ILogger logger, int count, Guid correlationId);
 }

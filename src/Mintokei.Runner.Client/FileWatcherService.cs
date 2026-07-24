@@ -29,7 +29,7 @@ public sealed class FileWatcherService
     {
         if (_watchers.ContainsKey(workspaceId))
         {
-            _logger.LogDebug("File watcher already active for workspace {WorkspaceId}, skipping", workspaceId);
+            FileWatcherServiceLog.WatcherAlreadyActive(_logger, workspaceId);
             return;
         }
 
@@ -43,7 +43,7 @@ public sealed class FileWatcherService
         if (_watchers.TryAdd(workspaceId, watcher))
         {
             watcher.Start();
-            _logger.LogInformation("File watcher started for workspace {WorkspaceId} at {Path}", workspaceId, path);
+            FileWatcherServiceLog.WatcherStarted(_logger, workspaceId, path);
         }
         else
         {
@@ -56,7 +56,7 @@ public sealed class FileWatcherService
         if (_watchers.TryRemove(workspaceId, out var watcher))
         {
             watcher.Dispose();
-            _logger.LogInformation("File watcher stopped for workspace {WorkspaceId}", workspaceId);
+            FileWatcherServiceLog.WatcherStopped(_logger, workspaceId);
         }
     }
 
@@ -213,7 +213,7 @@ public sealed class FileWatcherService
                 {
                     CreateWatcher();
                     CreateGitWatchers();
-                    _logger.LogInformation("FileSystemWatcher recreated for workspace {WorkspaceId}", _workspaceId);
+                    FileWatcherServiceLog.WatcherRecreated(_logger, _workspaceId);
                 }
                 catch (Exception ex)
                 {
@@ -307,4 +307,19 @@ public sealed class FileWatcherService
             }
         }
     }
+}
+
+internal static partial class FileWatcherServiceLog
+{
+    [LoggerMessage(Level = LogLevel.Debug, Message = "File watcher already active for workspace {WorkspaceId}, skipping")]
+    public static partial void WatcherAlreadyActive(ILogger logger, string workspaceId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "File watcher started for workspace {WorkspaceId} at {Path}")]
+    public static partial void WatcherStarted(ILogger logger, string workspaceId, string path);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "File watcher stopped for workspace {WorkspaceId}")]
+    public static partial void WatcherStopped(ILogger logger, string workspaceId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "FileSystemWatcher recreated for workspace {WorkspaceId}")]
+    public static partial void WatcherRecreated(ILogger logger, string workspaceId);
 }

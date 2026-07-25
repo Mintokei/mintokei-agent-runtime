@@ -48,7 +48,7 @@ public sealed class SandboxCredentialStager(IRemoteCommandRunner commandRunner, 
              sources.ClaudeConfigDir ?? "", sources.ClaudeConfigJsonFile ?? "",
              sources.CodexConfigDir ?? "", sources.GitCredentialsDir ?? "",
              uid.ToString(System.Globalization.CultureInfo.InvariantCulture)],
-            30_000, ct);
+            120_000, ct); // trimmed copy is fast, but allow headroom for a large cred home / slow disk
 
         if (result.ExitCode != 0)
             throw new SandboxRuntimeException(
@@ -89,21 +89,34 @@ public sealed class SandboxCredentialStager(IRemoteCommandRunner commandRunner, 
         return chars.Length == 0 ? "session" : new string(chars);
     }
 
-    // POSIX sh. Copies each present source into the staging dir, echoes a STAGED marker per success, then hands
+    // POSIX sh. Stages each present source into the staging dir, echoes a STAGED marker per success, then hands
     // ownership to the uid passed as $6 (the container that mounts the copy — sandbox by default, broker uid in
     // nested broker mode) — or, if the runner isn't root and chown fails, makes the copies world-readable.
+    //
+    // cptrim() copies a cred dir but SKIPS the large non-credential caches (plugin marketplaces, session
+    // transcripts, logs) — a sandbox needs the creds + config, NOT the runner's accumulated history, and an
+    // agent-CLI home can grow to GBs (e.g. ~/.claude/plugins), which copied wholesale blows the stage timeout and
+    // fails provisioning. tar -h dereferences symlinks (like cp -L) and tolerates a transient/broken file without
+    // aborting the whole stage; 2>/dev/null||true keeps a warning from failing the run under `set -e`.
     private const string StagingScript = """
         set -eu
         S=$1
         rm -rf "$S"
         mkdir -p "$S"
-        if [ -n "$2" ] && [ -e "$2" ]; then cp -aL "$2" "$S/.claude"; echo "STAGED .claude"; fi
-        if [ -n "$3" ] && [ -e "$3" ]; then cp -aL "$3" "$S/.claude.json"; echo "STAGED .claude.json"; fi
-        if [ -n "$4" ] && [ -e "$4" ]; then cp -aL "$4" "$S/.codex"; echo "STAGED .codex"; fi
+        cptrim() {
+          s=$1; d=$2; shift 2
+          mkdir -p "$d"
+          x=""
+          for e in "$@"; do x="$x --exclude=./$e"; done
+          ( cd "$s" && tar -chf - $x . 2>/dev/null ) | ( cd "$d" && tar -xf - 2>/dev/null ) || true
+        }
+        if [ -n "$2" ] && [ -e "$2" ]; then cptrim "$2" "$S/.claude" plugins projects shell-snapshots file-history cache backups todos history.jsonl; echo "STAGED .claude"; fi
+        if [ -n "$3" ] && [ -e "$3" ]; then cp -aL "$3" "$S/.claude.json" 2>/dev/null || true; echo "STAGED .claude.json"; fi
+        if [ -n "$4" ] && [ -e "$4" ]; then cptrim "$4" "$S/.codex" sessions plugins cache; echo "STAGED .codex"; fi
         if [ -n "$5" ]; then
           g=0
-          if [ -e "$5/.git-credentials" ]; then mkdir -p "$S/git"; cp -aL "$5/.git-credentials" "$S/git/"; g=1; fi
-          if [ -e "$5/.ssh" ]; then mkdir -p "$S/git"; cp -aL "$5/.ssh" "$S/git/"; g=1; fi
+          if [ -e "$5/.git-credentials" ]; then mkdir -p "$S/git"; cp -aL "$5/.git-credentials" "$S/git/" 2>/dev/null || true; g=1; fi
+          if [ -e "$5/.ssh" ]; then mkdir -p "$S/git"; cp -aL "$5/.ssh" "$S/git/" 2>/dev/null || true; g=1; fi
           if [ "$g" = 1 ]; then echo "STAGED git"; fi
         fi
         chown -R "$6":"$6" "$S" 2>/dev/null || chmod -R a+rX "$S"

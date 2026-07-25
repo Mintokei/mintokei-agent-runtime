@@ -29,9 +29,10 @@ RUN dotnet publish src/Mintokei.Runner/Mintokei.Runner.csproj \
 # --- runtime: node (for the agent CLIs) + git + the runner binary --------------
 FROM node:22-bookworm-slim AS runtime
 
-# git → worktrees/clone; libicu → .NET globalization; openssh → git over SSH.
+# git → worktrees/clone; libicu → .NET globalization; openssh → git over SSH; curl → the broker git-credential
+# helper's HTTP fetch (node is the fallback, but curl is its preferred path and a common tool to have).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      git ca-certificates libicu72 openssh-client \
+      git ca-certificates libicu72 openssh-client curl \
  && rm -rf /var/lib/apt/lists/*
 
 # Agent CLIs on PATH. Names are fixed host-side (ClaudeBackend => "claude",

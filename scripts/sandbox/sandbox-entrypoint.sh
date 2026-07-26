@@ -37,6 +37,33 @@ seed_creds() {
 }
 seed_creds
 
+# Persist the agent-CLI session transcript across sandbox recycles so `--resume` keeps working. When a session
+# goes idle the reaper tears the container down and re-provisions a fresh one on the next turn; the per-task
+# workspace volume (mintokei-ws-<task>, mounted at /repos) survives, but Claude's conversation transcript lives
+# under ~/.claude/projects on the container's EPHEMERAL layer and would die with the container — so the resume
+# would fail with "no conversation found". Relocate the transcript dirs onto the persistent volume via a symlink
+# (a hidden dir at the /repos mount root, sibling of the checked-out repo → outside any git tree). Harmless when
+# /repos is ephemeral (e.g. no persistent workspace): the transcript simply stays ephemeral, exactly as before.
+relink_dir() {  # $1 = CLI state dir (the link), $2 = its persistent home (the target)
+  local link="$1" target="$2"
+  mkdir -p "$(dirname "$link")" "$target" 2>/dev/null || return 0
+  # Migrate a pre-existing REAL dir onto the volume once (e.g. first turn already wrote a transcript), then
+  # replace it with a symlink so all future writes land on the persistent volume.
+  if [[ -e "$link" && ! -L "$link" ]]; then
+    cp -a "$link/." "$target/" 2>/dev/null || true
+    rm -rf "$link" 2>/dev/null || true
+  fi
+  ln -sfn "$target" "$link"
+}
+link_session_state() {
+  local root="${SANDBOX_SESSION_STATE_DIR:-/repos/.agent-session}"; root="${root%/}"
+  # Bail quietly if the base isn't writable (keeps a non-writable /repos from failing the whole boot).
+  mkdir -p "$root" 2>/dev/null || return 0
+  relink_dir "${HOME:-/root}/.claude/projects" "$root/claude/projects"
+  relink_dir "${HOME:-/root}/.codex/sessions"  "$root/codex/sessions"
+}
+link_session_state
+
 # Broker egress (SandboxEgress.Broker): point git at the per-session broker's credential mint so tokens are
 # fetched on demand and NEVER written to disk. MINTOKEI_BROKER_CRED_URL is set by the runtime in broker mode;
 # HTTP(S)_PROXY (egress) and ANTHROPIC_BASE_URL/OPENAI_BASE_URL (model injection) are picked up from env

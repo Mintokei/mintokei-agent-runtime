@@ -20,6 +20,14 @@ public sealed class SandboxOptions
     /// of a private image. Ignored by the Docker backend.</summary>
     public string? KubernetesImagePullPolicy { get; set; }
 
+    /// <summary>StorageClass for the per-task persistent /repos PVC (resume-after-reap). Null = the cluster's
+    /// default StorageClass (k3s: local-path). Ignored by the Docker backend (it uses a named volume).</summary>
+    public string? KubernetesWorkspaceStorageClass { get; set; }
+
+    /// <summary>Requested size of the per-task persistent /repos PVC (default "2Gi"). local-path is thin (a node
+    /// dir), so this is a floor, not a reservation. Ignored by the Docker backend.</summary>
+    public string? KubernetesWorkspaceStorageSize { get; set; }
+
     // --- Which cluster the Kubernetes backend targets. All null = default: in-cluster ServiceAccount when
     // the API runs as a Pod, else the ambient kubeconfig. Set these to point sandbox Pods at a SEPARATE /
     // dedicated cluster (decouples the sandbox substrate from where the control plane runs). Ignored by the

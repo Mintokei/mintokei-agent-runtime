@@ -18,12 +18,18 @@ public sealed class KubernetesSandboxRuntime(
     IKubernetes client,
     IOptions<SandboxOptions> options,
     ILogger<KubernetesSandboxRuntime> logger,
-    ISandboxBroker? broker = null) : ISandboxRuntime, ISandboxLogSource
+    ISandboxBroker? broker = null) : ISandboxRuntime, ISandboxLogSource, ISandboxWorkspaceStore
 {
     private readonly string _namespace = string.IsNullOrWhiteSpace(options.Value.KubernetesNamespace)
         ? "default"
         : options.Value.KubernetesNamespace;
     private readonly string? _imagePullPolicy = options.Value.KubernetesImagePullPolicy;
+    // Persistent /repos PVC (resume-after-reap). Storage class null → the cluster default (k3s: local-path, which
+    // mkdir's the volume 0777 so the non-root agent can write without an fsGroup/chown dance). Size is generous
+    // for a repo + transcripts; local-path is thin (a node dir), so the request is a floor, not a reservation.
+    private readonly string? _workspaceStorageClass = options.Value.KubernetesWorkspaceStorageClass;
+    private readonly string _workspaceSize = string.IsNullOrWhiteSpace(options.Value.KubernetesWorkspaceStorageSize)
+        ? "2Gi" : options.Value.KubernetesWorkspaceStorageSize!;
 
     public string Backend => "kubernetes";
 
@@ -56,6 +62,11 @@ public sealed class KubernetesSandboxRuntime(
 
     private async Task<SandboxHandle> CreatePodAsync(SandboxSpec spec, CancellationToken ct)
     {
+        // Persistent workspace: ensure the per-task PVC exists BEFORE the Pod references it (a re-provision of the
+        // same task rebinds the existing one — that is how the working tree + transcript survive the recycle).
+        if (spec.PersistentWorkspaceTaskId is { } wsTask)
+            await EnsurePvcAsync(wsTask, ct);
+
         var pod = KubernetesPodSpec.Build(spec, _imagePullPolicy);
 
         V1Pod created;
@@ -166,6 +177,78 @@ public sealed class KubernetesSandboxRuntime(
             .Where(p => !string.IsNullOrEmpty(p.Metadata?.Name))
             .Select(p => new SandboxHandle(p.Metadata.Uid ?? p.Metadata.Name, p.Metadata.Name, Backend))
             .ToList();
+    }
+
+    // Create the per-task workspace PVC if it doesn't already exist. Tolerates 409 (already exists) so a
+    // re-provision of the same task rebinds the existing claim rather than failing.
+    private async Task EnsurePvcAsync(Guid taskId, CancellationToken ct)
+    {
+        var name = SandboxWorkspaceStore.Name(taskId);
+        var pvc = new V1PersistentVolumeClaim
+        {
+            ApiVersion = "v1",
+            Kind = "PersistentVolumeClaim",
+            Metadata = new V1ObjectMeta
+            {
+                Name = name,
+                NamespaceProperty = _namespace,
+                Labels = new Dictionary<string, string>
+                {
+                    [KubernetesPodSpec.ManagedLabel] = "1",
+                    [SandboxWorkspaceStore.TaskLabelKey] = taskId.ToString("N"),
+                },
+            },
+            Spec = new V1PersistentVolumeClaimSpec
+            {
+                AccessModes = ["ReadWriteOnce"],
+                StorageClassName = _workspaceStorageClass, // null → cluster default StorageClass
+                Resources = new V1VolumeResourceRequirements
+                {
+                    Requests = new Dictionary<string, ResourceQuantity> { ["storage"] = new ResourceQuantity(_workspaceSize) },
+                },
+            },
+        };
+        try
+        {
+            await client.CoreV1.CreateNamespacedPersistentVolumeClaimAsync(pvc, _namespace, cancellationToken: ct);
+            logger.LogInformation("Created persistent workspace PVC {Name} for task {TaskId}", name, taskId);
+        }
+        catch (HttpOperationException ex) when (ex.Response?.StatusCode == HttpStatusCode.Conflict)
+        {
+            // Already exists — a resumed session rebinds the existing PVC (this is what preserves the transcript).
+        }
+        catch (HttpOperationException ex)
+        {
+            throw new SandboxRuntimeException(
+                $"creating workspace PVC '{name}' in namespace '{_namespace}' failed " +
+                $"({(int?)ex.Response?.StatusCode}): {ex.Response?.Content?.Trim()}", ex);
+        }
+    }
+
+    // --- ISandboxWorkspaceStore: reaper-driven GC of per-task PVCs ---
+
+    public async Task<IReadOnlyList<Guid>> ListPersistentWorkspaceTasksAsync(CancellationToken ct = default)
+    {
+        var list = await client.CoreV1.ListNamespacedPersistentVolumeClaimAsync(
+            _namespace, labelSelector: KubernetesPodSpec.ManagedLabel, cancellationToken: ct);
+        var ids = new List<Guid>();
+        foreach (var name in list.Items.Select(p => p.Metadata?.Name))
+            if (name is not null && SandboxWorkspaceStore.TryParseTaskId(name, out var id))
+                ids.Add(id);
+        return ids;
+    }
+
+    public async Task RemovePersistentWorkspaceAsync(Guid taskId, CancellationToken ct = default)
+    {
+        try
+        {
+            await client.CoreV1.DeleteNamespacedPersistentVolumeClaimAsync(
+                SandboxWorkspaceStore.Name(taskId), _namespace, cancellationToken: ct);
+        }
+        catch (HttpOperationException ex) when (ex.Response?.StatusCode == HttpStatusCode.NotFound)
+        {
+            // already gone
+        }
     }
 
     private static SandboxState MapPhase(string? phase) => phase switch

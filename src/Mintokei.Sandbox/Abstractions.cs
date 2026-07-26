@@ -96,6 +96,46 @@ public sealed record SandboxSpec
     /// injected credentials.
     /// </summary>
     public SandboxBrokerSecrets? BrokerSecrets { get; init; }
+
+    /// <summary>
+    /// When set, the session's repo root (<c>/repos</c>) is backed by a PERSISTENT per-task store keyed by this
+    /// task id (K8s: a PVC <c>mintokei-ws-&lt;taskId:N&gt;</c>; the nested-Docker path uses its own named volume via
+    /// <see cref="Mounts"/> instead, so it leaves this null). Survives a Pod/container recycle so a reaped-then-
+    /// resumed session keeps its working tree AND the agent-CLI transcript (symlinked onto /repos by the
+    /// entrypoint) — the difference between "re-provisions" and "actually resumes". Null → ephemeral /repos.
+    /// </summary>
+    public Guid? PersistentWorkspaceTaskId { get; init; }
+}
+
+/// <summary>
+/// A runtime that persists a per-task workspace store (a K8s PVC / a Docker named volume) at <c>/repos</c> so a
+/// reaped-then-re-provisioned session keeps its working tree + CLI transcript. Implemented by backends that
+/// support persistence; the reaper GCs a task's store once the task is terminal/abandoned.
+/// </summary>
+public interface ISandboxWorkspaceStore
+{
+    /// <summary>Task ids that currently have a persistent workspace store on this backend.</summary>
+    Task<IReadOnlyList<Guid>> ListPersistentWorkspaceTasksAsync(CancellationToken ct = default);
+
+    /// <summary>Remove a task's persistent workspace store. No-op (tolerant) when it is already gone.</summary>
+    Task RemovePersistentWorkspaceAsync(Guid taskId, CancellationToken ct = default);
+}
+
+/// <summary>Deterministic naming for the per-task persistent workspace store, shared by the backends + reaper.</summary>
+public static class SandboxWorkspaceStore
+{
+    /// <summary>Name prefix + label key — mirrors the Docker named-volume scheme so both backends read alike.</summary>
+    public const string NamePrefix = "mintokei-ws-";
+    public const string TaskLabelKey = "mintokei.task";
+
+    public static string Name(Guid taskId) => NamePrefix + taskId.ToString("N");
+
+    public static bool TryParseTaskId(string name, out Guid taskId)
+    {
+        taskId = default;
+        return name.StartsWith(NamePrefix, StringComparison.Ordinal)
+            && Guid.TryParseExact(name[NamePrefix.Length..], "N", out taskId);
+    }
 }
 
 /// <summary>

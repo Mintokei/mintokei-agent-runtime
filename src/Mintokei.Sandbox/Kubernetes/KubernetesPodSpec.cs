@@ -90,6 +90,20 @@ public static class KubernetesPodSpec
             mounts.Add(new V1VolumeMount { Name = name, MountPath = m.Target, ReadOnlyProperty = m.ReadOnly });
         }
 
+        // Persistent workspace: back /repos with a per-task PVC so the working tree AND the agent-CLI transcript
+        // (symlinked onto /repos by the entrypoint) survive a Pod recycle — the difference between "re-provisions"
+        // and "actually resumes". The PVC itself is ensured by KubernetesSandboxRuntime BEFORE the Pod is created.
+        if (spec.PersistentWorkspaceTaskId is { } wsTask)
+        {
+            const string wsVol = "workspace";
+            volumes.Add(new V1Volume
+            {
+                Name = wsVol,
+                PersistentVolumeClaim = new V1PersistentVolumeClaimVolumeSource { ClaimName = SandboxWorkspaceStore.Name(wsTask) },
+            });
+            mounts.Add(new V1VolumeMount { Name = wsVol, MountPath = SandboxSpecFactory.RepoRoot });
+        }
+
         var initContainers = new List<V1Container>();
         var seedMounts = spec.Mounts.Where(IsSeed).ToList();
         if (seedMounts.Count > 0)

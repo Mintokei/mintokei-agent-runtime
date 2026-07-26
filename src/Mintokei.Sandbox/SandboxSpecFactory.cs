@@ -109,6 +109,7 @@ public sealed class SandboxSpecFactory(IOptions<SandboxOptions> options)
             Tmpfs = tmpfs,
             ReadOnlyRootfs = profile.ReadOnlyRootfs,
             AddHostGateway = req.AddHostGateway,
+            PersistentWorkspaceTaskId = req.PersistentWorkspaceTaskId,
         };
     }
 

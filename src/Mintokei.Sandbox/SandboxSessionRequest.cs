@@ -39,4 +39,8 @@ public sealed record SandboxSessionRequest
     // and its tight egress allowlist — set by the product from the session's tool. Null for non-broker sessions.
     // See SandboxBrokerNeeds; consumed by HostCredentialsBrokerSecretsProvider + SandboxSpecFactory (allowlist).
     public SandboxBrokerNeeds? Broker { get; init; }
+
+    /// <summary>When set (K8s backend + persistence enabled), back /repos with a per-task PVC keyed by this id so
+    /// the working tree + CLI transcript survive a Pod recycle (resume-after-reap). Null → ephemeral /repos.</summary>
+    public Guid? PersistentWorkspaceTaskId { get; init; }
 }

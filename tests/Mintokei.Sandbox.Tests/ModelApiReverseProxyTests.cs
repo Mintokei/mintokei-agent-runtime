@@ -16,7 +16,7 @@ public class ModelApiReverseProxyTests
     }
 
     [Fact]
-    public void Injected_header_secret_refs_are_resolved_from_mounted_files_at_construction()
+    public void Injected_header_secret_refs_are_resolved_from_mounted_files()
     {
         var dir = Directory.CreateTempSubdirectory("mk-mrp").FullName;
         try
@@ -28,6 +28,32 @@ public class ModelApiReverseProxyTests
             using var req = proxy.BuildUpstreamRequest("POST", "/v1/messages", [], null);
 
             Assert.Equal("Bearer sk-ant-oat-REAL", Assert.Single(req.Headers.GetValues("Authorization")));
+        }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { /* temp */ } }
+    }
+
+    [Fact]
+    public void Injected_secret_refs_are_re_read_per_request_so_a_token_rotation_is_picked_up()
+    {
+        // Regression: the broker used to resolve ${json:…} ONCE at startup and cache it, so a host token
+        // refresh/rotation left it injecting a stale (expired/revoked) snapshot for the session's whole life.
+        // It must re-read the mounted creds each request and pick up the current token.
+        var dir = Directory.CreateTempSubdirectory("mk-mrp-rot").FullName;
+        var cred = Path.Combine(dir, ".credentials.json");
+        try
+        {
+            var authRef = $"Bearer ${{json:{cred}#claudeAiOauth.accessToken}}";
+            var proxy = new ModelApiReverseProxy("https://api.anthropic.com", [new("Authorization", authRef)]);
+
+            File.WriteAllText(cred, """{"claudeAiOauth":{"accessToken":"sk-ant-oat-OLD"}}""");
+            using (var r1 = proxy.BuildUpstreamRequest("POST", "/v1/messages", [], null))
+                Assert.Equal("Bearer sk-ant-oat-OLD", Assert.Single(r1.Headers.GetValues("Authorization")));
+
+            // The refresher rotates the token on disk mid-session (written atomically) — the very next request
+            // must pick up the NEW token rather than the cached OLD one.
+            File.WriteAllText(cred, """{"claudeAiOauth":{"accessToken":"sk-ant-oat-NEW"}}""");
+            using (var r2 = proxy.BuildUpstreamRequest("POST", "/v1/messages", [], null))
+                Assert.Equal("Bearer sk-ant-oat-NEW", Assert.Single(r2.Headers.GetValues("Authorization")));
         }
         finally { try { Directory.Delete(dir, recursive: true); } catch { /* temp */ } }
     }

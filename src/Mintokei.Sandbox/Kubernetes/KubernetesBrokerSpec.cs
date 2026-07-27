@@ -73,6 +73,7 @@ public static class KubernetesBrokerSpec
         var volumes = new List<V1Volume>();
         var brokerMounts = new List<V1VolumeMount>();
         var initContainers = new List<V1Container>();
+        V1Container? credsRefresher = null;
 
         var mounts = credentialMounts ?? [];
         if (mounts.Count > 0)
@@ -109,6 +110,42 @@ public static class KubernetesBrokerSpec
                     Capabilities = new V1Capabilities { Drop = ["ALL"], Add = ["CHOWN", "DAC_OVERRIDE", "FOWNER"] },
                 },
             });
+
+            // Refresher SIDECAR: the init above stages a one-shot SNAPSHOT; the subscription OAuth token in
+            // .credentials.json rotates (~8h) and the broker now resolves the ${json:} ref PER-REQUEST, so keep
+            // that file LIVE — otherwise the broker injects a stale/revoked snapshot for the session's whole life
+            // ("401 OAuth token expired/revoked"). Re-copy ONLY .credentials.json (the rotating token; the other
+            // staged creds are stable) and write it ATOMICALLY (temp + mv) so a per-request read never sees a
+            // partial file. A sidecar crash degrades to the old snapshot behaviour (init already populated it),
+            // never breaks the broker. Same minimal root caps as the init; loops for the pod's life.
+            var refreshScript =
+                "while true; do for d in /stage-out/*/; do i=$(basename \"$d\"); s=\"/stage-in/$i/.credentials.json\"; " +
+                $"if [ -f \"$s\" ]; then cp -L \"$s\" \"$d.credentials.json.tmp\" 2>/dev/null && chown {BrokerUid}:{BrokerUid} \"$d.credentials.json.tmp\" 2>/dev/null && mv -f \"$d.credentials.json.tmp\" \"$d.credentials.json\" 2>/dev/null; fi; " +
+                "done; sleep 15; done";
+            credsRefresher = new V1Container
+            {
+                Name = "refresh-creds",
+                Image = image,
+                ImagePullPolicy = imagePullPolicy,
+                Command = ["sh", "-c", refreshScript],
+                VolumeMounts = initMounts,
+                Resources = new V1ResourceRequirements
+                {
+                    Limits = new Dictionary<string, ResourceQuantity>
+                    {
+                        ["memory"] = new ResourceQuantity("32Mi"),
+                        ["cpu"] = new ResourceQuantity("0.05"),
+                    },
+                },
+                SecurityContext = new V1SecurityContext
+                {
+                    RunAsNonRoot = false,
+                    RunAsUser = 0,
+                    RunAsGroup = 0,
+                    AllowPrivilegeEscalation = false,
+                    Capabilities = new V1Capabilities { Drop = ["ALL"], Add = ["CHOWN", "DAC_OVERRIDE", "FOWNER"] },
+                },
+            };
         }
 
         return new V1Pod
@@ -166,6 +203,7 @@ public static class KubernetesBrokerSpec
                             RunAsGroup = BrokerUid,
                         },
                     },
+                    .. (credsRefresher is null ? Array.Empty<V1Container>() : new V1Container[] { credsRefresher }),
                 ],
                 Volumes = volumes.Count > 0 ? volumes : null,
             },

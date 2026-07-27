@@ -15,6 +15,7 @@ internal sealed class FakeRuntime : ISandboxRuntime, ISandboxLogSource
     public List<SandboxSpec> Provisioned { get; } = [];
     public List<string> Stopped { get; } = [];
     public SandboxState Status { get; set; } = SandboxState.Running;
+    public int? ExitCode { get; set; }
     public string Logs { get; set; } = "boom: could not clone repo";
 
     public string Backend => "fake";
@@ -26,7 +27,7 @@ internal sealed class FakeRuntime : ISandboxRuntime, ISandboxLogSource
     }
 
     public Task<SandboxStatus> GetStatusAsync(SandboxHandle handle, CancellationToken ct = default)
-        => Task.FromResult(new SandboxStatus(Status));
+        => Task.FromResult(new SandboxStatus(Status, ExitCode));
 
     public Task StopAsync(SandboxHandle handle, CancellationToken ct = default)
     {

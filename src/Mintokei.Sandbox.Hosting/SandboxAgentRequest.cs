@@ -44,6 +44,11 @@ public sealed record SandboxAgentRequest
     /// want to look the session up later. Null uses the session's own generated id.</summary>
     public Guid? SessionKey { get; init; }
 
+    /// <summary>Broker egress for this run: which model providers the per-session broker injects and the tight
+    /// allowlist it enforces (see <see cref="SandboxProvisionRequest.Broker"/>). Requires a broker-egress
+    /// profile. Null runs with the profile's own egress posture.</summary>
+    public SandboxBrokerNeeds? Broker { get; init; }
+
     /// <summary>Kubernetes only: back <c>/repos</c> with a per-id persistent volume so the working tree and
     /// the CLI transcript survive a pod recycle (i.e. the session can be resumed).</summary>
     public Guid? PersistentWorkspaceTaskId { get; init; }

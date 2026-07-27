@@ -30,20 +30,32 @@ public sealed class SandboxProvisioner(
     IServiceProvider services)
 {
     /// <summary>
-    /// Provision a sandbox and wait for it to come online.
+    /// Provision a sandbox and wait for it to come online. Everything host-wide comes from the
+    /// <c>Sandbox</c> config section; <paramref name="request"/> carries the per-session inputs.
     /// </summary>
-    /// <param name="request">Profile, repos, target host, timeout.</param>
+    /// <exception cref="SandboxAgentException">Could not be launched, or never came online (carrying the
+    /// container's tail logs). Anything that was launched is recycled before this throws.</exception>
+    public Task<ProvisionedSandbox> ProvisionAsync(
+        SandboxProvisionRequest request, CancellationToken ct = default) =>
+        ProvisionAsync(request, configure: null, ct);
+
+    /// <summary>
+    /// Provision a sandbox and wait for it to come online, shaping the composed spec via
+    /// <paramref name="configure"/>.
+    /// </summary>
+    /// <param name="request">Profile, repos, broker needs, target host, timeout.</param>
     /// <param name="configure">
-    /// Last-word hook over the composed <see cref="SandboxSessionRequest"/> — broker egress needs, per-tenant
-    /// credential paths, backend URLs, a repo mirror. Host-wide options are applied first, so a hook only
-    /// overrides what it names. <c>Name</c> and <c>EnrollmentToken</c> are re-pinned afterwards: they are the
-    /// identity the sandbox is bound to, not policy.
+    /// Last-word hook over the composed <see cref="SandboxSessionRequest"/>, for what config can't express —
+    /// e.g. per-tenant credential paths. Host-wide options are applied first, so a hook only overrides what it
+    /// names. <c>Name</c> and <c>EnrollmentToken</c> are re-pinned afterwards: they are the identity the
+    /// sandbox is bound to, not policy.
     /// </param>
+    /// <param name="ct">Cancellation.</param>
     /// <exception cref="SandboxAgentException">Could not be launched, or never came online (carrying the
     /// container's tail logs). Anything that was launched is recycled before this throws.</exception>
     public async Task<ProvisionedSandbox> ProvisionAsync(
         SandboxProvisionRequest request,
-        Func<SandboxSessionRequest, SandboxSessionRequest>? configure = null,
+        Func<SandboxSessionRequest, SandboxSessionRequest>? configure,
         CancellationToken ct = default)
     {
         var o = options.Value;
@@ -74,10 +86,21 @@ public sealed class SandboxProvisioner(
         }
         totalPhase.SetTag("sandbox.machineId", machineId);
 
+        // Broker egress tunnels the dial-back through a CONNECT proxy that only carries TLS, so a brokered
+        // sandbox must reach the control plane over the PUBLIC https ingress rather than a plaintext
+        // in-cluster URL. That's a property of broker egress, not of any one product, so decide it here.
+        string? backendOverride = null, grpcOverride = null;
+        if (request.Broker is not null)
+        {
+            backendOverride = string.IsNullOrWhiteSpace(o.PublicBackendUrl) ? null : o.PublicBackendUrl;
+            grpcOverride = string.IsNullOrWhiteSpace(o.PublicGrpcBackendUrl) ? backendOverride : o.PublicGrpcBackendUrl;
+        }
+
         var sessionRequest = new SandboxSessionRequest
         {
-            BackendUrl = o.BackendUrl ?? string.Empty,
-            GrpcBackendUrl = string.IsNullOrWhiteSpace(o.GrpcBackendUrl) ? o.BackendUrl : o.GrpcBackendUrl,
+            BackendUrl = backendOverride ?? o.BackendUrl ?? string.Empty,
+            GrpcBackendUrl = grpcOverride
+                ?? (string.IsNullOrWhiteSpace(o.GrpcBackendUrl) ? o.BackendUrl : o.GrpcBackendUrl),
             EnrollmentToken = enrolled.Token,
             Name = name,
             AddHostGateway = o.AddHostGateway,
@@ -87,6 +110,7 @@ public sealed class SandboxProvisioner(
             ClaudeConfigJsonHostFile = o.ClaudeConfigJsonHostFile,
             CodexConfigHostDir = o.CodexConfigHostDir,
             GitCredentialsHostDir = o.GitCredentialsHostDir,
+            Broker = request.Broker,
             PersistentWorkspaceTaskId = request.PersistentWorkspaceTaskId,
         };
 
@@ -106,7 +130,7 @@ public sealed class SandboxProvisioner(
                 "supply one from the configure hook. It must be reachable FROM INSIDE the container.");
         }
 
-        var timeout = request.OnlineTimeout ?? TimeSpan.FromSeconds(o.OnlineTimeoutSeconds);
+        var timeout = request.OnlineTimeout ?? TimeSpan.FromSeconds(o.OnDemandTimeoutSeconds);
 
         return request.HostMachineId is { } worker
             ? await ProvisionOnWorkerAsync(sessionRequest, worker, machineId, profile, backend, timeout, totalPhase, ct)
@@ -271,7 +295,7 @@ public sealed class SandboxProvisioner(
                             connected.TrySetResult(false);
                             return;
                         }
-                        await Task.Delay(options.Value.StatusPollMilliseconds, deadline.Token);
+                        await Task.Delay(options.Value.ProvisionStatusPollMs, deadline.Token);
                     }
                 }
                 catch (OperationCanceledException) { /* the wait finished or the deadline passed */ }
@@ -322,6 +346,15 @@ public sealed record SandboxProvisionRequest
 
     /// <summary>Provision on this connected worker's Docker instead of the local backend.</summary>
     public Guid? HostMachineId { get; init; }
+
+    /// <summary>
+    /// Broker egress for this session: which model providers the per-session broker injects, and the tight
+    /// allowlist it enforces. Per-session because it follows from the session's TOOL — one broker profile can
+    /// serve tools with different egress needs. Setting this also switches the sandbox's dial-back to
+    /// <see cref="SandboxAgentHostOptions.PublicBackendUrl"/> when one is configured, since broker egress only
+    /// tunnels TLS. Null for non-broker sessions.
+    /// </summary>
+    public SandboxBrokerNeeds? Broker { get; init; }
 
     /// <summary>Kubernetes: back <c>/repos</c> with a per-id persistent volume (survives a pod recycle).</summary>
     public Guid? PersistentWorkspaceTaskId { get; init; }

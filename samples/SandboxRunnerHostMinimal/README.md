@@ -15,8 +15,8 @@ var turn = await run.CollectTurnAsync();      // ← disposal stops the session 
 `RunAsync` owns the whole lifecycle: **mint a one-time enrollment token (pre-creating the ephemeral machine
 identity) → launch the sandbox → wait for the in-container runner to enroll over gRPC → dispatch an agent
 session into it → stream it → recycle on dispose.** All settings — image, URLs, credentials, JWT — bind from
-the `RunnerHost` / `Sandbox` / `SandboxAgentHost` config sections (appsettings / env vars like
-`SandboxAgentHost__BackendUrl` / CLI args); every value has a sensible default.
+the `RunnerHost` and `Sandbox` config sections (appsettings / env vars like
+`Sandbox__BackendUrl` / CLI args); every value has a sensible default.
 
 ```
 POST /demo/sandbox-run?prompt=...&repo=<optional git url>
@@ -39,13 +39,13 @@ Unlike the other samples it launches a real container, so it needs:
 - **Docker** running on this host.
 - The **sandbox image** present/pullable — build `Dockerfile.sandbox` (repo root) and set `Sandbox:Image`
   (default `ghcr.io/mintokei/mintokei-sandbox:latest`).
-- The container to **reach this host**: the runner dials `SandboxAgentHost:BackendUrl` (REST enroll) and
-  `SandboxAgentHost:GrpcBackendUrl` (gRPC control). Defaults use `host.docker.internal` (mapped into the
+- The container to **reach this host**: the runner dials `Sandbox:BackendUrl` (REST enroll) and
+  `Sandbox:GrpcBackendUrl` (gRPC control). Defaults use `host.docker.internal` (mapped into the
   container by the dev-only `AddHostGateway` → `--add-host=host.docker.internal:host-gateway`), which
   resolves to the host on Docker Desktop and on Linux.
 - **Agent credentials** for the CLI inside the container — otherwise the runner enrolls and the session
   dispatches, but the `claude`/`codex` CLI exits before its handshake (no auth). Point the optional
-  `SandboxAgentHost:ClaudeConfigHostDir` / `ClaudeConfigJsonHostFile` (and `CodexConfigHostDir` /
+  `Sandbox:ClaudeConfigHostDir` / `ClaudeConfigJsonHostFile` (and `CodexConfigHostDir` /
   `GitCredentialsHostDir`) config keys at host paths; each is mounted RO at `/seed` and copied into the
   container's HOME by the entrypoint. Leave them unset for a plumbing-only run.
 
@@ -55,8 +55,8 @@ dotnet run --project samples/SandboxRunnerHostMinimal
 curl -X POST "http://localhost:5082/demo/sandbox-run?prompt=say%20hello"
 
 # a REAL agent turn — seed the host's Claude credentials AND pass a repo (so the session has a workdir):
-SandboxAgentHost__ClaudeConfigHostDir="$HOME/.claude" \
-SandboxAgentHost__ClaudeConfigJsonHostFile="$HOME/.claude.json" \
+Sandbox__ClaudeConfigHostDir="$HOME/.claude" \
+Sandbox__ClaudeConfigJsonHostFile="$HOME/.claude.json" \
   dotnet run --project samples/SandboxRunnerHostMinimal
 curl -X POST "http://localhost:5082/demo/sandbox-run?repo=https://github.com/octocat/Hello-World.git&prompt=what%20file%20is%20in%20this%20repo%3F"
 # -> [Assistant/AgentMessage] The repo contains a single README.md file ...

@@ -39,6 +39,7 @@ public static class SandboxAgentHostExtensions
 
         builder.Services.Configure<SandboxAgentHostOptions>(
             builder.Configuration.GetSection(SandboxAgentHostOptions.Section));
+        builder.Services.TryAddSingleton<SandboxProvisioner>();
         builder.Services.TryAddSingleton<SandboxAgentHost>();
 
         return new SandboxAgentHostBuilder(runnerHost);

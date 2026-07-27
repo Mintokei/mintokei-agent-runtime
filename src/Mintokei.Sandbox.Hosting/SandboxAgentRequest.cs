@@ -63,9 +63,18 @@ public sealed record SandboxAgentRequest
 /// <summary>Thrown when a sandboxed run cannot be started — the container never came online, exited during
 /// startup, or the host is missing a registration. Carries the container's tail logs when there are any,
 /// because the cause is almost always visible there (failed clone, bad credentials, missing image).</summary>
-public sealed class SandboxAgentException(string message, string? containerLogs = null, Exception? inner = null)
+public sealed class SandboxAgentException(
+    string message, string? containerLogs = null, Exception? inner = null,
+    SandboxState? terminalState = null, int? exitCode = null)
     : Exception(message, inner)
 {
     /// <summary>Tail of the sandbox's logs at failure time, when they could be read.</summary>
     public string? ContainerLogs { get; } = containerLogs;
+
+    /// <summary>The sandbox's last observed state — <see cref="SandboxState.Exited"/> when it died during
+    /// startup (as opposed to simply never becoming ready before the timeout). Null when unknown.</summary>
+    public SandboxState? TerminalState { get; } = terminalState;
+
+    /// <summary>Exit code when the container exited during startup. Null when it never exited.</summary>
+    public int? ExitCode { get; } = exitCode;
 }

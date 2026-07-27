@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Mintokei.AgentEngine.AgentTools;
+using Mintokei.Runner.Host.Server;
 using Mintokei.Sandbox;
 using Xunit;
 
@@ -31,9 +32,16 @@ public class SandboxAgentHostTests
         var enrollment = new FakeEnrollment();
         var plane = new FakeControlPlane();
 
-        var host = new SandboxAgentHost(
-            enrollment, manager, plane, Options.Create(hostOptions),
-            NullLogger<SandboxAgentHost>.Instance, new ServiceCollection().BuildServiceProvider());
+        // IRunnerEnrollment is scoped in the real container, so the provisioner takes it through a scope
+        // factory rather than capturing it — mirror that here.
+        var services = new ServiceCollection()
+            .AddScoped<IRunnerEnrollment>(_ => enrollment)
+            .BuildServiceProvider();
+
+        var provisioner = new SandboxProvisioner(
+            services.GetRequiredService<IServiceScopeFactory>(), manager, runtime, plane,
+            Options.Create(hostOptions), NullLogger<SandboxProvisioner>.Instance, services);
+        var host = new SandboxAgentHost(provisioner, plane, NullLogger<SandboxAgentHost>.Instance);
 
         return (host, runtime, enrollment, plane);
     }
@@ -150,18 +158,36 @@ public class SandboxAgentHostTests
     }
 
     [Fact]
-    public async Task RunAsync_recycles_the_sandbox_and_surfaces_its_logs_when_it_never_comes_online()
+    public async Task RunAsync_recycles_the_sandbox_and_surfaces_its_logs_when_it_exits_during_startup()
     {
         var (host, runtime, _, plane) = NewHost();
-        plane.Connected = false;             // the runner never dials back…
+        plane.Connected = false;              // the runner never dials back…
         runtime.Status = SandboxState.Exited; // …because the container died during startup
+        runtime.ExitCode = 1;
         runtime.Logs = "fatal: could not read Username for 'https://github.com'";
 
         var ex = await Assert.ThrowsAsync<SandboxAgentException>(() => host.RunAsync(Request()));
 
-        Assert.Contains("never came online", ex.Message);
+        // "Exited" is a different diagnosis from "timed out" — say so, and lead with the exit code.
+        Assert.Contains("exited (exit code 1)", ex.Message);
+        Assert.Equal(SandboxState.Exited, ex.TerminalState);
+        Assert.Equal(1, ex.ExitCode);
         Assert.Contains("could not read Username", ex.ContainerLogs);
         Assert.Single(runtime.Stopped); // recycled rather than leaked
+    }
+
+    [Fact]
+    public async Task RunAsync_reports_a_timeout_differently_from_a_container_that_died()
+    {
+        var (host, runtime, _, plane) = NewHost(o => o.OnlineTimeoutSeconds = 1);
+        plane.Connected = false;               // never dials back…
+        runtime.Status = SandboxState.Running; // …but the container is alive, so this is a timeout
+
+        var ex = await Assert.ThrowsAsync<SandboxAgentException>(() => host.RunAsync(Request()));
+
+        Assert.Contains("did not become ready", ex.Message);
+        Assert.Null(ex.TerminalState); // it never exited
+        Assert.Single(runtime.Stopped);
     }
 
     [Fact]

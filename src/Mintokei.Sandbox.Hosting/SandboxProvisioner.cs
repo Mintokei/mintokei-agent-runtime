@@ -184,8 +184,8 @@ public sealed class SandboxProvisioner(
     }
 
     /// <summary>A connected worker's own Docker, dispatched over its control channel. <c>LaunchAsync</c> stages
-    /// credentials, starts the per-session broker, and waits for the runner; disposing the session recycles all
-    /// three.</summary>
+    /// credentials and starts the per-session broker; the wait is ours, so both paths bind the same way.
+    /// Disposing the returned session recycles container + broker + staged credentials, all on the worker.</summary>
     private async Task<ProvisionedSandbox> ProvisionOnWorkerAsync(
         SandboxSessionRequest sessionRequest, Guid worker, Guid machineId, string profile, string backend,
         TimeSpan timeout, SandboxTelemetry.PhaseTimer totalPhase, CancellationToken ct)
@@ -193,13 +193,14 @@ public sealed class SandboxProvisioner(
         var remote = services.GetService<RemoteSandboxManager>()
             ?? throw new SandboxAgentException(
                 "Running a sandbox on a remote worker requires the remote layer — call AddRemoteWorkers().");
+        var remoteRuntime = services.GetService<RemoteDockerSandboxRuntime>();
 
         if (!runners.IsRunnerConnected(worker))
             throw new SandboxAgentException($"Worker {worker} is not connected — cannot host a sandbox on it.");
 
         // Credentials live on the WORKER (the container runs there), so default anything still unset to that
         // machine's home rather than this host's paths. Values already supplied are left alone.
-        if (services.GetService<RemoteDockerSandboxRuntime>() is { } remoteRuntime && NeedsWorkerCredentials(sessionRequest))
+        if (remoteRuntime is not null && NeedsWorkerCredentials(sessionRequest))
         {
             var home = await remoteRuntime.ProbeHomeAsync(worker, ct);
             sessionRequest = sessionRequest with
@@ -214,15 +215,42 @@ public sealed class SandboxProvisioner(
         RemoteSandboxSession sandbox;
         try
         {
+            // Launch only — the wait is ours, so BOTH paths get the same event-driven bind, the same
+            // early-exit on a container that dies during startup, and the same phase telemetry.
             using (SandboxTelemetry.Phase("launch", backend))
                 sandbox = await remote.LaunchAsync(worker, machineId, sessionRequest, runners.IsRunnerConnected,
-                    profile: profile, onlineTimeoutSeconds: (int)timeout.TotalSeconds, ct: ct);
+                    profile: profile, onlineTimeoutSeconds: (int)timeout.TotalSeconds,
+                    waitForOnline: false, ct: ct);
         }
         catch (SandboxRuntimeException ex)
         {
             SandboxTelemetry.RecordOutcome("error", backend);
             throw new SandboxAgentException(
                 $"The sandbox could not be launched on worker {worker}: {ex.Message}", inner: ex);
+        }
+
+        bool online;
+        SandboxStatus? exitStatus;
+        using (SandboxTelemetry.Phase("wait_online", backend))
+            (online, exitStatus) = await WaitOnlineAsync(
+                machineId, c => remoteRuntime is null
+                    ? Task.FromResult(new SandboxStatus(SandboxState.Unknown))
+                    : remoteRuntime.GetStatusAsync(worker, sandbox.Handle, c),
+                backend, timeout, ct);
+
+        if (!online)
+        {
+            var logs = remoteRuntime is null ? null
+                : await TryGetRemoteLogsAsync(remoteRuntime, worker, sandbox.Handle, ct);
+            logger.LogWarning("Sandbox {Name} on worker {Worker} did not come online (terminal state {State}, exit {Exit})",
+                sessionRequest.Name, worker, exitStatus?.State, exitStatus?.ExitCode);
+            await sandbox.DisposeAsync(); // container + broker + staged creds, all on the worker
+
+            SandboxTelemetry.RecordOutcome("not_online", backend);
+            totalPhase.SetTag("sandbox.terminal_state", exitStatus?.State);
+            throw new SandboxAgentException(
+                NeverOnlineMessage(sessionRequest.Name, timeout, exitStatus), logs,
+                terminalState: exitStatus?.State, exitCode: exitStatus?.ExitCode);
         }
 
         SandboxTelemetry.RecordOutcome("online", backend);
@@ -327,6 +355,13 @@ public sealed class SandboxProvisioner(
 
     private static string Or(string? supplied, string fallback) =>
         string.IsNullOrWhiteSpace(supplied) ? fallback : supplied;
+
+    private async Task<string?> TryGetRemoteLogsAsync(
+        RemoteDockerSandboxRuntime runtime, Guid worker, SandboxHandle handle, CancellationToken ct)
+    {
+        try { return await runtime.GetLogsAsync(worker, handle, tailLines: 40, ct); }
+        catch (Exception ex) { logger.LogDebug(ex, "Could not read sandbox logs from worker {Worker}", worker); return null; }
+    }
 
     private async Task<string?> TryGetLogsAsync(SandboxLease lease, CancellationToken ct)
     {

@@ -62,6 +62,30 @@ Two sections. `Sandbox` configures isolation (backend, image, profiles) — see
 | `OnlineTimeoutSeconds` | How long to wait for the runner to connect (default 180 — cold image pulls dominate). |
 | `ClaudeConfigHostDir`, `ClaudeConfigJsonHostFile`, `CodexConfigHostDir`, `GitCredentialsHostDir` | Host paths mounted read-only at `/seed` and copied into the sandbox's HOME. Without them the CLI has no credentials and the turn can't run. Ignored for broker-egress profiles, where the broker injects credentials and the box never sees them. |
 
+## Per-run overrides (broker egress, per-tenant credentials)
+
+The options above are **host-wide**. Anything that differs per run — which is most of what a real product
+needs — goes through the `configure` hook, which gets the composed `SandboxSessionRequest` after the defaults
+are applied:
+
+```csharp
+await using var run = await host.RunAsync(
+    new SandboxAgentRequest { Tool = AgentToolKey.ClaudeCodeCli, Repo = repo, Prompt = prompt },
+    r => r with
+    {
+        // Broker egress: deny-by-default network, credentials injected by the broker, never seeded in the box.
+        Broker = new SandboxBrokerNeeds(["anthropic"], Git: true, Allowlist: tool.Allowlist),
+        AddHostGateway = false,                        // required for broker containment
+        ClaudeConfigHostDir = tenant.ClaudeDir,        // per-tenant, not one host-wide path
+        RepoCacheHostPath   = machine.MirrorPath,      // machine-local bare mirror
+        BackendUrl          = publicIngressUrl,        // broker sessions dial the public ingress
+    },
+    ct);
+```
+
+The sandbox's `Name` and `EnrollmentToken` are re-pinned after the hook runs: they are the identity the run is
+bound to, not policy, so a hook can shape everything else without breaking the binding.
+
 ## Beyond one turn
 
 `RunAsync` returns a live session, not a one-shot:
@@ -88,4 +112,7 @@ This is a convenience over public APIs, not a replacement for them. If you need 
 own wait/telemetry, a warm pool, or a reaper, keep using `IRunnerEnrollment`, `SandboxManager` /
 `RemoteSandboxManager`, and `IAgentControlPlane` directly — `RunAsync` is exactly those calls in order.
 
-See [`samples/SandboxRunnerHostMinimal`](../../samples/SandboxRunnerHostMinimal) for a complete, runnable host.
+- [`samples/SandboxRunnerHostMinimal`](../../samples/SandboxRunnerHostMinimal) — a complete, runnable host
+  using this package. **Start here.**
+- [`samples/SandboxLifecycleExplicit`](../../samples/SandboxLifecycleExplicit) — the same lifecycle with every
+  step written out, for when you need to own one of them.

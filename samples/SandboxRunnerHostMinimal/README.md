@@ -87,4 +87,17 @@ table in [`src/Mintokei.Sandbox/README.md`](../../src/Mintokei.Sandbox/README.md
 | Recycle | `SandboxManager.RecycleAsync` / `RemoteSandboxSession.DisposeAsync` |
 
 Need to drive those steps yourself (custom admission, your own wait/telemetry, a warm pool)? They stay
-public — `RunAsync` is a convenience over them, not a wall.
+public — `RunAsync` is a convenience over them, not a wall. See
+[`SandboxLifecycleExplicit`](../SandboxLifecycleExplicit), which is this same lifecycle with every step
+written out.
+
+Per-run values (broker egress needs, per-tenant credential paths, a machine-local repo mirror) go through the
+`configure` hook rather than the host-wide options:
+
+```csharp
+await using var run = await host.RunAsync(request, r => r with {
+    Broker = new SandboxBrokerNeeds(["anthropic"], Git: true, Allowlist: tool.Allowlist),
+    AddHostGateway = false,
+    ClaudeConfigHostDir = tenant.ClaudeDir,
+}, ct);
+```

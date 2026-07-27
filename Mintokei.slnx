@@ -18,6 +18,7 @@
     <Project Path="tests/Mintokei.AgentControlPlane.Tests/Mintokei.AgentControlPlane.Tests.csproj" />
     <Project Path="tests/Mintokei.Filesystem.Tests/Mintokei.Filesystem.Tests.csproj" />
     <Project Path="tests/Mintokei.Sandbox.Tests/Mintokei.Sandbox.Tests.csproj" />
+    <Project Path="tests/Mintokei.Sandbox.Hosting.Tests/Mintokei.Sandbox.Hosting.Tests.csproj" />
     <Project Path="tests/Mintokei.Runner.Host.Tests/Mintokei.Runner.Host.Tests.csproj" />
     <Project Path="tests/Mintokei.Runner.Client.Tests/Mintokei.Runner.Client.Tests.csproj" />
   </Folder>
@@ -28,6 +29,7 @@
     <Project Path="samples/SandboxPoolMinimal/SandboxPoolMinimal.csproj" />
     <Project Path="samples/SandboxSessionMinimal/SandboxSessionMinimal.csproj" />
     <Project Path="samples/SandboxRunnerHostMinimal/SandboxRunnerHostMinimal.csproj" />
+    <Project Path="samples/SandboxLifecycleExplicit/SandboxLifecycleExplicit.csproj" />
     <Project Path="samples/RemoteSandboxMinimal/RemoteSandboxMinimal.csproj" />
     <Project Path="samples/BrokerSandboxMinimal/BrokerSandboxMinimal.csproj" />
   </Folder>

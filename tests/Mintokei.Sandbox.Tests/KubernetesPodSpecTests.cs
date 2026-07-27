@@ -70,12 +70,19 @@ public class KubernetesPodSpecTests
     }
 
     [Fact]
-    public void Maps_resource_limits()
+    public void Maps_resource_limits_and_requests_burstable()
     {
-        var c = Container(KubernetesPodSpec.Build(Spec()));
+        var c = Container(KubernetesPodSpec.Build(Spec())); // Limits = 4Gi / 2 cpu
 
+        // Limit = the hard ceiling (burst cap).
         Assert.Equal(new ResourceQuantity("4294967296"), c.Resources.Limits["memory"]);
         Assert.Equal(new ResourceQuantity("2"), c.Resources.Limits["cpu"]);
+
+        // Request = burstable reservation (~¼ CPU / ½ memory of the limit) so many sessions fit on the node
+        // instead of each reserving the full limit (Guaranteed → "Insufficient cpu" FailedScheduling).
+        Assert.Equal(new ResourceQuantity("1073741824"), c.Resources.Requests["memory"]); // min(4Gi/2, 1Gi) = 1Gi
+        Assert.Equal(new ResourceQuantity("0.5"), c.Resources.Requests["cpu"]);            // 2 * 0.25
+        Assert.True(c.Resources.Requests["cpu"].ToDouble() < c.Resources.Limits["cpu"].ToDouble()); // burstable
     }
 
     [Fact]

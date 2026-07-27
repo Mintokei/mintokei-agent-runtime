@@ -1,127 +1,55 @@
-using System.Text;
-using Microsoft.Extensions.Options;
-using Mintokei.AgentControlPlane;
-using Mintokei.AgentEngine;
 using Mintokei.AgentEngine.AgentTools;
-using Mintokei.AgentEngine.Contracts;
-using Mintokei.Runner.Host.Hosting;
-using Mintokei.Runner.Host.Server;
-using Mintokei.Sandbox;
-using SandboxRunnerHostMinimal;
+using Mintokei.Sandbox.Hosting;
 
 // =============================================================================
 // A GENUINELY-REAL sandbox host — no Fake* types.
 //
-// The whole backend is two calls: AddMintokeiRunnerHost() (the Mintokei.Runner.Host.Hosting package —
-// db + transport + JWT auth + control plane + gRPC, all from the "RunnerHost" config section) and
-// AddMintokeiSandbox() (the sandbox layer, from the "Sandbox" section). Then one endpoint runs the whole
-// on-demand lifecycle for real:
+// Two calls make the backend, one call runs the agent:
 //
-//   POST /demo/sandbox-run?prompt=...&repo=<optional git url>
-//     1. mint a one-time enrollment token (pre-creating an ephemeral machine id)
-//     2. `docker run` the sandbox image (the container's runner dials back in)
-//     3. wait for that runner to enroll + connect over gRPC
-//     4. dispatch an agent session INTO the container (same IAgentSession API)
-//     5. recycle the container (`docker rm`)
+//   AddSandboxAgentHost()   db + transport + JWT + control plane + gRPC + the sandbox layer
+//   MapSandboxAgentHost()   auth + enroll routes + the gRPC data plane
+//   host.RunAsync(...)      mint a one-time enrollment token (pre-creating the machine identity) →
+//                           launch the sandbox → wait for the in-container runner to connect →
+//                           dispatch the agent session into it → stream it → recycle on dispose
 //
-// NOT "runs anywhere": step 2 launches a real container — see the README for the prerequisites.
+// The backend is a config choice, not a code choice: Sandbox:Backend = docker runs a container here,
+// kubernetes runs a pod in the cluster, and setting SandboxAgentRequest.HostMachineId runs it on a
+// connected remote worker — all with the code below unchanged.
+//
+// NOT "runs anywhere": it launches a real container — see the README for the prerequisites.
 // =============================================================================
 
 var builder = WebApplication.CreateBuilder(args);
-builder.AddMintokeiRunnerHost().AddClaude();     // real Runner.Host + AgentControlPlane + gRPC (config-driven)
-builder.Services.AddMintokeiSandbox(builder.Configuration);
-builder.Services.Configure<SandboxDemoOptions>(builder.Configuration.GetSection(SandboxDemoOptions.Section));
+builder.AddSandboxAgentHost().AddClaude();   // + .AddCodex() / .AddRemoteWorkers()
 
 var app = builder.Build();
-app.MapMintokeiRunnerHost();                     // db init + auth + enroll routes + gRPC data plane
+app.MapSandboxAgentHost();
 
-// The full sandbox lifecycle, over one endpoint (no fakes).
 app.MapPost("/demo/sandbox-run", async (
-    IRunnerEnrollment enroll, SandboxManager manager, IAgentControlPlane plane,
-    IOptions<SandboxDemoOptions> options, ILoggerFactory loggerFactory,
-    string prompt, string? repo, CancellationToken ct) =>
+    SandboxAgentHost host, string prompt, string? repo, CancellationToken ct) =>
 {
-    var o = options.Value;
-    var log = loggerFactory.CreateLogger("sandbox-run");
-    var name = $"sandbox-standard-{Guid.NewGuid().ToString("N")[..12]}";
-
-    // 1. Mint a one-time token that PRE-CREATES the ephemeral machine identity, so we bind by id (not by
-    //    discovering the runner by name). This is what SandboxSessionRequestFactory does in the product.
-    var enrolled = await enroll.CreateEnrollmentTokenAsync(
-        createdByUserName: "sandbox-demo", machineName: name, isEphemeral: true, profile: "standard");
-    if (enrolled.MachineId is not { } machineId)
-        return Results.Problem("enrollment did not pre-create a machine id");
-
-    // 2. Describe the session — the real SandboxSessionRequest the product builds. URLs + creds from config.
-    var request = new SandboxSessionRequest
-    {
-        BackendUrl = o.BackendUrl,
-        GrpcBackendUrl = o.GrpcBackendUrl,
-        EnrollmentToken = enrolled.Token,
-        Name = name,
-        AddHostGateway = true, // dev-only: --add-host=host.docker.internal:host-gateway
-        Repos = string.IsNullOrWhiteSpace(repo) ? [] : [new SandboxRepoSpec(repo)],
-        ClaudeConfigHostDir = o.ClaudeConfigHostDir,
-        ClaudeConfigJsonHostFile = o.ClaudeConfigJsonHostFile,
-        CodexConfigHostDir = o.CodexConfigHostDir,
-        GitCredentialsHostDir = o.GitCredentialsHostDir,
-    };
-
-    // 3. Provision the REAL container (docker run of the sandbox image).
-    SandboxLease lease;
     try
     {
-        lease = await manager.ProvisionAsync(request, ct: ct);
-    }
-    catch (SandboxRuntimeException ex)
-    {
-        log.LogError(ex, "sandbox provisioning failed");
-        return Results.Problem(
-            $"Could not launch the sandbox container: {ex.Message}\n" +
-            "Prerequisites: Docker running, the sandbox image present (Sandbox:Image), and this host " +
-            "reachable from the container at Sandbox:BackendUrl / Sandbox:GrpcBackendUrl.");
-    }
-
-    try
-    {
-        // 4. Wait (bounded) for the in-container runner to enroll + connect over gRPC. Bailing early on a
-        //    container that exits first surfaces its logs — almost always a repo-clone / git-creds error.
-        if (!await WaitOnlineAsync(plane, manager, lease, machineId, ct))
+        // Provisions the sandbox, waits for it to come online, starts the session, sends the prompt.
+        await using var run = await host.RunAsync(new SandboxAgentRequest
         {
-            var logs = await manager.GetLogsAsync(lease.Handle, 40, ct);
-            return Results.Problem($"sandbox '{name}' never came online.\n{logs}");
-        }
+            Tool = AgentToolKey.ClaudeCodeCli,
+            Repo = repo,      // cloned to /repos/<name>; the session starts there
+            Prompt = prompt,
+        }, ct);
 
-        log.LogInformation("sandbox '{Name}' (machine {MachineId}) is online; dispatching the session", name, machineId);
-
-        // 5. Dispatch the session INTO the sandbox — the SAME IAgentSession API as any remote runner. The
-        //    session runs in /repos/<name> (present only after a repo is cloned), else the repo root.
-        var workDir = string.IsNullOrWhiteSpace(repo) ? SandboxSpecFactory.RepoRoot : SandboxSpecFactory.DefaultSourcePath(repo);
-        var spec = new AgentSessionSpec { Tool = AgentToolKey.ClaudeCodeCli, WorkingDirectory = workDir };
-        var session = await plane.StartSessionAsync(spec, runnerMachineId: machineId, ct: ct);
-        try
-        {
-            await session.SendMessageAsync(prompt);
-
-            var transcript = new StringBuilder();
-            await foreach (var evt in session.Output)     // streams back over gRPC from inside the container
-            {
-                if (evt is MessageOutput m)
-                    transcript.AppendLine($"[{m.Message.Role}/{m.Message.Type}] {m.Message.Content}");
-                if (evt is TurnEnded)
-                    break;                                  // stop after the first completed turn
-            }
-            return Results.Text(transcript.ToString());
-        }
-        finally
-        {
-            await plane.StopSessionAsync(session.SessionId);
-        }
-    }
-    finally
+        // One-shot: collect the transcript until the turn ends. Use run.Output for deltas / tool calls /
+        // permission prompts, or run.SendMessageAsync(...) to keep the conversation going.
+        var turn = await run.CollectTurnAsync(ct);
+        return Results.Text(turn.Transcript);
+    }                                        // ← disposed here: session stopped, container removed
+    catch (SandboxAgentException ex)
     {
-        // 6. One-shot recycle — stop + remove the container (docker rm -f).
-        await manager.RecycleAsync(request.Name, ct);
+        // Never-came-online failures carry the container's tail logs — usually a failed clone, missing
+        // credentials, an unpullable image, or a backend URL the container can't reach.
+        return Results.Problem(string.IsNullOrWhiteSpace(ex.ContainerLogs)
+            ? ex.Message
+            : $"{ex.Message}\n\n--- sandbox logs ---\n{ex.ContainerLogs}");
     }
 });
 
@@ -132,20 +60,3 @@ app.Logger.LogInformation("Needs: Docker + the sandbox image (Sandbox:Image) + h
 app.Logger.LogInformation("──────────────────────────────────────────────────────────────");
 
 app.Run();
-
-// Wait (bounded) for the pre-created machine to come online; false if it never does (timeout or the
-// container exited first — the caller then surfaces the container logs).
-static async Task<bool> WaitOnlineAsync(
-    IAgentControlPlane plane, SandboxManager manager, SandboxLease lease, Guid machineId, CancellationToken ct)
-{
-    for (var i = 0; i < 120; i++)
-    {
-        if (plane.IsRunnerConnected(machineId))
-            return true;
-        var status = await manager.GetStatusAsync(lease.Handle, ct);
-        if (status.State is SandboxState.Exited or SandboxState.NotFound)
-            return false;
-        await Task.Delay(500, ct);
-    }
-    return false;
-}

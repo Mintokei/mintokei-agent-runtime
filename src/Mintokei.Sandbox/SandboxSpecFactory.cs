@@ -64,7 +64,7 @@ public sealed class SandboxSpecFactory(IOptions<SandboxOptions> options)
             // Repo URLs, /repos/<name> paths, and branch names contain none of these, so no escaping is needed.
             // prepare-workspace.sh splits on them and provisions each repo. (Legacy single-repo SANDBOX_REPO_URL
             // is still understood by the entrypoint for the spike script, but the product always uses this.)
-            env["SANDBOX_REPOS"] = string.Join(';', req.Repos.Select(r =>
+            env[ReposEnvVar] = string.Join(';', req.Repos.Select(r =>
             {
                 var src = string.IsNullOrWhiteSpace(r.SourcePath) ? DefaultSourcePath(r.Url) : r.SourcePath!;
                 return $"{r.Url}|{src}|{r.Branch ?? string.Empty}";
@@ -109,13 +109,17 @@ public sealed class SandboxSpecFactory(IOptions<SandboxOptions> options)
             Tmpfs = tmpfs,
             ReadOnlyRootfs = profile.ReadOnlyRootfs,
             AddHostGateway = req.AddHostGateway,
-            PersistentWorkspaceTaskId = req.PersistentWorkspaceTaskId,
+            PersistentWorkspaceKey = req.PersistentWorkspaceKey,
         };
     }
 
     /// <summary>Container path every sandbox repo is provisioned under (the parent of each repo dir). The
     /// persistent-workspace volume mounts here so all of a session's repos survive a recycle together.</summary>
     public const string RepoRoot = "/repos";
+
+    /// <summary>Env var carrying the session's repo list, read by the container entrypoint. Its presence is
+    /// also the signal that this sandbox HAS a working tree (so it is worth persisting).</summary>
+    public const string ReposEnvVar = "SANDBOX_REPOS";
 
     /// <summary>Derive /repos/&lt;name&gt; from a repo URL (mirrors prepare-workspace.sh's default).</summary>
     public static string DefaultSourcePath(string repoUrl)

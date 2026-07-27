@@ -269,4 +269,65 @@ public class RemoteSandboxManagerTests
             mgr.LaunchAsync(Guid.NewGuid(), Guid.NewGuid(), Request(), _ => true, profile: "hardened"));
         Assert.Contains("fail-closed", ex.Message);
     }
+
+    // --- persistent workspace (durable /repos across a recycle) ---
+
+    private static SandboxSessionRequest RequestWithRepos(Guid? key) => new()
+    {
+        BackendUrl = "https://api",
+        EnrollmentToken = "tok",
+        Name = "sbx-1",
+        ClaudeConfigHostDir = "/root/.claude",
+        Repos = [new SandboxRepoSpec("https://github.com/acme/app.git")],
+        PersistentWorkspaceKey = key,
+    };
+
+    [Fact]
+    public async Task Launch_creates_and_mounts_the_workspace_volume_for_a_persistent_key()
+    {
+        // Without this, the key is silently ignored on the Docker path (K8s honours it) and a recycled
+        // session comes back with an empty tree and no transcript to --resume from.
+        var (mgr, fake) = New(HappyRunner());
+        var key = Guid.NewGuid();
+
+        await using var s = await mgr.LaunchAsync(Guid.NewGuid(), Guid.NewGuid(), RequestWithRepos(key), _ => true);
+
+        var expected = SandboxWorkspaceStore.Name(key); // mintokei-ws-<key:N>, same name the K8s PVC gets
+
+        // the volume is created BEFORE the run (docker can only mount one that already exists)…
+        var createIdx = fake.Calls.FindIndex(c => c.Args.Count > 1 && c.Args[0] == "volume" && c.Args[1] == "create");
+        var runIdx = fake.Calls.FindIndex(c => c.Args.Count > 0 && c.Args[0] == "run");
+        Assert.True(createIdx >= 0, "no 'docker volume create' was dispatched");
+        Assert.True(createIdx < runIdx, "the volume must be created before 'docker run'");
+
+        var create = fake.Calls[createIdx].Args;
+        Assert.Contains(expected, create);
+        Assert.Contains($"{SandboxWorkspaceStore.LabelKey}={key:N}", create); // labelled so a GC pass finds it
+
+        // …and mounted at the repo root, read-write.
+        var run = fake.Calls[runIdx].Args;
+        Assert.Contains(run, a => a.Contains($"{expected}:{SandboxSpecFactory.RepoRoot}", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Launch_without_a_persistent_key_creates_no_volume()
+    {
+        var (mgr, fake) = New(HappyRunner());
+
+        await using var s = await mgr.LaunchAsync(Guid.NewGuid(), Guid.NewGuid(), RequestWithRepos(key: null), _ => true);
+
+        Assert.DoesNotContain(fake.Calls, c => c.Args.Count > 1 && c.Args[0] == "volume" && c.Args[1] == "create");
+    }
+
+    [Fact]
+    public async Task Launch_skips_the_volume_when_the_session_has_no_repos()
+    {
+        // No working tree → nothing worth persisting.
+        var (mgr, fake) = New(HappyRunner());
+        var request = Request() with { PersistentWorkspaceKey = Guid.NewGuid() };
+
+        await using var s = await mgr.LaunchAsync(Guid.NewGuid(), Guid.NewGuid(), request, _ => true);
+
+        Assert.DoesNotContain(fake.Calls, c => c.Args.Count > 1 && c.Args[0] == "volume" && c.Args[1] == "create");
+    }
 }

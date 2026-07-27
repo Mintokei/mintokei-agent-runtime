@@ -111,7 +111,7 @@ public sealed class SandboxProvisioner(
             CodexConfigHostDir = o.CodexConfigHostDir,
             GitCredentialsHostDir = o.GitCredentialsHostDir,
             Broker = request.Broker,
-            PersistentWorkspaceTaskId = request.PersistentWorkspaceTaskId,
+            PersistentWorkspaceKey = request.PersistentWorkspaceKey,
         };
 
         if (configure is not null)
@@ -357,7 +357,7 @@ public sealed record SandboxProvisionRequest
     public SandboxBrokerNeeds? Broker { get; init; }
 
     /// <summary>Kubernetes: back <c>/repos</c> with a per-id persistent volume (survives a pod recycle).</summary>
-    public Guid? PersistentWorkspaceTaskId { get; init; }
+    public Guid? PersistentWorkspaceKey { get; init; }
 
     /// <summary>Overrides <see cref="SandboxAgentHostOptions.OnlineTimeoutSeconds"/>.</summary>
     public TimeSpan? OnlineTimeout { get; init; }

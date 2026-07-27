@@ -18,7 +18,7 @@ public class SandboxAgentHostRegistrationTests
         var builder = WebApplication.CreateBuilder();
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
         {
-            ["SandboxAgentHost:BackendUrl"] = "https://backend/api",
+            ["Sandbox:BackendUrl"] = "https://backend/api",
             ["Sandbox:Backend"] = "docker",
         });
         builder.AddSandboxAgentHost().AddClaude();

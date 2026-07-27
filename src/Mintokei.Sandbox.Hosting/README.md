@@ -50,37 +50,45 @@ Same code, three substrates:
 
 ## Configuration
 
-Two sections. `Sandbox` configures isolation (backend, image, profiles) — see
-[`Mintokei.Sandbox`](../Mintokei.Sandbox). `SandboxAgentHost` configures the run:
+**One section — `Sandbox`** — describes the sandbox layer end to end. The isolation keys (`Backend`, `Image`,
+`Profiles`, …) are documented in [`Mintokei.Sandbox`](../Mintokei.Sandbox); this package adds:
 
-| Key | Meaning |
+| `Sandbox:` key | Meaning |
 |---|---|
 | `BackendUrl` | **Required.** REST URL the runner *inside the container* dials. Must be reachable from there — not `localhost` unless the sandbox shares the host's network. |
 | `GrpcBackendUrl` | Control-stream URL. Defaults to `BackendUrl` (fine when the same endpoint serves HTTP/2). |
-| `AddHostGateway` | Docker dev convenience: maps `host.docker.internal` into the container. |
+| `PublicBackendUrl` / `PublicGrpcBackendUrl` | Public **https** URLs used instead of the above **for broker-egress sessions** — broker egress only tunnels TLS, so a brokered sandbox can't reach a plaintext in-cluster URL. Selected automatically when a run sets `Broker`. |
+| `AddHostGateway` | Docker dev convenience: maps `host.docker.internal` into the container. Rejected with broker egress. |
 | `Profile` | Default isolation profile (`Sandbox:Profiles:<name>`). |
-| `OnlineTimeoutSeconds` | How long to wait for the runner to connect (default 180 — cold image pulls dominate). |
+| `OnDemandTimeoutSeconds` | How long to wait for the runner to connect (default 180 — cold image pulls dominate). |
+| `ProvisionStatusPollMs` | How often to poll the container while waiting, so an early exit is noticed instead of burning the timeout. |
 | `ClaudeConfigHostDir`, `ClaudeConfigJsonHostFile`, `CodexConfigHostDir`, `GitCredentialsHostDir` | Host paths mounted read-only at `/seed` and copied into the sandbox's HOME. Without them the CLI has no credentials and the turn can't run. Ignored for broker-egress profiles, where the broker injects credentials and the box never sees them. |
+| `RepoCacheHostPath` | Bare-repo mirror mounted read-only at `/repo-cache`; clones borrow its objects. |
 
-## Per-run overrides (broker egress, per-tenant credentials)
+Two options types binding one section is deliberate — each ignores the keys it doesn't declare — so a host
+configures `Sandbox:*` once and needs no per-call wiring for any of the above.
 
-The options above are **host-wide**. Anything that differs per run — which is most of what a real product
-needs — goes through the `configure` hook, which gets the composed `SandboxSessionRequest` after the defaults
-are applied:
+## Per-run inputs
+
+What genuinely varies per session lives on the request — no hook needed:
 
 ```csharp
-await using var run = await host.RunAsync(
-    new SandboxAgentRequest { Tool = AgentToolKey.ClaudeCodeCli, Repo = repo, Prompt = prompt },
-    r => r with
-    {
-        // Broker egress: deny-by-default network, credentials injected by the broker, never seeded in the box.
-        Broker = new SandboxBrokerNeeds(["anthropic"], Git: true, Allowlist: tool.Allowlist),
-        AddHostGateway = false,                        // required for broker containment
-        ClaudeConfigHostDir = tenant.ClaudeDir,        // per-tenant, not one host-wide path
-        RepoCacheHostPath   = machine.MirrorPath,      // machine-local bare mirror
-        BackendUrl          = publicIngressUrl,        // broker sessions dial the public ingress
-    },
-    ct);
+await using var run = await host.RunAsync(new SandboxAgentRequest
+{
+    Tool = AgentToolKey.ClaudeCodeCli,
+    Repo = repo,
+    Profile = "hardened",                                            // isolation tier for this session
+    // Broker egress: deny-by-default network, credentials injected by the broker, never seeded in the box.
+    // Setting this also switches the dial-back to PublicBackendUrl, since broker egress only tunnels TLS.
+    Broker = new SandboxBrokerNeeds(["anthropic"], Git: true, Allowlist: tool.Allowlist),
+}, ct);
+```
+
+For anything config can't express — per-tenant credential paths, say — there's still a `configure` hook over
+the composed `SandboxSessionRequest`, applied after the host-wide defaults:
+
+```csharp
+await host.RunAsync(request, r => r with { ClaudeConfigHostDir = tenant.ClaudeDir }, ct);
 ```
 
 The sandbox's `Name` and `EnrollmentToken` are re-pinned after the hook runs: they are the identity the run is

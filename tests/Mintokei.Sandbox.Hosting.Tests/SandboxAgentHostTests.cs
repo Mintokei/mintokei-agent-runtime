@@ -141,6 +141,48 @@ public class SandboxAgentHostTests
     }
 
     [Fact]
+    public async Task Broker_egress_is_a_first_class_request_input_and_switches_to_the_public_url()
+    {
+        // Broker egress only tunnels TLS, so a brokered sandbox can't dial a plaintext in-cluster URL — the
+        // switch to the public ingress is a property of broker egress, so the library makes it, not the caller.
+        var (host, runtime, _, _) = NewHost(
+            configureHost: o =>
+            {
+                o.BackendUrl = "http://api.internal:8080";          // in-cluster, unreachable through the proxy
+                o.GrpcBackendUrl = "http://api.internal:8081";
+                o.PublicBackendUrl = "https://mintokei.example";    // …so brokered runs use these instead
+                o.PublicGrpcBackendUrl = "https://mintokei.example";
+            },
+            configureSandbox: s => s.Profiles["standard"] = new SandboxProfileConfig { Egress = "broker" });
+
+        await using var run = await host.RunAsync(Request() with
+        {
+            Broker = new SandboxBrokerNeeds(["anthropic"], Git: true, Allowlist: ["api.anthropic.com"]),
+        });
+
+        var spec = Assert.Single(runtime.Provisioned);
+        Assert.Equal(SandboxEgress.Broker, spec.Egress);
+        Assert.Equal(["api.anthropic.com"], spec.EgressAllowlist);       // the per-session allowlist reached the spec
+        Assert.Contains("https://mintokei.example", spec.Args);          // …dialing the PUBLIC url
+        Assert.DoesNotContain("http://api.internal:8080", spec.Args);
+    }
+
+    [Fact]
+    public async Task Non_broker_sessions_keep_the_in_cluster_url()
+    {
+        var (host, runtime, _, _) = NewHost(o =>
+        {
+            o.BackendUrl = "http://api.internal:8080";
+            o.PublicBackendUrl = "https://mintokei.example";
+        });
+
+        await using var run = await host.RunAsync(Request()); // no Broker → no public swap
+
+        var spec = Assert.Single(runtime.Provisioned);
+        Assert.Contains("http://api.internal:8080", spec.Args);
+    }
+
+    [Fact]
     public async Task Configure_hook_cannot_break_the_identity_the_run_is_bound_to()
     {
         var (host, runtime, enrollment, _) = NewHost();
@@ -179,7 +221,7 @@ public class SandboxAgentHostTests
     [Fact]
     public async Task RunAsync_reports_a_timeout_differently_from_a_container_that_died()
     {
-        var (host, runtime, _, plane) = NewHost(o => o.OnlineTimeoutSeconds = 1);
+        var (host, runtime, _, plane) = NewHost(o => o.OnDemandTimeoutSeconds = 1);
         plane.Connected = false;               // never dials back…
         runtime.Status = SandboxState.Running; // …but the container is alive, so this is a timeout
 

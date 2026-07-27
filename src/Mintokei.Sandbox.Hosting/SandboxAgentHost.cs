@@ -47,7 +47,29 @@ public sealed class SandboxAgentHost(
     /// </summary>
     /// <exception cref="SandboxAgentException">The sandbox could not be launched, never came online, or the
     /// session could not start. The sandbox is always recycled before this throws.</exception>
-    public async Task<SandboxAgentRun> RunAsync(SandboxAgentRequest request, CancellationToken ct = default)
+    public Task<SandboxAgentRun> RunAsync(SandboxAgentRequest request, CancellationToken ct = default) =>
+        RunAsync(request, configure: null, ct);
+
+    /// <summary>
+    /// Provision a sandbox, wait for it to come online, and start an agent session inside it, shaping the
+    /// sandbox spec per-run via <paramref name="configure"/>. The returned run owns the sandbox — dispose it.
+    /// </summary>
+    /// <param name="request">What to run and where to isolate it.</param>
+    /// <param name="configure">
+    /// Optional last-word hook over the composed <see cref="SandboxSessionRequest"/>, for everything that is
+    /// per-run rather than host-wide: broker egress needs (<see cref="SandboxSessionRequest.Broker"/>),
+    /// per-tenant credential paths, a machine-local repo mirror, a different backend URL for this session.
+    /// The host-wide options are applied first, so a hook only overrides what it names.
+    /// <para>The sandbox's <c>Name</c> and <c>EnrollmentToken</c> are re-pinned afterwards: they are the
+    /// identity this run is bound to, not policy, and changing them would break the binding.</para>
+    /// </param>
+    /// <param name="ct">Cancellation. The sandbox is recycled if the run is cancelled after launching.</param>
+    /// <exception cref="SandboxAgentException">The sandbox could not be launched, never came online, or the
+    /// session could not start. The sandbox is always recycled before this throws.</exception>
+    public async Task<SandboxAgentRun> RunAsync(
+        SandboxAgentRequest request,
+        Func<SandboxSessionRequest, SandboxSessionRequest>? configure,
+        CancellationToken ct = default)
     {
         var o = options.Value;
         if (string.IsNullOrWhiteSpace(o.BackendUrl))
@@ -82,6 +104,15 @@ public sealed class SandboxAgentHost(
             GitCredentialsHostDir = o.GitCredentialsHostDir,
             PersistentWorkspaceTaskId = request.PersistentWorkspaceTaskId,
         };
+
+        // Per-run overrides win over the host-wide defaults — then re-pin the identity fields, so a hook
+        // can shape everything about the session without being able to break what it is bound to.
+        if (configure is not null)
+            sessionRequest = (configure(sessionRequest) ?? sessionRequest) with
+            {
+                Name = name,
+                EnrollmentToken = enrolled.Token,
+            };
 
         var timeout = request.OnlineTimeout ?? TimeSpan.FromSeconds(o.OnlineTimeoutSeconds);
 
@@ -144,18 +175,18 @@ public sealed class SandboxAgentHost(
         if (!plane.IsRunnerConnected(worker))
             throw new SandboxAgentException($"Worker {worker} is not connected — cannot host a sandbox on it.");
 
-        // Credentials live on the WORKER (the container runs there), so default them to that machine's home
-        // rather than this host's paths.
-        if (services.GetService<RemoteDockerSandboxRuntime>() is { } runtime &&
-            string.IsNullOrWhiteSpace(options.Value.ClaudeConfigHostDir))
+        // Credentials live on the WORKER (the container runs there), so default anything still unset to that
+        // machine's home rather than this host's paths. Values already supplied — by options or by the
+        // per-run hook — are left alone.
+        if (services.GetService<RemoteDockerSandboxRuntime>() is { } runtime && NeedsWorkerCredentials(sessionRequest))
         {
             var home = await runtime.ProbeHomeAsync(worker, ct);
             sessionRequest = sessionRequest with
             {
-                ClaudeConfigHostDir = $"{home}/.claude",
-                ClaudeConfigJsonHostFile = $"{home}/.claude.json",
-                CodexConfigHostDir = $"{home}/.codex",
-                GitCredentialsHostDir = home,
+                ClaudeConfigHostDir = Or(sessionRequest.ClaudeConfigHostDir, $"{home}/.claude"),
+                ClaudeConfigJsonHostFile = Or(sessionRequest.ClaudeConfigJsonHostFile, $"{home}/.claude.json"),
+                CodexConfigHostDir = Or(sessionRequest.CodexConfigHostDir, $"{home}/.codex"),
+                GitCredentialsHostDir = Or(sessionRequest.GitCredentialsHostDir, home),
             };
         }
 
@@ -290,6 +321,16 @@ public sealed class SandboxAgentHost(
             deadline.Cancel(); // stop the poll loop
         }
     }
+
+    /// <summary>True when any credential path is still unset, so the worker's own home is worth probing.</summary>
+    private static bool NeedsWorkerCredentials(SandboxSessionRequest r) =>
+        string.IsNullOrWhiteSpace(r.ClaudeConfigHostDir) ||
+        string.IsNullOrWhiteSpace(r.ClaudeConfigJsonHostFile) ||
+        string.IsNullOrWhiteSpace(r.CodexConfigHostDir) ||
+        string.IsNullOrWhiteSpace(r.GitCredentialsHostDir);
+
+    private static string Or(string? supplied, string fallback) =>
+        string.IsNullOrWhiteSpace(supplied) ? fallback : supplied;
 
     private async Task<string?> TryGetLogsAsync(SandboxLease lease, CancellationToken ct)
     {

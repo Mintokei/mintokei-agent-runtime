@@ -330,4 +330,41 @@ public class RemoteSandboxManagerTests
 
         Assert.DoesNotContain(fake.Calls, c => c.Args.Count > 1 && c.Args[0] == "volume" && c.Args[1] == "create");
     }
+
+    [Fact]
+    public async Task Launch_gives_the_broker_the_sessions_own_allowlist_not_the_profiles()
+    {
+        // The spec factory already prefers the per-session allowlist; the broker must ENFORCE the same one,
+        // or a tool gets wider egress than the sandbox it was built for.
+        var opts = Options.Create(new SandboxOptions
+        {
+            Image = "img:1",
+            DefaultProfile = "broker",
+            AllowedProfiles = ["broker"],
+            Profiles = { ["broker"] = new SandboxProfileConfig { Egress = "broker", EgressAllowlist = ["wide.example", "also-wide.example"] } },
+        });
+        var fake = HappyRunner();
+        var runtime = new RemoteDockerSandboxRuntime(fake, opts, NullLogger<RemoteDockerSandboxRuntime>.Instance);
+        var broker = new RecordingBroker();
+        var mgr = new RemoteSandboxManager(runtime, new SandboxCredentialStager(fake, opts), new SandboxSpecFactory(opts),
+            new SandboxProfileResolver(opts), NullLogger<RemoteSandboxManager>.Instance, new NoSandboxBrokerSecrets(), broker);
+
+        var request = Request() with { Broker = new SandboxBrokerNeeds(["anthropic"], Allowlist: ["api.anthropic.com"]) };
+        await using var s = await mgr.LaunchAsync(Guid.NewGuid(), Guid.NewGuid(), request, _ => true);
+
+        Assert.Equal(["api.anthropic.com"], broker.LastRequest!.EgressAllowlist);
+    }
+
+    private sealed class RecordingBroker : ISandboxBroker
+    {
+        public SandboxBrokerRequest? LastRequest { get; private set; }
+
+        public Task<BrokerEndpoint> StartAsync(Guid workerId, SandboxBrokerRequest request, CancellationToken ct = default)
+        {
+            LastRequest = request;
+            return Task.FromResult(new BrokerEndpoint("net", "broker", "http://broker:3128", "http://broker:3129"));
+        }
+
+        public Task StopAsync(Guid workerId, BrokerEndpoint endpoint, CancellationToken ct = default) => Task.CompletedTask;
+    }
 }

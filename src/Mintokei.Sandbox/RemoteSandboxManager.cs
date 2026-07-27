@@ -64,8 +64,13 @@ public sealed class RemoteSandboxManager(
             // The broker holds the secrets and provides egress; nothing is staged into the box. An explicit
             // brokerSecrets arg wins; otherwise fall back to the registered provider (same seam the pool path uses).
             var secrets = brokerSecrets ?? await secretsProvider.ResolveAsync(request, resolved, ct);
+
+            // The session's own allowlist wins over the profile's — the same precedence SandboxSpecFactory
+            // applies, so the broker ENFORCES exactly what the sandbox was built for. Taking the profile-wide
+            // list here would hand a tool a wider egress than its spec asked for.
+            var allowlist = request.Broker?.Allowlist is { Count: > 0 } perSession ? perSession : resolved.EgressAllowlist;
             endpoint = await broker.StartAsync(workerId,
-                new SandboxBrokerRequest(request.Name, resolved.EgressAllowlist, secrets), ct);
+                new SandboxBrokerRequest(request.Name, allowlist, secrets), ct);
         }
         else
         {

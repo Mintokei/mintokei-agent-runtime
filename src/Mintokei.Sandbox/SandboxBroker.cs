@@ -91,6 +91,52 @@ public sealed record SandboxBrokerSecrets(
 
     /// <summary>Set the GitHub token minted for the Copilot CLI's GitHub API calls.</summary>
     public SandboxBrokerSecrets WithGitHubToken(string token) => this with { GitHubToken = token };
+
+    /// <summary>Container path the broker sees a staged credential dir at, per kind.</summary>
+    private const string ClaudeCredsMount = "/creds/claude";
+    private const string CodexCredsMount = "/creds/codex";
+    private const string GitCredsMount = "/creds/git";
+
+    /// <summary>
+    /// Build the secrets for a broker fronting a session whose credentials were STAGED on the runner
+    /// (<see cref="SandboxCredentialStager"/>, staged for <see cref="SandboxImage.BrokerUid"/>): mount each
+    /// staged dir into the broker read-only and reference the file from inside it, so the real token is read
+    /// broker-side on the runner and never travels through the control plane or into the sandbox.
+    /// </summary>
+    /// <param name="needs">What this session's tool needs injected (providers, git, GitHub).</param>
+    /// <param name="staged">Where the stager put the per-session copies on the runner.</param>
+    public static SandboxBrokerSecrets FromStagedCredentials(SandboxBrokerNeeds needs, StagedSeedCreds staged)
+    {
+        var upstreams = new List<ModelUpstreamSpec>();
+        var mounts = new List<SandboxBrokerCredentialMount>();
+
+        foreach (var provider in needs.ModelProviders)
+        {
+            if (provider.Equals("anthropic", StringComparison.OrdinalIgnoreCase) && staged.ClaudeConfigDir is { } claudeDir)
+            {
+                upstreams.Add(ModelUpstreamSpec.AnthropicOAuthFromFile($"{ClaudeCredsMount}/.credentials.json"));
+                mounts.Add(new SandboxBrokerCredentialMount(claudeDir, ClaudeCredsMount));
+            }
+            else if (provider.Equals("openai", StringComparison.OrdinalIgnoreCase) && staged.CodexConfigDir is { } codexDir)
+            {
+                upstreams.Add(ModelUpstreamSpec.OpenAiApiKeyFromFile($"{CodexCredsMount}/auth.json"));
+                mounts.Add(new SandboxBrokerCredentialMount(codexDir, CodexCredsMount));
+            }
+        }
+
+        var secrets = new SandboxBrokerSecrets(ModelUpstreams: upstreams);
+
+        // Git egress: the sandbox's git-credential helper points at the broker's mint (SandboxBrokerWiring), so
+        // the mint needs the runner's own store to let a brokered session clone/push private repos. Reshaped
+        // BROKER-side (${gitcreds:…}) from the staged store mounted RO — the token stays on the runner.
+        if (needs.Git && staged.GitCredentialsDir is { } gitDir)
+        {
+            mounts.Add(new SandboxBrokerCredentialMount(gitDir, GitCredsMount));
+            secrets = secrets.WithGitCredentialsFromFile($"{GitCredsMount}/.git-credentials");
+        }
+
+        return secrets with { CredentialMounts = mounts };
+    }
 }
 
 /// <summary>What to launch a broker for: the session, its egress allowlist, and the secrets it should inject.</summary>

@@ -47,6 +47,7 @@ public sealed class RemoteSandboxManager(
         string? profile = null,
         SandboxBrokerSecrets? brokerSecrets = null,
         int onlineTimeoutSeconds = 60,
+        bool waitForOnline = true,
         CancellationToken ct = default)
     {
         if (!await runtime.ProbeDockerAsync(workerId, ct))
@@ -61,9 +62,21 @@ public sealed class RemoteSandboxManager(
             if (broker is null)
                 throw new SandboxRuntimeException(
                     $"profile '{resolved.Name}' requests broker egress but no ISandboxBroker is registered — refusing to launch (fail-closed).");
-            // The broker holds the secrets and provides egress; nothing is staged into the box. An explicit
-            // brokerSecrets arg wins; otherwise fall back to the registered provider (same seam the pool path uses).
-            var secrets = brokerSecrets ?? await secretsProvider.ResolveAsync(request, resolved, ct);
+            // Nothing is staged into the BOX under broker egress — but the broker itself still has to read the
+            // credentials from somewhere. Precedence:
+            //   1. an explicit brokerSecrets arg (caller knows best),
+            //   2. this session's needs → a per-session copy staged on the runner for the BROKER uid, mounted
+            //      only into the broker (the token is read there and never crosses the control plane),
+            //   3. the registered provider (host-level locations — the seam the pool/K8s path uses).
+            SandboxBrokerSecrets? secrets = brokerSecrets;
+            if (secrets is null && request.Broker is { } needs)
+            {
+                var brokerCreds = await stager.StageAsync(workerId, request.Name, new SandboxSeedSources(
+                    request.ClaudeConfigHostDir, request.ClaudeConfigJsonHostFile,
+                    request.CodexConfigHostDir, request.GitCredentialsHostDir), ct, uid: SandboxImage.BrokerUid);
+                secrets = SandboxBrokerSecrets.FromStagedCredentials(needs, brokerCreds);
+            }
+            secrets ??= await secretsProvider.ResolveAsync(request, resolved, ct);
 
             // The session's own allowlist wins over the profile's — the same precedence SandboxSpecFactory
             // applies, so the broker ENFORCES exactly what the sandbox was built for. Taking the profile-wide
@@ -132,6 +145,12 @@ public sealed class RemoteSandboxManager(
             throw;
         }
 
+        // The caller can own the wait instead (SandboxProvisioner does: it waits on the control plane's
+        // RunnerConnected event and records the pod_ready / runner_enroll split). Hand back the live session
+        // and let it decide — it still holds everything needed to recycle on failure.
+        if (!waitForOnline)
+            return new RemoteSandboxSession(runtime, stager, broker, endpoint, workerId, sandboxMachineId, request.Name, handle);
+
         // Wait (bounded) for the in-container runner to connect back, bailing early if the container exits first
         // (usually a repo-clone / git-creds error) and surfacing its logs.
         var ticks = Math.Max(1, onlineTimeoutSeconds * 2); // 500 ms per tick
@@ -167,10 +186,13 @@ public sealed class RemoteSandboxManager(
     }
 
     // Tear down the credential side: the broker (broker mode) or the staged credential copy (open/proxy).
+    /// <summary>Tear down everything a launch put on the worker. BOTH the broker and the staged credentials —
+    /// a brokered session stages a per-session copy for the broker uid, so treating these as either/or would
+    /// leave a copy of the model token on the worker after the session is gone.</summary>
     private async Task CleanupSideAsync(Guid workerId, string name, BrokerEndpoint? endpoint)
     {
         if (endpoint is not null && broker is not null) await broker.StopAsync(workerId, endpoint);
-        else await stager.RemoveAsync(workerId, name);
+        await stager.RemoveAsync(workerId, name);
     }
 }
 
@@ -203,7 +225,9 @@ public sealed class RemoteSandboxSession(
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
         await runtime.StopAsync(workerId, handle);
+        // Broker AND staged credentials — not either/or: a brokered session stages a per-session copy for the
+        // broker uid, so skipping the stager here would leave the model token on the worker after teardown.
         if (brokerEndpoint is not null && broker is not null) await broker.StopAsync(workerId, brokerEndpoint);
-        else await stager.RemoveAsync(workerId, name);
+        await stager.RemoveAsync(workerId, name);
     }
 }

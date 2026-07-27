@@ -121,11 +121,12 @@ public class RemoteSandboxManagerTests
     {
         public int Started;
         public int Stopped;
+        public SandboxBrokerRequest? LastRequest { get; private set; }
         public BrokerEndpoint Endpoint { get; set; } =
             new("net-x", "sbx-1-broker", "http://sbx-1-broker:3128", "http://sbx-1-broker:3129/git-credential", null);
 
         public Task<BrokerEndpoint> StartAsync(Guid workerId, SandboxBrokerRequest request, CancellationToken ct = default)
-        { Started++; return Task.FromResult(Endpoint); }
+        { Started++; LastRequest = request; return Task.FromResult(Endpoint); }
 
         public Task StopAsync(Guid workerId, BrokerEndpoint endpoint, CancellationToken ct = default)
         { Stopped++; return Task.CompletedTask; }
@@ -143,10 +144,14 @@ public class RemoteSandboxManagerTests
         },
     };
 
-    // version → ok; docker run → a container id (no "sh" staging expected in broker mode).
+    // version → ok; docker run → a container id; sh → staging markers (broker mode stages for the BROKER uid,
+    // unless the caller supplies secrets explicitly).
     private static FakeCommandRunner BrokerRunner() => new()
     {
-        Handler = (_, args) => args.Count > 0 && args[0] == "run" ? new("", 0, "cid\n", "", null) : new("", 0, "24.0.0", "", null),
+        Handler = (exe, args) =>
+            exe == "sh" ? new("", 0, "STAGED .claude\nSTAGED git\n", "", null)
+            : args.Count > 0 && args[0] == "run" ? new("", 0, "cid\n", "", null)
+            : new("", 0, "24.0.0", "", null),
     };
 
     private static (RemoteSandboxManager Mgr, FakeCommandRunner Fake, FakeBroker Broker) NewBroker(FakeCommandRunner fake)
@@ -161,7 +166,7 @@ public class RemoteSandboxManagerTests
     }
 
     [Fact]
-    public async Task Launch_in_broker_mode_starts_the_broker_skips_staging_and_joins_its_internal_network()
+    public async Task Launch_in_broker_mode_with_explicit_secrets_skips_staging_and_joins_its_internal_network()
     {
         var (mgr, fake, broker) = NewBroker(BrokerRunner());
 
@@ -242,16 +247,18 @@ public class RemoteSandboxManagerTests
     }
 
     [Fact]
-    public async Task Dispose_in_broker_mode_stops_the_broker_not_the_stager()
+    public async Task Dispose_in_broker_mode_stops_the_broker_AND_removes_the_staged_credentials()
     {
+        // Broker mode stages a per-session copy of the credentials for the BROKER uid, so teardown has to do
+        // both. Treating them as either/or would leave a copy of the model token on the worker afterwards.
         var (mgr, fake, broker) = NewBroker(BrokerRunner());
         var s = await mgr.LaunchAsync(Guid.NewGuid(), Guid.NewGuid(), Request(), _ => true, profile: "hardened");
         fake.Calls.Clear();
 
         await s.DisposeAsync();
 
-        Assert.Equal(1, broker.Stopped);                                        // broker torn down
-        Assert.DoesNotContain(fake.Calls, c => c.Exe == "rm" && c.Args.Contains("-rf")); // NOT the stager's rm -rf
+        Assert.Equal(1, broker.Stopped);                                                 // broker torn down
+        Assert.Contains(fake.Calls, c => c.Exe == "rm" && c.Args.Contains("-rf"));       // …and the staged creds removed
         Assert.Contains(fake.Calls, c => c.Exe == "docker" && c.Args.Count >= 2 && c.Args[0] == "rm" && c.Args[1] == "--force");
     }
 
@@ -335,36 +342,37 @@ public class RemoteSandboxManagerTests
     public async Task Launch_gives_the_broker_the_sessions_own_allowlist_not_the_profiles()
     {
         // The spec factory already prefers the per-session allowlist; the broker must ENFORCE the same one,
-        // or a tool gets wider egress than the sandbox it was built for.
-        var opts = Options.Create(new SandboxOptions
-        {
-            Image = "img:1",
-            DefaultProfile = "broker",
-            AllowedProfiles = ["broker"],
-            Profiles = { ["broker"] = new SandboxProfileConfig { Egress = "broker", EgressAllowlist = ["wide.example", "also-wide.example"] } },
-        });
-        var fake = HappyRunner();
-        var runtime = new RemoteDockerSandboxRuntime(fake, opts, NullLogger<RemoteDockerSandboxRuntime>.Instance);
-        var broker = new RecordingBroker();
-        var mgr = new RemoteSandboxManager(runtime, new SandboxCredentialStager(fake, opts), new SandboxSpecFactory(opts),
-            new SandboxProfileResolver(opts), NullLogger<RemoteSandboxManager>.Instance, new NoSandboxBrokerSecrets(), broker);
-
+        // or a tool gets wider egress than the sandbox it was built for. (Profile allows github.com.)
+        var (mgr, _, broker) = NewBroker(BrokerRunner());
         var request = Request() with { Broker = new SandboxBrokerNeeds(["anthropic"], Allowlist: ["api.anthropic.com"]) };
-        await using var s = await mgr.LaunchAsync(Guid.NewGuid(), Guid.NewGuid(), request, _ => true);
+
+        await using var s = await mgr.LaunchAsync(Guid.NewGuid(), Guid.NewGuid(), request, _ => true, profile: "hardened");
 
         Assert.Equal(["api.anthropic.com"], broker.LastRequest!.EgressAllowlist);
     }
 
-    private sealed class RecordingBroker : ISandboxBroker
+    [Fact]
+    public async Task Launch_in_broker_mode_stages_credentials_for_the_broker_and_mounts_them_only_there()
     {
-        public SandboxBrokerRequest? LastRequest { get; private set; }
-
-        public Task<BrokerEndpoint> StartAsync(Guid workerId, SandboxBrokerRequest request, CancellationToken ct = default)
+        // The broker has to read the token from somewhere: a per-session copy staged on the runner for the
+        // BROKER uid, mounted only into the broker. Nothing lands in the sandbox.
+        var (mgr, fake, broker) = NewBroker(BrokerRunner());
+        var request = Request() with
         {
-            LastRequest = request;
-            return Task.FromResult(new BrokerEndpoint("net", "broker", "http://broker:3128", "http://broker:3129"));
-        }
+            Broker = new SandboxBrokerNeeds(["anthropic"], Git: true, Allowlist: ["api.anthropic.com"]),
+            GitCredentialsHostDir = "/root",
+        };
 
-        public Task StopAsync(Guid workerId, BrokerEndpoint endpoint, CancellationToken ct = default) => Task.CompletedTask;
+        await using var s = await mgr.LaunchAsync(Guid.NewGuid(), Guid.NewGuid(), request, _ => true, profile: "hardened");
+
+        // staged for the broker uid (10002), not the sandbox uid
+        Assert.Contains(fake.Calls, c => c.Exe == "sh" && string.Join(' ', c.Args).Contains($"{SandboxImage.BrokerUid}"));
+
+        // the broker got file-REFERENCE secrets + the mounts to resolve them (token read broker-side)
+        var secrets = broker.LastRequest!.Secrets!;
+        Assert.Contains(secrets.EffectiveModelUpstreams, u => u.Auth is not null && u.Auth.Contains("${json:/creds/claude/"));
+        Assert.Contains(secrets.CredentialMounts, m => m.ContainerDir == "/creds/claude");
+        Assert.Contains(secrets.CredentialMounts, m => m.ContainerDir == "/creds/git");
+        Assert.Equal("${gitcreds:/creds/git/.git-credentials}", secrets.GitCredentials);
     }
 }

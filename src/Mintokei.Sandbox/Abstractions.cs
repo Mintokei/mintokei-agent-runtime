@@ -98,43 +98,48 @@ public sealed record SandboxSpec
     public SandboxBrokerSecrets? BrokerSecrets { get; init; }
 
     /// <summary>
-    /// When set, the session's repo root (<c>/repos</c>) is backed by a PERSISTENT per-task store keyed by this
-    /// task id (K8s: a PVC <c>mintokei-ws-&lt;taskId:N&gt;</c>; the nested-Docker path uses its own named volume via
-    /// <see cref="Mounts"/> instead, so it leaves this null). Survives a Pod/container recycle so a reaped-then-
-    /// resumed session keeps its working tree AND the agent-CLI transcript (symlinked onto /repos by the
-    /// entrypoint) — the difference between "re-provisions" and "actually resumes". Null → ephemeral /repos.
+    /// When set, the session's repo root (<c>/repos</c>) is backed by a PERSISTENT workspace store keyed by this
+    /// id (K8s: a PVC <c>mintokei-ws-&lt;key:N&gt;</c>; nested Docker: the named volume of the same name). Survives
+    /// a Pod/container recycle so a reaped-then-resumed session keeps its working tree AND the agent-CLI
+    /// transcript (symlinked onto /repos by the entrypoint) — the difference between "re-provisions" and
+    /// "actually resumes". Null → ephemeral /repos.
+    /// <para>The key is OPAQUE: the runtime only names and labels the store with it. Key by whatever owns the
+    /// working tree in your product — one per task, or one per workspace shared by every task in it.</para>
     /// </summary>
-    public Guid? PersistentWorkspaceTaskId { get; init; }
+    public Guid? PersistentWorkspaceKey { get; init; }
 }
 
 /// <summary>
-/// A runtime that persists a per-task workspace store (a K8s PVC / a Docker named volume) at <c>/repos</c> so a
+/// A runtime that persists a workspace store (a K8s PVC / a Docker named volume) at <c>/repos</c> so a
 /// reaped-then-re-provisioned session keeps its working tree + CLI transcript. Implemented by backends that
-/// support persistence; the reaper GCs a task's store once the task is terminal/abandoned.
+/// support persistence; the embedder's reaper GCs a store once whatever it is keyed by is finished.
 /// </summary>
 public interface ISandboxWorkspaceStore
 {
-    /// <summary>Task ids that currently have a persistent workspace store on this backend.</summary>
-    Task<IReadOnlyList<Guid>> ListPersistentWorkspaceTasksAsync(CancellationToken ct = default);
+    /// <summary>Keys that currently have a persistent workspace store on this backend.</summary>
+    Task<IReadOnlyList<Guid>> ListPersistentWorkspaceKeysAsync(CancellationToken ct = default);
 
-    /// <summary>Remove a task's persistent workspace store. No-op (tolerant) when it is already gone.</summary>
-    Task RemovePersistentWorkspaceAsync(Guid taskId, CancellationToken ct = default);
+    /// <summary>Remove a key's persistent workspace store. No-op (tolerant) when it is already gone.</summary>
+    Task RemovePersistentWorkspaceAsync(Guid key, CancellationToken ct = default);
 }
 
-/// <summary>Deterministic naming for the per-task persistent workspace store, shared by the backends + reaper.</summary>
+/// <summary>Deterministic naming for the persistent workspace store, shared by the backends + the reaper.</summary>
 public static class SandboxWorkspaceStore
 {
-    /// <summary>Name prefix + label key — mirrors the Docker named-volume scheme so both backends read alike.</summary>
+    /// <summary>Name prefix + label key. Both are PERSISTED IN THE INFRASTRUCTURE (volume/PVC names and
+    /// labels of stores that already exist), so their VALUES must not change — renaming them would orphan
+    /// every existing store: the reaper selects on this label and would stop seeing them. The label reads
+    /// "task" for that historical reason; the key itself is opaque.</summary>
     public const string NamePrefix = "mintokei-ws-";
-    public const string TaskLabelKey = "mintokei.task";
+    public const string LabelKey = "mintokei.task";
 
-    public static string Name(Guid taskId) => NamePrefix + taskId.ToString("N");
+    public static string Name(Guid key) => NamePrefix + key.ToString("N");
 
-    public static bool TryParseTaskId(string name, out Guid taskId)
+    public static bool TryParseKey(string name, out Guid key)
     {
-        taskId = default;
+        key = default;
         return name.StartsWith(NamePrefix, StringComparison.Ordinal)
-            && Guid.TryParseExact(name[NamePrefix.Length..], "N", out taskId);
+            && Guid.TryParseExact(name[NamePrefix.Length..], "N", out key);
     }
 }
 

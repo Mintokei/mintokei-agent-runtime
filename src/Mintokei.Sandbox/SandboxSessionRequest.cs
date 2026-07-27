@@ -42,5 +42,5 @@ public sealed record SandboxSessionRequest
 
     /// <summary>When set (K8s backend + persistence enabled), back /repos with a per-task PVC keyed by this id so
     /// the working tree + CLI transcript survive a Pod recycle (resume-after-reap). Null → ephemeral /repos.</summary>
-    public Guid? PersistentWorkspaceTaskId { get; init; }
+    public Guid? PersistentWorkspaceKey { get; init; }
 }

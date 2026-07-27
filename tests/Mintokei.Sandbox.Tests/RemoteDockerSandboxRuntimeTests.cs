@@ -103,10 +103,10 @@ public class RemoteDockerSandboxRuntimeTests
     public void WorkspaceVolumeName_round_trips_through_TryParse()
     {
         var id = Guid.NewGuid();
-        Assert.True(RemoteDockerSandboxRuntime.TryParseWorkspaceTaskId(
+        Assert.True(RemoteDockerSandboxRuntime.TryParseWorkspaceKey(
             RemoteDockerSandboxRuntime.WorkspaceVolumeName(id), out var parsed));
         Assert.Equal(id, parsed);
-        Assert.False(RemoteDockerSandboxRuntime.TryParseWorkspaceTaskId("some-other-volume", out _));
+        Assert.False(RemoteDockerSandboxRuntime.TryParseWorkspaceKey("some-other-volume", out _));
     }
 
     [Fact]

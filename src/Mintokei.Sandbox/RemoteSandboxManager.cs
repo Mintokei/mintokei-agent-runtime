@@ -87,6 +87,35 @@ public sealed class RemoteSandboxManager(
         if (brokered)
             spec = SandboxBrokerWiring.Apply(spec, endpoint!);
 
+        // Durable working tree: back /repos with a named volume keyed by PersistentWorkspaceKey, so the whole
+        // tree — every repo in the session, plus the agent-CLI transcript the entrypoint symlinks onto it —
+        // survives this container being recycled. The volume outlives the container; the embedder's reaper GCs
+        // it (ListWorkspaceVolumesAsync / RemoveVolumeAsync) once whatever it is keyed by is finished.
+        //
+        // The K8s backend honours the same key by mounting a PVC from the spec, which it can do because it
+        // creates the PVC itself. Docker volumes have to be created before `docker run`, hence this step —
+        // without it the key would be silently ignored on this path and a recycled session would come back
+        // with an empty tree and no transcript to --resume from.
+        //
+        // Only when the session actually has repos: with no working tree there is nothing to keep.
+        if (request.PersistentWorkspaceKey is { } workspaceKey && spec.Env.ContainsKey(SandboxSpecFactory.ReposEnvVar))
+        {
+            var volumeName = RemoteDockerSandboxRuntime.WorkspaceVolumeName(workspaceKey);
+            try
+            {
+                await runtime.EnsureWorkspaceVolumeAsync(workerId, volumeName, workspaceKey, ct);
+            }
+            catch (SandboxRuntimeException)
+            {
+                await CleanupSideAsync(workerId, request.Name, endpoint);
+                throw;
+            }
+
+            spec = spec with { Mounts = [.. spec.Mounts, new SandboxMount(volumeName, SandboxSpecFactory.RepoRoot, ReadOnly: false)] };
+            logger.LogInformation("Persisting workspace for key {Key} on volume {Volume} (mounted at {Path})",
+                workspaceKey, volumeName, SandboxSpecFactory.RepoRoot);
+        }
+
         SandboxHandle handle;
         try
         {

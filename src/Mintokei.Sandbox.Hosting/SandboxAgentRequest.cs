@@ -51,7 +51,7 @@ public sealed record SandboxAgentRequest
 
     /// <summary>Kubernetes only: back <c>/repos</c> with a per-id persistent volume so the working tree and
     /// the CLI transcript survive a pod recycle (i.e. the session can be resumed).</summary>
-    public Guid? PersistentWorkspaceTaskId { get; init; }
+    public Guid? PersistentWorkspaceKey { get; init; }
 
     /// <summary>Session behaviour — most importantly the interaction mode (auto-approve vs surface
     /// permission prompts on the output stream). Null uses the engine default.</summary>

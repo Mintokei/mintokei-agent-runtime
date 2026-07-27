@@ -64,7 +64,7 @@ public sealed class KubernetesSandboxRuntime(
     {
         // Persistent workspace: ensure the per-task PVC exists BEFORE the Pod references it (a re-provision of the
         // same task rebinds the existing one — that is how the working tree + transcript survive the recycle).
-        if (spec.PersistentWorkspaceTaskId is { } wsTask)
+        if (spec.PersistentWorkspaceKey is { } wsTask)
             await EnsurePvcAsync(wsTask, ct);
 
         var pod = KubernetesPodSpec.Build(spec, _imagePullPolicy);
@@ -195,7 +195,7 @@ public sealed class KubernetesSandboxRuntime(
                 Labels = new Dictionary<string, string>
                 {
                     [KubernetesPodSpec.ManagedLabel] = "1",
-                    [SandboxWorkspaceStore.TaskLabelKey] = taskId.ToString("N"),
+                    [SandboxWorkspaceStore.LabelKey] = taskId.ToString("N"),
                 },
             },
             Spec = new V1PersistentVolumeClaimSpec
@@ -227,13 +227,13 @@ public sealed class KubernetesSandboxRuntime(
 
     // --- ISandboxWorkspaceStore: reaper-driven GC of per-task PVCs ---
 
-    public async Task<IReadOnlyList<Guid>> ListPersistentWorkspaceTasksAsync(CancellationToken ct = default)
+    public async Task<IReadOnlyList<Guid>> ListPersistentWorkspaceKeysAsync(CancellationToken ct = default)
     {
         var list = await client.CoreV1.ListNamespacedPersistentVolumeClaimAsync(
             _namespace, labelSelector: KubernetesPodSpec.ManagedLabel, cancellationToken: ct);
         var ids = new List<Guid>();
         foreach (var name in list.Items.Select(p => p.Metadata?.Name))
-            if (name is not null && SandboxWorkspaceStore.TryParseTaskId(name, out var id))
+            if (name is not null && SandboxWorkspaceStore.TryParseKey(name, out var id))
                 ids.Add(id);
         return ids;
     }

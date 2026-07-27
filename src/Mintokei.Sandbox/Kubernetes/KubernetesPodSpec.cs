@@ -93,7 +93,7 @@ public static class KubernetesPodSpec
         // Persistent workspace: back /repos with a per-task PVC so the working tree AND the agent-CLI transcript
         // (symlinked onto /repos by the entrypoint) survive a Pod recycle — the difference between "re-provisions"
         // and "actually resumes". The PVC itself is ensured by KubernetesSandboxRuntime BEFORE the Pod is created.
-        if (spec.PersistentWorkspaceTaskId is { } wsTask)
+        if (spec.PersistentWorkspaceKey is { } wsTask)
         {
             const string wsVol = "workspace";
             volumes.Add(new V1Volume

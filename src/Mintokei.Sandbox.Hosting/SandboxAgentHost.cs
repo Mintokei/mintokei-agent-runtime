@@ -67,7 +67,7 @@ public sealed class SandboxAgentHost(
                 Repos = request.AllRepos(),
                 HostMachineId = request.HostMachineId,
                 Broker = request.Broker,
-                PersistentWorkspaceTaskId = request.PersistentWorkspaceTaskId,
+                PersistentWorkspaceKey = request.PersistentWorkspaceKey,
                 OnlineTimeout = request.OnlineTimeout,
                 CreatedBy = "sandbox-agent-host",
             },

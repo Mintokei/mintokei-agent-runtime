@@ -25,24 +25,22 @@ public sealed class RemoteDockerSandboxRuntime(
     /// <summary>Backend tag on handles this runtime produces (mirrors <see cref="DockerSandboxRuntime"/>'s "docker").</summary>
     public const string Backend = "docker-remote";
 
-    /// <summary>Named-volume prefix for a persisted per-session working tree.</summary>
-    public const string WorkspaceVolumePrefix = "mintokei-ws-";
+    /// <summary>Named-volume prefix for a persisted working tree. Same scheme as the K8s PVC naming — both
+    /// delegate to <see cref="SandboxWorkspaceStore"/> so there is one definition, not two that can drift.</summary>
+    public const string WorkspaceVolumePrefix = SandboxWorkspaceStore.NamePrefix;
 
-    /// <summary>Docker label recording which task a persisted workspace volume belongs to (for GC).</summary>
-    public const string TaskLabel = "mintokei.task";
+    /// <summary>Docker label recording which key a persisted workspace volume belongs to (for GC).</summary>
+    public const string WorkspaceLabel = SandboxWorkspaceStore.LabelKey;
 
     private readonly int _runTimeoutMs = Math.Max(10_000, options.Value.RemoteRunTimeoutSeconds * 1000);
 
-    /// <summary>Deterministic per-task volume name — stable across recycle/resume so a continued session remounts its tree.</summary>
-    public static string WorkspaceVolumeName(Guid taskId) => WorkspaceVolumePrefix + taskId.ToString("N");
+    /// <summary>Deterministic volume name for a workspace key — stable across recycle/resume, so a continued
+    /// session remounts its own tree.</summary>
+    public static string WorkspaceVolumeName(Guid key) => SandboxWorkspaceStore.Name(key);
 
-    /// <summary>Parse the task id back out of a <see cref="WorkspaceVolumeName"/>; false for any other volume.</summary>
-    public static bool TryParseWorkspaceTaskId(string volumeName, out Guid taskId)
-    {
-        taskId = default;
-        return volumeName.StartsWith(WorkspaceVolumePrefix, StringComparison.Ordinal)
-            && Guid.TryParseExact(volumeName[WorkspaceVolumePrefix.Length..], "N", out taskId);
-    }
+    /// <summary>Parse the key back out of a <see cref="WorkspaceVolumeName"/>; false for any other volume.</summary>
+    public static bool TryParseWorkspaceKey(string volumeName, out Guid key) =>
+        SandboxWorkspaceStore.TryParseKey(volumeName, out key);
 
     public async Task<SandboxHandle> ProvisionAsync(Guid hostMachineId, SandboxSpec spec, CancellationToken ct = default)
     {
@@ -154,7 +152,7 @@ public sealed class RemoteDockerSandboxRuntime(
     public async Task EnsureWorkspaceVolumeAsync(Guid hostMachineId, string volumeName, Guid taskId, CancellationToken ct = default)
     {
         var (exit, _, stderr) = await DockerAsync(hostMachineId,
-            ["volume", "create", "--label", $"{DockerCommand.ManagedLabel}=1", "--label", $"{TaskLabel}={taskId:N}", volumeName],
+            ["volume", "create", "--label", $"{DockerCommand.ManagedLabel}=1", "--label", $"{WorkspaceLabel}={taskId:N}", volumeName],
             15_000, ct);
         if (exit != 0)
             throw new SandboxRuntimeException(

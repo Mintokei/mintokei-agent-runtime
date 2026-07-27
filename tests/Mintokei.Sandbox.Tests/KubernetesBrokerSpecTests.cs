@@ -41,8 +41,9 @@ public class KubernetesBrokerSpecTests
         // kubelet's :latest default (Always) tries a registry pull that fails → ImagePullBackOff.
         var mounts = new[] { new Mintokei.Sandbox.SandboxBrokerCredentialMount("/root/.claude", "/creds/claude") };
         var pod = KubernetesBrokerSpec.BuildBrokerPod(Session, "brk:latest", [], mounts, "IfNotPresent");
-        Assert.Equal("IfNotPresent", Assert.Single(pod.Spec.Containers).ImagePullPolicy);
+        Assert.Equal("IfNotPresent", Assert.Single(pod.Spec.Containers, c => c.Name == "broker").ImagePullPolicy);
         Assert.Equal("IfNotPresent", Assert.Single(pod.Spec.InitContainers).ImagePullPolicy);
+        Assert.Equal("IfNotPresent", Assert.Single(pod.Spec.Containers, c => c.Name == "refresh-creds").ImagePullPolicy);
     }
 
     [Fact]
@@ -75,10 +76,18 @@ public class KubernetesBrokerSpecTests
 
         // The node creds are hostPath'd into the INIT (via /stage-in) but the BROKER reads the staged emptyDir copy.
         Assert.Contains(pod.Spec.Volumes, v => v.HostPath?.Path == "/root/.claude");
-        var broker = Assert.Single(pod.Spec.Containers);
+        var broker = Assert.Single(pod.Spec.Containers, c => c.Name == "broker");
         var claudeMount = Assert.Single(broker.VolumeMounts, m => m.MountPath == "/creds/claude");
         Assert.Contains(pod.Spec.Volumes, v => v.Name == claudeMount.Name && v.EmptyDir?.Medium == "Memory");
         Assert.Contains(broker.VolumeMounts, m => m.MountPath == "/creds/git");
+
+        // A root refresher SIDECAR keeps the staged token live: it re-copies .credentials.json atomically so the
+        // broker's per-request resolve picks up a host-token rotation instead of a stale snapshot.
+        var refresher = Assert.Single(pod.Spec.Containers, c => c.Name == "refresh-creds");
+        Assert.Equal(0, refresher.SecurityContext.RunAsUser);
+        Assert.Contains(".credentials.json", refresher.Command[^1]);
+        Assert.Contains("mv -f", refresher.Command[^1]);                                 // atomic write (temp + mv)
+        Assert.Contains(refresher.VolumeMounts, m => m.MountPath == "/stage-out/0");      // writes the staged emptyDir
     }
 
     [Fact]

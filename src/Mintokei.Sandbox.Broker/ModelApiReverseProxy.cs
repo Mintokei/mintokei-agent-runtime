@@ -22,7 +22,8 @@ public sealed class ModelApiReverseProxy : IDisposable
     };
 
     private readonly Uri _upstream;
-    private readonly IReadOnlyList<KeyValuePair<string, string>> _inject;
+    // Raw ${file:}/${json:} header templates — resolved PER-REQUEST in BuildUpstreamRequest, not once at startup.
+    private readonly IReadOnlyList<KeyValuePair<string, string>> _injectTemplates;
     private readonly HttpClient _http;
     private readonly ILogger _logger;
     private readonly string _label;
@@ -33,9 +34,13 @@ public sealed class ModelApiReverseProxy : IDisposable
         ILogger? logger = null, HttpMessageHandler? handler = null, string label = "model-api")
     {
         _upstream = new Uri(upstreamBaseUrl, UriKind.Absolute);
-        // Resolve any ${file:...}/${json:...} references NOW (once, at startup) against the runner's creds mounted
-        // into this container — so the real token is read here on the worker, never carried by the control plane.
-        _inject = injectHeaders.Select(h => new KeyValuePair<string, string>(h.Key, SecretRef.Resolve(h.Value))).ToList();
+        // Keep the raw ${file:}/${json:} references and resolve them PER-REQUEST (in BuildUpstreamRequest) against
+        // the creds mounted into this container — which the creds refresher keeps LIVE (rewritten ATOMICALLY, so a
+        // read always sees a complete file). This way a host-token refresh or refresh-token ROTATION is picked up
+        // on the next request, instead of the broker injecting a stale snapshot for its whole lifetime (which
+        // surfaced in the sandbox as "401 OAuth token expired / revoked"). The real token is still read only here
+        // on the worker, never carried by the control plane. A resolve is a tiny local JSON read — cheap.
+        _injectTemplates = injectHeaders.ToList();
         _http = new HttpClient(handler ?? new SocketsHttpHandler { AllowAutoRedirect = false });
         _logger = logger ?? NullLogger.Instance;
         _label = label;
@@ -85,8 +90,11 @@ public sealed class ModelApiReverseProxy : IDisposable
                 req.Headers.TryAddWithoutValidation(name, value);
         }
 
-        foreach (var (name, value) in _inject)
+        foreach (var (name, template) in _injectTemplates)
         {
+            var value = SecretRef.Resolve(template); // re-read the live creds each request (see ctor)
+            if (string.IsNullOrEmpty(value))
+                continue; // template resolved to nothing (e.g. a bare ${…} against a missing file) — don't inject
             // `anthropic-beta` is a comma-separated list of feature flags, and the client (e.g. Claude Code) sends
             // its OWN required betas (context-management, fine-grained tool streaming, …). MERGE our injected beta
             // (e.g. the OAuth `oauth-2025-04-20` flag) with the caller's instead of clobbering it — otherwise the
@@ -120,8 +128,8 @@ public sealed class ModelApiReverseProxy : IDisposable
         listener.Prefixes.Add($"http://+:{port}/");
         listener.Start();
         _bound.TrySetResult(port);
-        _logger.LogInformation("sandbox broker {Label} reverse proxy on :{Port} → {Upstream} (+{Headers} injected header(s))",
-            _label, port, _upstream, _inject.Count);
+        _logger.LogInformation("sandbox broker {Label} reverse proxy on :{Port} → {Upstream} (+{Headers} injected header(s), resolved per-request)",
+            _label, port, _upstream, _injectTemplates.Count);
         using var reg = ct.Register(listener.Stop);
         try
         {

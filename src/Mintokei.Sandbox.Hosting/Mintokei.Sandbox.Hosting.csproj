@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- Experimental batteries-included sandbox host (one-call registration + one-call run). Not published yet. -->
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <!-- WebApplicationBuilder / WebApplication: this package composes the runner-host pipeline. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The transport half (runner host + control plane + gRPC + enrollment) and the isolation half
+         (sandbox runtimes + profiles + spec factory). This package is the seam that joins them. -->
+    <ProjectReference Include="..\Mintokei.Runner.Host.Hosting\Mintokei.Runner.Host.Hosting.csproj" />
+    <ProjectReference Include="..\Mintokei.Sandbox\Mintokei.Sandbox.csproj" />
+  </ItemGroup>
+
+</Project>

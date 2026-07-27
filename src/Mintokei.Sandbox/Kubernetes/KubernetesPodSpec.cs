@@ -166,11 +166,28 @@ public static class KubernetesPodSpec
             VolumeMounts = mounts.Count > 0 ? mounts : null,
             Resources = new V1ResourceRequirements
             {
+                // MemoryBytes as a plain byte count; Cpus as cores (fractional allowed). The LIMIT is the hard
+                // ceiling (burst cap).
                 Limits = new Dictionary<string, ResourceQuantity>
                 {
-                    // MemoryBytes as a plain byte count; Cpus as cores (fractional allowed).
                     ["memory"] = new ResourceQuantity(spec.Limits.MemoryBytes.ToString(CultureInfo.InvariantCulture)),
                     ["cpu"] = new ResourceQuantity(spec.Limits.Cpus.ToString(CultureInfo.InvariantCulture)),
+                },
+                // Burstable QoS: a sandbox is a bursty, mostly-I/O agent CLI, so RESERVE far less than the ceiling
+                // (~¼ CPU / ½ memory of the limit). Reserving the full limit (Guaranteed) let only ~2 sessions fit
+                // on the node before "Insufficient cpu" FailedScheduling — the pod would sit Pending and never come
+                // online. CPU is compressible (a low request only throttles under contention, never OOM-kills);
+                // memory keeps a generous floor to stay safe under node memory pressure. The limit still caps burst.
+                Requests = new Dictionary<string, ResourceQuantity>
+                {
+                    // Memory: half the limit but capped at 1 GiB — enough working set for an agent CLI + repo, so
+                    // the admission cap's worth of sessions fits the node's memory; the pod can still burst to the
+                    // full limit (node has headroom). CPU: a quarter of the limit (compressible → safe low reserve).
+                    ["memory"] = new ResourceQuantity(
+                        Math.Max(256L * 1024 * 1024, Math.Min(spec.Limits.MemoryBytes / 2, 1024L * 1024 * 1024))
+                            .ToString(CultureInfo.InvariantCulture)),
+                    ["cpu"] = new ResourceQuantity(
+                        Math.Max(0.25, spec.Limits.Cpus * 0.25).ToString("0.###", CultureInfo.InvariantCulture)),
                 },
             },
             SecurityContext = new V1SecurityContext

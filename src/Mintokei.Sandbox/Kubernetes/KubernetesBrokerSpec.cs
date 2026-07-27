@@ -188,10 +188,18 @@ public static class KubernetesBrokerSpec
                         VolumeMounts = brokerMounts.Count > 0 ? brokerMounts : null,
                         Resources = new V1ResourceRequirements
                         {
+                            // Burstable: the broker is a lightweight reverse-proxy (mostly idle, bursts during
+                            // model streaming). Reserve little so a session's total reservation stays low enough
+                            // that the admission cap's worth of sessions fit the node; the limit still caps burst.
                             Limits = new Dictionary<string, ResourceQuantity>
                             {
                                 ["memory"] = new ResourceQuantity("256Mi"),
                                 ["cpu"] = new ResourceQuantity("0.5"),
+                            },
+                            Requests = new Dictionary<string, ResourceQuantity>
+                            {
+                                ["memory"] = new ResourceQuantity("96Mi"),
+                                ["cpu"] = new ResourceQuantity("0.1"),
                             },
                         },
                         SecurityContext = new V1SecurityContext

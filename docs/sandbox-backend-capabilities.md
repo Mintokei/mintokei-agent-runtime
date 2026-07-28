@@ -22,9 +22,15 @@ container, admission read-back, and the persisted workspace at `/repos`. They ar
 | nested / remote | `RemoteSandboxManager` + `RemoteDockerSandboxRuntime` | `docker` on an enrolled worker, over the control channel |
 
 The nested path is **deliberately not** an `ISandboxRuntime`: every method takes the worker's machine id, and
-that seam is host-agnostic. That decision is sound, but it has a cost worth naming — nothing type-checks the
-nested path against the other two, so every shared capability is re-implemented by hand there and can silently
-go missing. All three gaps found so far were in local Docker, but the same exposure applies to nested.
+that seam is host-agnostic — at the point a host resolves its single backend there is no "the worker". That
+decision stands, but its cost was real: nothing related
+`RemoteDockerSandboxRuntime.GetAdmittedToolsAsync(machineId, handle, ct)` to
+`DockerSandboxRuntime.GetAdmittedToolsAsync(handle, ct)` — the same operation in two shapes — so a capability
+could land on one and go missing on the other with nothing to notice.
+
+`WorkerBoundSandboxRuntime` (`remote.For(machineId)`) pays that off: it binds the machine id and exposes the
+ordinary interfaces, so a caller that already knows the worker gets backend-agnostic code, and all three
+backends fall under one capability check.
 
 ## Capability matrix
 
@@ -74,8 +80,22 @@ prevent; it costs far more to diagnose than an outright refusal, because the sym
 entirely.
 
 Prefer putting the capability behind an optional interface rather than in a provision path. An interface makes
-the gap greppable (`grep ': ISandbox'`) and lets `SandboxProvisioner` fail closed on the type check, which is
-exactly how the admission gate behaves for a backend that cannot answer.
+the gap greppable (`grep ': ISandbox'`), lets `SandboxProvisioner` fail closed on the type check the way the
+admission gate does — and brings it under the parity test below.
 
-There are currently **no cross-backend parity tests** — nothing fails when a backend misses a capability. That
-is the systemic reason these gaps survive, and the most valuable thing to add here.
+## What enforces this
+
+`BackendCapabilityParityTests` asserts every `ISandboxRuntime` implementation implements every capability in
+`Capabilities`, or appears in `Exempt` **with a reason**. Add a capability interface and every backend fails
+until each has been considered; that is the point. It also asserts the backend discovery itself, since a
+backend the test never sees would be exempt from everything by accident — the same silent omission in a new
+guise.
+
+Two limits, both worth knowing:
+
+* **It cannot see provision-path capabilities.** Credential staging and broker egress are steps inside
+  `ProvisionAsync`, not interfaces, so no type check reaches them. The first of the three gaps was exactly
+  that shape and would still slip through. Catching those needs behavioural conformance tests per backend —
+  not yet written.
+* **It only checks what someone listed.** `Capabilities` is hand-maintained, so a capability nobody adds to it
+  is unguarded. Reaching for an interface when you add one is what keeps it inside the net.

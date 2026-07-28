@@ -43,22 +43,33 @@ app.MapPost("/demo/shared", async (
     // session would get its own tree and there would be nothing to join.
     var workspaceKey = Guid.NewGuid();
 
-    var sandbox = await provisioner.ProvisionAsync(new SandboxProvisionRequest
+    ProvisionedSandbox sandbox;
+    try
     {
-        Repos = repo is null ? [] : [new SandboxRepoSpec(repo)],
+        sandbox = await provisioner.ProvisionAsync(new SandboxProvisionRequest
+        {
+            Repos = repo is null ? [] : [new SandboxRepoSpec(repo)],
 
-        // Omit this and the sandbox is single-session FOREVER: with nothing declared there is nothing for a
-        // joiner to be checked against, and the gate below refuses rather than guessing.
-        AdmittedTools = ["ClaudeCodeCli"],
+            // Omit this and the sandbox is single-session FOREVER: with nothing declared there is nothing for a
+            // joiner to be checked against, and the gate below refuses rather than guessing.
+            AdmittedTools = ["ClaudeCodeCli"],
 
-        PersistentWorkspaceKey = workspaceKey,
+            PersistentWorkspaceKey = workspaceKey,
 
-        // One container, one cgroup. N sessions draw on a single memory limit and the OOM-killer takes the
-        // container — every session in it, mid-turn. Size the CEILING for what the sandbox may host; leave
-        // the reserve null, since that is what decides how many sandboxes fit a node.
-        LimitsOverride = new SandboxResources(
-            MemoryLimitBytes: 8L * 1024 * 1024 * 1024, CpuLimit: 2, PidsLimit: 512),
-    }, ct);
+            // One container, one cgroup. N sessions draw on a single memory limit and the OOM-killer takes the
+            // container — every session in it, mid-turn. Size the CEILING for what the sandbox may host; leave
+            // the reserve null, since that is what decides how many sandboxes fit a node.
+            LimitsOverride = new SandboxResources(
+                MemoryLimitBytes: 8L * 1024 * 1024 * 1024, CpuLimit: 2, PidsLimit: 512),
+        }, ct);
+    }
+    catch (SandboxAgentException ex)
+    {
+        // A container that dies during startup is recycled, taking its reason with it — so the exception
+        // carries the tail of its logs. Surface them: without this a provisioning failure is an opaque 500,
+        // and the actual cause (unreachable backend URL, failed clone, missing credentials) is unrecoverable.
+        return Problem(ex);
+    }
 
     // ── session one: dispatch into the sandbox you just made. Nothing to check — nobody else is inside.
     var first = await RunSessionAsync(plane, sandbox.MachineId, prompt, ct);
@@ -76,11 +87,7 @@ app.MapPost("/demo/shared", async (
     }
     catch (SandboxAgentException ex)
     {
-        // A container that exits before enrolling takes its reason with it, so the exception carries the tail
-        // of its logs — usually a failed clone, missing credentials, or a backend URL it cannot reach.
-        return Results.Problem(string.IsNullOrWhiteSpace(ex.ContainerLogs)
-            ? ex.Message
-            : $"{ex.Message}\n\n--- sandbox logs ---\n{ex.ContainerLogs}");
+        return Problem(ex);
     }
 
     var second = await RunSessionAsync(plane, sandbox.MachineId, prompt, ct);
@@ -99,6 +106,13 @@ app.MapPost("/demo/shared", async (
     }
 
     return Results.Ok(new { workspaceKey, sandbox = sandbox.Name, first, second, refusal });
+
+    // The container's own logs are the only account of why it never came online — a backend URL it cannot
+    // reach, a clone that failed, credentials it could not read. Anything else is guesswork.
+    static IResult Problem(SandboxAgentException ex)
+        => Results.Problem(string.IsNullOrWhiteSpace(ex.ContainerLogs)
+            ? ex.Message
+            : $"{ex.Message}\n\n--- sandbox logs ---\n{ex.ContainerLogs}");
 
     // A REAL session, dispatched into an already-provisioned sandbox by machine id. This is the whole
     // point: both calls pass the SAME machineId, so both agents run inside one container, on one working

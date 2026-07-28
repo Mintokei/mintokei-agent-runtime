@@ -32,7 +32,7 @@ public class RemoteDockerSandboxRuntimeTests
         Image = "mintokei/sandbox:latest",
         Name = "sess-1",
         RuntimeClass = "runc",
-        Limits = new SandboxResourceLimits(1024, 1, 128),
+        Limits = new SandboxResources(1024, 1, 128),
         Args = ["--backend", "https://api", "--name", "sess-1"],
     };
 

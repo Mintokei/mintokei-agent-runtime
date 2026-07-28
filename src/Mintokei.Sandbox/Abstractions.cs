@@ -26,8 +26,33 @@ public enum SandboxState { Pending, Running, Exited, NotFound, Unknown }
 
 public sealed record SandboxStatus(SandboxState State, int? ExitCode = null, string? Detail = null);
 
-/// <summary>cgroup caps applied per session (bounds one runaway session; predictable host usage).</summary>
-public sealed record SandboxResourceLimits(long MemoryBytes, double Cpus, int PidsLimit);
+/// <summary>
+/// What one sandbox may use, and what the platform should keep available for it.
+///
+/// The LIMIT is a ceiling both backends enforce the same way (Docker <c>--memory</c>/<c>--cpus</c>, K8s
+/// container limits): exceed memory and the container is killed; exceed CPU and it is throttled.
+///
+/// The RESERVE is what the platform sets aside, and it is deliberately NOT called "request" — that is
+/// Kubernetes' word for a scheduling guarantee, and Docker gives no such guarantee. Honoured as:
+/// <list type="bullet">
+///   <item><b>Kubernetes</b> — container <c>requests</c>: a real reservation; the Pod will not schedule
+///     unless a node can supply it, and it decides how many sandboxes fit a node.</item>
+///   <item><b>Docker</b> — <c>--memory-reservation</c> (a SOFT limit applied under host pressure) and
+///     <c>--cpu-shares</c> (a relative weight). Advisory, not a reservation.</item>
+/// </list>
+/// Null means "derive it" — half the memory limit capped at 1 GiB, and a quarter of the CPU limit. Leave it
+/// null unless you have measured: it is the knob that decides scheduling density, and setting it too high
+/// surfaces as FailedScheduling under load rather than as an error at startup.
+///
+/// <see cref="PidsLimit"/> is Docker-only; Kubernetes has no per-Pod field for it (it is a node-level kubelet
+/// setting) and ignores it.
+/// </summary>
+public sealed record SandboxResources(
+    long MemoryLimitBytes,
+    double CpuLimit,
+    int PidsLimit,
+    long? MemoryReserveBytes = null,
+    double? CpuReserve = null);
 
 public sealed record SandboxMount(string Source, string Target, bool ReadOnly);
 
@@ -50,7 +75,7 @@ public sealed record SandboxSpec
     public required string Image { get; init; }
     public required string Name { get; init; }
     public required string RuntimeClass { get; init; }
-    public required SandboxResourceLimits Limits { get; init; }
+    public required SandboxResources Limits { get; init; }
     public SandboxEgress Egress { get; init; } = SandboxEgress.Open;
     public string? EgressProxyUrl { get; init; }
 

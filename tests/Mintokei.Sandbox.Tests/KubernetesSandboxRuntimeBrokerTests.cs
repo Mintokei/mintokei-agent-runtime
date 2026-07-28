@@ -27,7 +27,7 @@ public class KubernetesSandboxRuntimeBrokerTests
         Image = "img:1",
         Name = "sbx-1",
         RuntimeClass = "runc",
-        Limits = new SandboxResourceLimits(1L * 1024 * 1024 * 1024, 1, 128),
+        Limits = new SandboxResources(1L * 1024 * 1024 * 1024, 1, 128),
         Egress = SandboxEgress.Broker,
         EgressAllowlist = ["api.anthropic.com"],
     };

@@ -57,5 +57,5 @@ public sealed record SandboxSessionRequest
     /// sessions is still ONE container with ONE cgroup, so a memory limit sized for a single session means the
     /// first overrun OOM-kills every session inside it. Null → the profile's own limits.
     /// </summary>
-    public SandboxResourceLimits? LimitsOverride { get; init; }
+    public SandboxResources? LimitsOverride { get; init; }
 }

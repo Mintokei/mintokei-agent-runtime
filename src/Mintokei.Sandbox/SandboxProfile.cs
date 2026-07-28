@@ -116,6 +116,13 @@ public sealed class SandboxProfileConfig
     public double Cpus { get; set; } = 2;
     public int PidsLimit { get; set; } = 512;
 
+    /// <summary>Memory to keep available for the sandbox, in MiB. Null derives it (half the limit, capped at
+    /// 1 GiB). See <see cref="SandboxResources"/> — a real reservation on Kubernetes, advisory on Docker.</summary>
+    public int? MemoryReserveMb { get; set; }
+
+    /// <summary>CPU to keep available for the sandbox. Null derives it (a quarter of the limit).</summary>
+    public double? CpuReserve { get; set; }
+
     /// <summary>"open" | "proxy" (allowlist egress via an HTTP CONNECT proxy) | "broker" (deny-by-default egress
     /// through a per-session credential broker; no secrets seeded into the box). See <see cref="SandboxEgress"/>.</summary>
     public string Egress { get; set; } = "open";
@@ -133,7 +140,7 @@ public sealed class SandboxProfileConfig
 public sealed record SandboxProfile(
     string Name,
     string Runtime,
-    SandboxResourceLimits Limits,
+    SandboxResources Limits,
     SandboxEgress Egress,
     string? EgressProxyUrl,
     bool ReadOnlyRootfs = false)
@@ -176,7 +183,10 @@ public sealed class SandboxProfileResolver(IOptions<SandboxOptions> options)
         return new SandboxProfile(
             name,
             cfg.Runtime,
-            new SandboxResourceLimits(checked((long)cfg.MemoryMb * 1024 * 1024), cfg.Cpus, cfg.PidsLimit),
+            new SandboxResources(
+                checked((long)cfg.MemoryMb * 1024 * 1024), cfg.Cpus, cfg.PidsLimit,
+                cfg.MemoryReserveMb is { } rmb ? checked((long)rmb * 1024 * 1024) : null,
+                cfg.CpuReserve),
             egress,
             cfg.EgressProxyUrl,
             cfg.ReadOnlyRootfs)

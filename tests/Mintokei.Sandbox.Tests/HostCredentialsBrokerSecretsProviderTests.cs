@@ -25,7 +25,7 @@ public sealed class HostCredentialsBrokerSecretsProviderTests : IDisposable
         new() { BackendUrl = "https://api", EnrollmentToken = "t", Name = "s1", Broker = needs };
 
     private static SandboxProfile Profile() =>
-        new("broker", "runc", new SandboxResourceLimits(1, 1, 1), SandboxEgress.Broker, null);
+        new("broker", "runc", new SandboxResources(1, 1, 1), SandboxEgress.Broker, null);
 
     [Fact]
     public async Task Injects_only_anthropic_for_a_claude_session_even_when_an_openai_key_is_present()

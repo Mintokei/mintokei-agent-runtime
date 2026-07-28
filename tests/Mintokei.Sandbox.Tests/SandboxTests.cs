@@ -12,7 +12,7 @@ public class DockerCommandTests
         Image = "mintokei/sandbox:latest",
         Name = "sess-1",
         RuntimeClass = "runc",
-        Limits = new SandboxResourceLimits(4L * 1024 * 1024 * 1024, 2, 512),
+        Limits = new SandboxResources(4L * 1024 * 1024 * 1024, 2, 512),
         Mounts = [new SandboxMount("/repo-cache", "/repo-cache", ReadOnly: true)],
         Env = new Dictionary<string, string> { ["SANDBOX_REPO_URL"] = "https://x/y.git" },
         Args = ["--backend", "https://api", "--token", "tok", "--name", "sess-1"],
@@ -245,7 +245,7 @@ public class SandboxSpecFactoryTests
     public void Encodes_runner_flags_repo_env_and_cred_mounts()
     {
         var factory = new SandboxSpecFactory(Options.Create(new SandboxOptions { Image = "img:1" }));
-        var profile = new SandboxProfile("standard", "runc", new SandboxResourceLimits(1, 1, 1), SandboxEgress.Open, null);
+        var profile = new SandboxProfile("standard", "runc", new SandboxResources(1, 1, 1), SandboxEgress.Open, null);
 
         var spec = factory.Build(profile, new SandboxSessionRequest
         {
@@ -269,7 +269,7 @@ public class SandboxSpecFactoryTests
     public void Per_session_broker_allowlist_wins_over_the_profiles()
     {
         var factory = new SandboxSpecFactory(Options.Create(new SandboxOptions { Image = "img:1" }));
-        var profile = new SandboxProfile("broker", "runc", new SandboxResourceLimits(1, 1, 1), SandboxEgress.Broker, null)
+        var profile = new SandboxProfile("broker", "runc", new SandboxResources(1, 1, 1), SandboxEgress.Broker, null)
         { EgressAllowlist = ["github.com"] };
 
         var spec = factory.Build(profile, new SandboxSessionRequest
@@ -287,7 +287,7 @@ public class SandboxSpecFactoryTests
     public void Encodes_multiple_repos_into_SANDBOX_REPOS()
     {
         var factory = new SandboxSpecFactory(Options.Create(new SandboxOptions { Image = "img:1" }));
-        var profile = new SandboxProfile("standard", "runc", new SandboxResourceLimits(1, 1, 1), SandboxEgress.Open, null);
+        var profile = new SandboxProfile("standard", "runc", new SandboxResources(1, 1, 1), SandboxEgress.Open, null);
 
         var spec = factory.Build(profile, new SandboxSessionRequest
         {
@@ -311,7 +311,7 @@ public class SandboxSpecFactoryTests
     public void Mounts_git_credentials_read_only_when_set()
     {
         var factory = new SandboxSpecFactory(Options.Create(new SandboxOptions { Image = "img:1" }));
-        var profile = new SandboxProfile("standard", "runc", new SandboxResourceLimits(1, 1, 1), SandboxEgress.Open, null);
+        var profile = new SandboxProfile("standard", "runc", new SandboxResources(1, 1, 1), SandboxEgress.Open, null);
 
         var spec = factory.Build(profile, new SandboxSessionRequest
         {
@@ -335,7 +335,7 @@ public class SandboxSpecFactoryTests
     public void ReadOnlyRootfs_profile_sets_the_flag_and_expands_writable_tmpfs()
     {
         var factory = new SandboxSpecFactory(Options.Create(new SandboxOptions { Image = "img:1" }));
-        var profile = new SandboxProfile("hardened", "runc", new SandboxResourceLimits(1, 1, 1),
+        var profile = new SandboxProfile("hardened", "runc", new SandboxResources(1, 1, 1),
             SandboxEgress.Open, null, ReadOnlyRootfs: true);
 
         var spec = factory.Build(profile, new SandboxSessionRequest
@@ -354,7 +354,7 @@ public class SandboxSpecFactoryTests
     public void Writable_rootfs_profile_keeps_only_the_data_tmpfs()
     {
         var factory = new SandboxSpecFactory(Options.Create(new SandboxOptions { Image = "img:1" }));
-        var profile = new SandboxProfile("standard", "runc", new SandboxResourceLimits(1, 1, 1), SandboxEgress.Open, null);
+        var profile = new SandboxProfile("standard", "runc", new SandboxResources(1, 1, 1), SandboxEgress.Open, null);
 
         var spec = factory.Build(profile, new SandboxSessionRequest
         {
@@ -366,7 +366,7 @@ public class SandboxSpecFactoryTests
     }
 
     private static SandboxProfile BrokerProfile(params string[] allowlist) =>
-        new("hardened", "runsc", new SandboxResourceLimits(1, 1, 1), SandboxEgress.Broker, null)
+        new("hardened", "runsc", new SandboxResources(1, 1, 1), SandboxEgress.Broker, null)
         {
             EgressAllowlist = allowlist,
         };

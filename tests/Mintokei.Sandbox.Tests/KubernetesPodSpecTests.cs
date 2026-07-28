@@ -15,7 +15,7 @@ public class KubernetesPodSpecTests
         Image = "mintokei/sandbox:latest",
         Name = "sess-1",
         RuntimeClass = "runc",
-        Limits = new SandboxResourceLimits(4L * 1024 * 1024 * 1024, 2, 512),
+        Limits = new SandboxResources(4L * 1024 * 1024 * 1024, 2, 512),
         Mounts = [new SandboxMount("/repo-cache", "/repo-cache", ReadOnly: true)],
         Env = new Dictionary<string, string> { ["SANDBOX_REPO_URL"] = "https://x/y.git" },
         Args = ["--backend", "https://api", "--token", "tok", "--name", "sess-1"],

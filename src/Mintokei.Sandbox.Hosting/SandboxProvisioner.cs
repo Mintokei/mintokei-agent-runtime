@@ -433,7 +433,7 @@ public sealed record SandboxProvisionRequest
 
     /// <summary>Per-session override of the profile's cgroup limits — see
     /// <see cref="SandboxSessionRequest.LimitsOverride"/>. Null → the profile's own limits.</summary>
-    public SandboxResourceLimits? LimitsOverride { get; init; }
+    public SandboxResources? LimitsOverride { get; init; }
 
     /// <summary>Overrides <see cref="SandboxAgentHostOptions.OnlineTimeoutSeconds"/>.</summary>
     public TimeSpan? OnlineTimeout { get; init; }

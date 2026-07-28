@@ -308,6 +308,9 @@ public sealed class AgentSession : IAgentSession
         }
     }
 
+    /// <inheritdoc />
+    public string? RecentStderr => RecentStderrText();
+
     private string? RecentStderrText()
     {
         lock (_stderrGate)

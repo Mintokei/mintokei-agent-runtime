@@ -38,6 +38,13 @@ public sealed class RemoteDockerSandboxRuntime(
     /// session remounts its own tree.</summary>
     public static string WorkspaceVolumeName(Guid key) => SandboxWorkspaceStore.Name(key);
 
+    /// <summary>
+    /// This runtime bound to ONE worker, behind the same interfaces the other backends implement
+    /// (<see cref="ISandboxRuntime"/> and friends). Use it wherever a caller already knows the worker and
+    /// wants backend-agnostic code — see <see cref="WorkerBoundSandboxRuntime"/> for why the binding exists.
+    /// </summary>
+    public WorkerBoundSandboxRuntime For(Guid hostMachineId) => new(this, hostMachineId);
+
     /// <summary>Parse the key back out of a <see cref="WorkspaceVolumeName"/>; false for any other volume.</summary>
     public static bool TryParseWorkspaceKey(string volumeName, out Guid key) =>
         SandboxWorkspaceStore.TryParseKey(volumeName, out key);

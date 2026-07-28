@@ -1,9 +1,14 @@
+using System.Text;
+using Mintokei.AgentControlPlane;
+using Mintokei.AgentEngine;
+using Mintokei.AgentEngine.AgentTools;
+using Mintokei.AgentEngine.Contracts;
 using Mintokei.Runner.Host.Hosting;
 using Mintokei.Sandbox;
 using Mintokei.Sandbox.Hosting;
 
 // =============================================================================
-// TWO SESSIONS, ONE SANDBOX.
+// TWO SESSIONS, ONE SANDBOX — both dispatched for real, into the same container.
 //
 // A sandbox normally serves one session. It can serve several — every task in a workspace on one working
 // tree — but sharing a sandbox shares more than the tree, and that is what this sample is about.
@@ -28,6 +33,7 @@ var app = builder.Build();
 
 app.MapPost("/demo/shared", async (
     SandboxProvisioner provisioner,
+    IAgentControlPlane plane,
     string prompt,
     string? repo,
     CancellationToken ct) =>
@@ -54,7 +60,7 @@ app.MapPost("/demo/shared", async (
     }, ct);
 
     // ── session one: dispatch into the sandbox you just made. Nothing to check — nobody else is inside.
-    var first = await RunSessionAsync(sandbox.MachineId, prompt, ct);
+    var first = await RunSessionAsync(plane, sandbox.MachineId, prompt, ct);
 
     // ── session two: JOIN. The gate reads the declaration off the sandbox itself, not from any local
     //    record — a stale record is exactly how a session gets into a sandbox that cannot serve it.
@@ -68,7 +74,7 @@ app.MapPost("/demo/shared", async (
         return Results.Conflict(ex.Message);
     }
 
-    var second = await RunSessionAsync(sandbox.MachineId, prompt, ct);
+    var second = await RunSessionAsync(plane, sandbox.MachineId, prompt, ct);
 
     // ── and the refusal, which is the half worth seeing: a DIFFERENT tool is turned away, because admitting
     //    it would widen the broker for the two sessions already running above.
@@ -85,10 +91,39 @@ app.MapPost("/demo/shared", async (
 
     return Results.Ok(new { workspaceKey, sandbox = sandbox.Name, first, second, refusal });
 
-    // Dispatch a session to the sandbox's runner through your control plane — see SandboxRunnerHostMinimal
-    // for the full version; the point here is only that BOTH sessions target the SAME machine id.
-    static Task<string> RunSessionAsync(Guid machineId, string prompt, CancellationToken ct)
-        => Task.FromResult($"session dispatched to machine {machineId}: {prompt}");
+    // A REAL session, dispatched into an already-provisioned sandbox by machine id. This is the whole
+    // point: both calls pass the SAME machineId, so both agents run inside one container, on one working
+    // tree, behind one broker.
+    //
+    // Note this is StartSessionAsync, not SandboxAgentHost.RunAsync — the facade provisions a sandbox per
+    // call and disposes it, which is right for one-shot work and exactly wrong for sharing.
+    static async Task<string> RunSessionAsync(
+        IAgentControlPlane plane, Guid machineId, string prompt, CancellationToken ct)
+    {
+        var sessionKey = Guid.NewGuid();
+        var session = await plane.StartSessionAsync(
+            sessionKey,
+            new AgentSessionSpec { Tool = AgentToolKey.ClaudeCodeCli, WorkingDirectory = "/repos" },
+            runnerMachineId: machineId, ct: ct);
+        try
+        {
+            await session.SendMessageAsync(prompt, ct);
+
+            var sb = new StringBuilder();
+            await foreach (var output in session.Output.WithCancellation(ct))
+            {
+                if (output is MessageOutput m)
+                    sb.Append(m.Message.Content);
+                if (output is TurnEnded)
+                    break;
+            }
+            return sb.ToString();
+        }
+        finally
+        {
+            await plane.StopSessionAsync(sessionKey);   // the SANDBOX stays up for the next session
+        }
+    }
 });
 
 app.Run();

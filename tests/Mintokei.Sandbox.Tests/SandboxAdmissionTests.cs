@@ -1,4 +1,5 @@
 using Mintokei.Sandbox;
+using Mintokei.Sandbox.Docker;
 using Xunit;
 
 namespace Mintokei.Sandbox.Tests;
@@ -109,5 +110,66 @@ public class SandboxAdmissionLabelTests
         var parsed = SandboxAdmission.ParseAdmittedTools(value);
         Assert.Empty(parsed);
         Assert.True(SandboxAdmission.Admits(parsed, "anything"));
+    }
+}
+
+/// <summary>
+/// The declaration has to survive the whole chain — session request → spec → the label actually written onto
+/// the container. A break anywhere leaves AdmittedTools set on paper while every running sandbox reads back as
+/// unconstrained, which fails OPEN: sharing would then admit anything.
+/// </summary>
+public class SandboxAdmissionWiringTests
+{
+    [Fact]
+    public void The_declaration_survives_request_to_spec()
+    {
+        var factory = new SandboxSpecFactory(Microsoft.Extensions.Options.Options.Create(new SandboxOptions()));
+        var profile = new SandboxProfileResolver(
+            Microsoft.Extensions.Options.Options.Create(new SandboxOptions())).Resolve();
+
+        var spec = factory.Build(profile, new SandboxSessionRequest
+        {
+            Name = "sb-1",
+            BackendUrl = "http://backend",
+            EnrollmentToken = "tok",
+            AdmittedTools = ["ClaudeCodeCli"],
+        });
+
+        Assert.Equal(["ClaudeCodeCli"], spec.AdmittedTools);
+    }
+
+    [Fact]
+    public void The_declaration_reaches_the_container_label()
+    {
+        var spec = new SandboxSpec
+        {
+            Image = "img",
+            Name = "sb-1",
+            RuntimeClass = "runc",
+            Limits = new SandboxResourceLimits(1024, 1, 64),
+            AdmittedTools = ["ClaudeCodeCli", "CodexCli"],
+        };
+
+        var args = string.Join(' ', DockerCommand.BuildRunArgs(spec));
+
+        Assert.Contains($"{DockerCommand.AdmittedToolsLabel}=ClaudeCodeCli,CodexCli", args);
+        // And it round-trips through the parser the attach path will use.
+        Assert.True(SandboxAdmission.Admits(
+            SandboxAdmission.ParseAdmittedTools("ClaudeCodeCli,CodexCli"), "CodexCli"));
+    }
+
+    [Fact]
+    public void An_undeclared_sandbox_writes_no_label_at_all()
+    {
+        var spec = new SandboxSpec
+        {
+            Image = "img",
+            Name = "sb-1",
+            RuntimeClass = "runc",
+            Limits = new SandboxResourceLimits(1024, 1, 64),
+        };
+
+        var args = string.Join(' ', DockerCommand.BuildRunArgs(spec));
+        Assert.DoesNotContain(DockerCommand.AdmittedToolsLabel, args);
     }
 }

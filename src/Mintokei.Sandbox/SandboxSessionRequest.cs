@@ -43,4 +43,12 @@ public sealed record SandboxSessionRequest
     /// <summary>When set (K8s backend + persistence enabled), back /repos with a per-task PVC keyed by this id so
     /// the working tree + CLI transcript survive a Pod recycle (resume-after-reap). Null → ephemeral /repos.</summary>
     public Guid? PersistentWorkspaceKey { get; init; }
+
+    /// <summary>
+    /// The agent tools this sandbox may serve, stamped onto it so a LATER session can be checked against what
+    /// it was actually built with (<see cref="SandboxAdmission"/>). Set whenever the sandbox may be shared;
+    /// empty marks it unconstrained, which is correct only for a sandbox serving exactly the one session it
+    /// was provisioned for.
+    /// </summary>
+    public IReadOnlyList<string> AdmittedTools { get; init; } = [];
 }

@@ -110,6 +110,7 @@ public sealed class SandboxSpecFactory(IOptions<SandboxOptions> options)
             ReadOnlyRootfs = profile.ReadOnlyRootfs,
             AddHostGateway = req.AddHostGateway,
             PersistentWorkspaceKey = req.PersistentWorkspaceKey,
+            AdmittedTools = req.AdmittedTools,
         };
     }
 

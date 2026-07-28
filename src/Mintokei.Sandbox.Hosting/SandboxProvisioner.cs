@@ -112,6 +112,7 @@ public sealed class SandboxProvisioner(
             GitCredentialsHostDir = o.GitCredentialsHostDir,
             Broker = request.Broker,
             PersistentWorkspaceKey = request.PersistentWorkspaceKey,
+            AdmittedTools = request.AdmittedTools,
         };
 
         if (configure is not null)
@@ -393,6 +394,11 @@ public sealed record SandboxProvisionRequest
 
     /// <summary>Kubernetes: back <c>/repos</c> with a per-id persistent volume (survives a pod recycle).</summary>
     public Guid? PersistentWorkspaceKey { get; init; }
+
+    /// <summary>The agent tools this sandbox may serve. Stamped onto the sandbox so a later session can be
+    /// checked against it (<see cref="SandboxAdmission"/>). Leave empty for a sandbox that serves exactly the
+    /// one session it is provisioned for.</summary>
+    public IReadOnlyList<string> AdmittedTools { get; init; } = [];
 
     /// <summary>Overrides <see cref="SandboxAgentHostOptions.OnlineTimeoutSeconds"/>.</summary>
     public TimeSpan? OnlineTimeout { get; init; }

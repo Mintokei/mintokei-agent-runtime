@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Mintokei.Sandbox.Docker;
 
@@ -8,12 +9,33 @@ namespace Mintokei.Sandbox.Docker;
 /// <see cref="ISandboxRuntime"/> over the local Docker CLI (shelling out, matching how the rest of
 /// Mintokei runs external processes). The Kubernetes backend implements the same interface later.
 /// </summary>
-public sealed class DockerSandboxRuntime(ILogger<DockerSandboxRuntime> logger) : ISandboxRuntime, ISandboxLogSource
+public sealed class DockerSandboxRuntime : ISandboxRuntime, ISandboxLogSource
 {
+    private readonly ILogger<DockerSandboxRuntime> _logger;
+    private readonly SandboxCredentialStager _seedStager;
+
+    public DockerSandboxRuntime(ILogger<DockerSandboxRuntime> logger, IOptions<SandboxOptions> options)
+    {
+        _logger = logger;
+        // Built over the LOCAL process runner rather than resolved from DI: staging has to happen on the machine
+        // that will run the container, and this backend runs it here. On a host that also has enrolled workers
+        // the ambient IRemoteCommandRunner dispatches over gRPC, which would stage the copy on the wrong machine.
+        _seedStager = new SandboxCredentialStager(new LocalCommandRunner(), options);
+    }
+
+    /// <summary>Test seam: inject the stager. Production always stages locally — see the public constructor.</summary>
+    internal DockerSandboxRuntime(ILogger<DockerSandboxRuntime> logger, SandboxCredentialStager seedStager)
+    {
+        _logger = logger;
+        _seedStager = seedStager;
+    }
+
     public string Backend => "docker";
 
     public async Task<SandboxHandle> ProvisionAsync(SandboxSpec spec, CancellationToken ct = default)
     {
+        spec = await StageSeedCredentialsAsync(spec, ct);
+
         var (exit, stdout, stderr) = await RunDockerAsync(DockerCommand.BuildRunArgs(spec), ct);
         if (exit != 0)
             throw new SandboxRuntimeException($"docker run failed (exit {exit}) for '{spec.Name}': {stderr.Trim()}");
@@ -22,7 +44,7 @@ public sealed class DockerSandboxRuntime(ILogger<DockerSandboxRuntime> logger) :
         if (id.Length == 0)
             throw new SandboxRuntimeException($"docker run returned no container id for '{spec.Name}'");
 
-        logger.LogInformation("Provisioned sandbox {Name} ({Id}) runtime={Runtime}",
+        _logger.LogInformation("Provisioned sandbox {Name} ({Id}) runtime={Runtime}",
             spec.Name, Short(id), spec.RuntimeClass);
         return new SandboxHandle(id, spec.Name, Backend);
     }
@@ -51,7 +73,62 @@ public sealed class DockerSandboxRuntime(ILogger<DockerSandboxRuntime> logger) :
         if (exit != 0 && !stderr.Contains("No such", StringComparison.OrdinalIgnoreCase))
             throw new SandboxRuntimeException($"docker rm failed for '{handle.Name}': {stderr.Trim()}");
 
-        logger.LogInformation("Stopped sandbox {Name} ({Id})", handle.Name, Short(handle.Id));
+        // The staged credential copy outlives nothing: it exists only for this container. Best-effort by
+        // contract, so a cleanup failure never masks a successful stop.
+        await _seedStager.RemoveAsync(Guid.Empty, handle.Name, ct);
+
+        _logger.LogInformation("Stopped sandbox {Name} ({Id})", handle.Name, Short(handle.Id));
+    }
+
+    /// <summary>Container path prefix under which the spec factory mounts agent-CLI / git credentials.</summary>
+    private const string SeedRoot = "/seed";
+
+    /// <summary>
+    /// Replace raw credential bind-mounts with a sandbox-uid-readable COPY.
+    ///
+    /// The sandbox container runs as <see cref="SandboxImage.AgentUid"/>, but a host's agent-CLI credentials are
+    /// root-owned <c>0600</c>/<c>0700</c> (that is how the CLIs write them). Bind-mounting those directly leaves
+    /// them unreadable inside the container — and the entrypoint copies <c>/seed</c> into HOME under
+    /// <c>set -e</c>, so the failed <c>cp</c> kills the container before the runner ever starts. The failure
+    /// then surfaces as a bare "exited (exit code 1) before its agent runner could connect".
+    ///
+    /// The other two backends already avoid this — Kubernetes stages via a root initContainer, the nested/remote
+    /// path via <see cref="SandboxCredentialStager"/> on the worker. This is the same step for local Docker, so
+    /// all three agree. Broker-egress sessions never reach here: they seed no credentials at all by design.
+    /// </summary>
+    internal async Task<SandboxSpec> StageSeedCredentialsAsync(SandboxSpec spec, CancellationToken ct)
+    {
+        static bool IsSeed(SandboxMount m) =>
+            m.Target == SeedRoot || m.Target.StartsWith(SeedRoot + "/", StringComparison.Ordinal);
+
+        if (!spec.Mounts.Any(IsSeed))
+            return spec;
+
+        string? SourceOf(string target) =>
+            spec.Mounts.FirstOrDefault(m => m.Target == target)?.Source;
+
+        var staged = await _seedStager.StageAsync(Guid.Empty, spec.Name, new SandboxSeedSources(
+            ClaudeConfigDir: SourceOf($"{SeedRoot}/.claude"),
+            ClaudeConfigJsonFile: SourceOf($"{SeedRoot}/.claude.json"),
+            CodexConfigDir: SourceOf($"{SeedRoot}/.codex"),
+            GitCredentialsDir: SourceOf($"{SeedRoot}/git")), ct);
+
+        // A source that did not exist stages as null — drop that mount rather than binding a missing path.
+        var mounts = spec.Mounts.Where(m => !IsSeed(m)).ToList();
+        AddStaged(mounts, staged.ClaudeConfigDir, $"{SeedRoot}/.claude");
+        AddStaged(mounts, staged.ClaudeConfigJsonFile, $"{SeedRoot}/.claude.json");
+        AddStaged(mounts, staged.CodexConfigDir, $"{SeedRoot}/.codex");
+        AddStaged(mounts, staged.GitCredentialsDir, $"{SeedRoot}/git");
+
+        _logger.LogDebug("Staged {Count} credential mount(s) for sandbox {Name} readable by uid {Uid}",
+            mounts.Count(IsSeed), spec.Name, SandboxImage.AgentUid);
+        return spec with { Mounts = mounts };
+
+        static void AddStaged(List<SandboxMount> mounts, string? source, string target)
+        {
+            if (!string.IsNullOrWhiteSpace(source))
+                mounts.Add(new SandboxMount(source, target, ReadOnly: true));
+        }
     }
 
     public async Task<string> GetLogsAsync(SandboxHandle handle, int tailLines = 40, CancellationToken ct = default)
@@ -69,7 +146,7 @@ public sealed class DockerSandboxRuntime(ILogger<DockerSandboxRuntime> logger) :
         }
         catch (Exception ex)
         {
-            logger.LogDebug(ex, "docker logs failed for {Name}", handle.Name);
+            _logger.LogDebug(ex, "docker logs failed for {Name}", handle.Name);
             return string.Empty;
         }
     }

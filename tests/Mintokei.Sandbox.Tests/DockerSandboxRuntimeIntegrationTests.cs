@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging.Abstractions;
 using Mintokei.Sandbox;
 using Mintokei.Sandbox.Docker;
@@ -20,7 +21,8 @@ public class DockerSandboxRuntimeIntegrationTests
         if (!DockerAvailableAndOptedIn(out var reason))
             Assert.Skip(reason);
 
-        var runtime = new DockerSandboxRuntime(NullLogger<DockerSandboxRuntime>.Instance);
+        var runtime = new DockerSandboxRuntime(
+            NullLogger<DockerSandboxRuntime>.Instance, Options.Create(new SandboxOptions()));
         var spec = new SandboxSpec
         {
             Image = "alpine:latest",

@@ -51,4 +51,11 @@ public sealed record SandboxSessionRequest
     /// was provisioned for.
     /// </summary>
     public IReadOnlyList<string> AdmittedTools { get; init; } = [];
+
+    /// <summary>
+    /// Per-session override of the profile's cgroup limits. Exists for SHARED sandboxes: a sandbox hosting N
+    /// sessions is still ONE container with ONE cgroup, so a memory limit sized for a single session means the
+    /// first overrun OOM-kills every session inside it. Null → the profile's own limits.
+    /// </summary>
+    public SandboxResourceLimits? LimitsOverride { get; init; }
 }

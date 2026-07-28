@@ -21,6 +21,18 @@ public sealed class SandboxAdmissionException(string message) : InvalidOperation
 public static class SandboxAdmission
 {
     /// <summary>
+    /// Read a declaration back off a sandbox (a Docker label / pod annotation). Unset or blank yields an empty
+    /// list — i.e. UNCONSTRAINED, which is correct: a sandbox provisioned before this existed genuinely has no
+    /// declaration, and treating it as "admits nothing" would strand every sandbox running at deploy time.
+    /// That is the one place the safe default runs the other way, and it is safe only because an
+    /// undeclared sandbox is never shared — sharing requires a declaration to check against.
+    /// </summary>
+    public static IReadOnlyList<string> ParseAdmittedTools(string? labelValue)
+        => string.IsNullOrWhiteSpace(labelValue)
+            ? []
+            : labelValue.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    /// <summary>
     /// True when a sandbox declaring <paramref name="admittedTools"/> may serve a session using
     /// <paramref name="requestedTool"/>. An empty declaration means the sandbox is unconstrained (the
     /// single-session case, where there is nothing to admit).

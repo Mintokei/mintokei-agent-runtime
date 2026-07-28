@@ -12,6 +12,12 @@ public static class DockerCommand
     /// <summary>Docker label applied to every sandbox container, so we can list/reconcile only ours.</summary>
     public const string ManagedLabel = "mintokei.sandbox";
 
+    /// <summary>Comma-separated <see cref="SandboxSpec.AdmittedTools"/>, stamped on the container so the
+    /// admission check reads what the sandbox WAS BUILT WITH rather than what a caller believes. Read back with
+    /// <see cref="SandboxAdmission.ParseAdmittedTools"/>. The value is persisted on live infrastructure, so
+    /// changing this key would make every running sandbox look unconstrained — it must stay stable.</summary>
+    public const string AdmittedToolsLabel = "mintokei.tools";
+
     public static IReadOnlyList<string> BuildRunArgs(SandboxSpec spec)
     {
         // Fail closed: broker egress must join a per-session --internal network (deny-by-default; its only exit
@@ -48,6 +54,17 @@ public static class DockerCommand
         // Marks the container as ours so ListManagedAsync can reconcile after a process restart.
         a.Add("--label");
         a.Add($"{ManagedLabel}=1");
+
+        // What this sandbox is allowed to serve, carried ON the sandbox rather than only in the embedder's
+        // database. A second session joining an existing sandbox must be checked against what that sandbox was
+        // actually built with — not against what a caller believes it was built with. Reading it back from the
+        // infrastructure keeps the check authoritative across an API restart, a DB rollback, or a second
+        // embedder, which is the whole point of enforcing admission in the library.
+        if (spec.AdmittedTools is { Count: > 0 })
+        {
+            a.Add("--label");
+            a.Add($"{AdmittedToolsLabel}={string.Join(',', spec.AdmittedTools)}");
+        }
 
         // Scratch mounts (e.g. the runner data dir /data). Docker mounts a tmpfs 0755 root:root by default,
         // which the non-root agent user cannot write — pin ownership to the sandbox uid so --data-dir works. Skip

@@ -373,9 +373,13 @@ public sealed class SandboxProvisioner(
     /// lead) versus it simply never became ready in time (a slow pull, or a dial-back it can't complete).</summary>
     private static string NeverOnlineMessage(string name, TimeSpan timeout, SandboxStatus? exitStatus) =>
         exitStatus is { State: SandboxState.Exited }
+            // Deliberately no "this is almost always X" guess: the container's own logs are attached to this
+            // exception, and a confident wrong guess sends people looking in the wrong place. The real causes
+            // seen so far are a failed clone, credentials the non-root container cannot read, and a backend URL
+            // the container cannot reach — indistinguishable from out here, and all three named in the logs.
             ? $"The sandbox '{name}' exited (exit code {exitStatus.ExitCode?.ToString() ?? "unknown"}) before its " +
-              "agent runner could connect — its startup failed. This is almost always a repo clone or " +
-              "git-credentials error."
+              "agent runner could connect — its startup failed. See the container logs on this exception " +
+              "(ContainerLogs) for the reason."
             : $"The sandbox '{name}' did not become ready within {timeout} and its agent runner never connected. " +
               "This is usually an image that can't be pulled or a backend URL the container can't reach.";
 

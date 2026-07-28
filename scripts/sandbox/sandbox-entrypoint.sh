@@ -9,33 +9,59 @@ set -euo pipefail
 # Seed writable agent-CLI credentials from a read-only /seed mount. The Sandbox Manager
 # mounts host creds RO under /seed (per-tenant); Claude Code / Codex need a WRITABLE config
 # dir (session + history files), so we copy rather than mount the live dir into place.
+#
+# Every copy goes through seed_copy. Under `set -e` a bare failing `cp` kills the container with nothing but
+# "cp: ... Permission denied", which the control plane can only report as "exited before its runner could
+# connect" — and the usual cause (host creds bind-mounted raw, so 0600 root-owned files are unreadable to this
+# non-root uid) is then indistinguishable from a failed clone. Name it instead.
+seed_copy() {  # $1 = source under /seed, $2 = destination in HOME
+  if cp -a "$1" "$2" 2>/dev/null; then
+    return 0
+  fi
+  if [[ ! -r "$1" ]]; then
+    echo "sandbox-entrypoint: cannot read '$1' as uid $(id -u) — the host credentials appear to be" >&2
+    echo "sandbox-entrypoint: bind-mounted raw. They are root-owned 0600/0700 on the host, so they must be" >&2
+    echo "sandbox-entrypoint: staged as a copy owned by uid $(id -u) before being mounted." >&2
+  else
+    echo "sandbox-entrypoint: failed to copy '$1' -> '$2'" >&2
+  fi
+  return 1
+}
+
 seed_creds() {
   [[ -d /seed ]] || return 0
   if [[ -f /seed/.claude/.credentials.json || -f /seed/.claude.json ]]; then
     mkdir -p "${HOME:-/root}/.claude"
-    [[ -f /seed/.claude/.credentials.json ]] && cp /seed/.claude/.credentials.json "${HOME:-/root}/.claude/.credentials.json"
-    [[ -f /seed/.claude.json ]] && cp /seed/.claude.json "${HOME:-/root}/.claude.json"
+    if [[ -f /seed/.claude/.credentials.json ]]; then
+      seed_copy /seed/.claude/.credentials.json "${HOME:-/root}/.claude/.credentials.json" || return 1
+    fi
+    if [[ -f /seed/.claude.json ]]; then
+      seed_copy /seed/.claude.json "${HOME:-/root}/.claude.json" || return 1
+    fi
   fi
-  [[ -d /seed/.codex ]] && { mkdir -p "${HOME:-/root}/.codex"; cp -a /seed/.codex/. "${HOME:-/root}/.codex/"; }
+  if [[ -d /seed/.codex ]]; then
+    mkdir -p "${HOME:-/root}/.codex"
+    seed_copy /seed/.codex/. "${HOME:-/root}/.codex/" || return 1
+  fi
 
   # Git credentials for cloning a private repo over the network (GitCredentialsHostDir mounted at
   # /seed/git). Supports an HTTPS token store (.git-credentials) and/or an SSH key dir (.ssh/).
   if [[ -d /seed/git ]]; then
     if [[ -f /seed/git/.git-credentials ]]; then
-      cp /seed/git/.git-credentials "${HOME:-/root}/.git-credentials"
+      seed_copy /seed/git/.git-credentials "${HOME:-/root}/.git-credentials" || return 1
       chmod 600 "${HOME:-/root}/.git-credentials" 2>/dev/null || true
       git config --global credential.helper store 2>/dev/null || true
     fi
     if [[ -d /seed/git/.ssh ]]; then
       mkdir -p "${HOME:-/root}/.ssh"
-      cp -a /seed/git/.ssh/. "${HOME:-/root}/.ssh/"
+      seed_copy /seed/git/.ssh/. "${HOME:-/root}/.ssh/" || return 1
       chmod 700 "${HOME:-/root}/.ssh" 2>/dev/null || true
       chmod 600 "${HOME:-/root}"/.ssh/* 2>/dev/null || true
     fi
   fi
   return 0
 }
-seed_creds
+seed_creds || { echo "sandbox-entrypoint: credential seeding failed — see the error above" >&2; exit 1; }
 
 # Persist the agent-CLI session transcript across sandbox recycles so `--resume` keeps working. When a session
 # goes idle the reaper tears the container down and re-provisions a fresh one on the next turn; the per-task

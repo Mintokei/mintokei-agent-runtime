@@ -3,7 +3,6 @@ using Mintokei.AgentControlPlane;
 using Mintokei.AgentEngine;
 using Mintokei.AgentEngine.AgentTools;
 using Mintokei.AgentEngine.Contracts;
-using Mintokei.Runner.Host.Hosting;
 using Mintokei.Sandbox;
 using Mintokei.Sandbox.Hosting;
 
@@ -26,10 +25,12 @@ using Mintokei.Sandbox.Hosting;
 // =============================================================================
 
 var builder = WebApplication.CreateBuilder(args);
-builder.AddMintokeiRunnerHost().AddClaude();
+// AddSandboxAgentHost brings the whole backend with it — Runner.Host, control plane, gRPC, SQLite, JWT —
+// so calling AddMintokeiRunnerHost() as well registers the auth scheme twice and the host refuses to start.
 builder.AddSandboxAgentHost().AddClaude();
 
 var app = builder.Build();
+app.MapSandboxAgentHost();   // auth + enrollment routes + the gRPC data plane the container dials back into
 
 app.MapPost("/demo/shared", async (
     SandboxProvisioner provisioner,
@@ -72,6 +73,14 @@ app.MapPost("/demo/shared", async (
     {
         // Provision a separate sandbox instead. Refusing is the safe outcome, not an error to work around.
         return Results.Conflict(ex.Message);
+    }
+    catch (SandboxAgentException ex)
+    {
+        // A container that exits before enrolling takes its reason with it, so the exception carries the tail
+        // of its logs — usually a failed clone, missing credentials, or a backend URL it cannot reach.
+        return Results.Problem(string.IsNullOrWhiteSpace(ex.ContainerLogs)
+            ? ex.Message
+            : $"{ex.Message}\n\n--- sandbox logs ---\n{ex.ContainerLogs}");
     }
 
     var second = await RunSessionAsync(plane, sandbox.MachineId, prompt, ct);

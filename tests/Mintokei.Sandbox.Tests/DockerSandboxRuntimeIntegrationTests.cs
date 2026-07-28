@@ -57,6 +57,64 @@ public class DockerSandboxRuntimeIntegrationTests
         }
     }
 
+    /// <summary>
+    /// The persisted workspace must OUTLIVE the container — that is the entire feature. A session goes idle, the
+    /// reaper tears the container down, and the next turn re-provisions: the working tree and the agent-CLI
+    /// transcript have to still be there or `--resume` fails with "no conversation found".
+    ///
+    /// Written against real Docker because the failure this guards was a silently-ignored key: everything
+    /// type-checked, the container ran, and only a later resume revealed the tree had never been persisted.
+    /// </summary>
+    [Fact]
+    public async Task Persistent_workspace_volume_outlives_the_container()
+    {
+        if (!DockerAvailableAndOptedIn(out var reason))
+            Assert.Skip(reason);
+
+        var runtime = new DockerSandboxRuntime(
+            NullLogger<DockerSandboxRuntime>.Instance, Options.Create(new SandboxOptions()));
+        var key = Guid.NewGuid();
+        var spec = new SandboxSpec
+        {
+            Image = "alpine:latest",
+            Name = $"mk-ws-{Guid.NewGuid():N}"[..24],
+            RuntimeClass = "runc",
+            Limits = new SandboxResources(256L * 1024 * 1024, 1, 128),
+            Tmpfs = [],
+            Args = ["sleep", "30"],
+            PersistentWorkspaceKey = key,
+            // The store exists only for a session that HAS a working tree, so the repo list is what switches it on.
+            Env = new Dictionary<string, string>
+            {
+                [SandboxSpecFactory.ReposEnvVar] = "https://example.invalid/r.git|/repos/r|",
+            },
+        };
+
+        SandboxHandle? handle = null;
+        try
+        {
+            handle = await runtime.ProvisionAsync(spec);
+            Assert.Contains(key, await runtime.ListPersistentWorkspaceKeysAsync());
+
+            // Docker refuses to remove a volume a live container still mounts. That refusal must report FALSE,
+            // not success — a caller mirroring the deletion would otherwise drop state for a tree still in use.
+            Assert.False(await runtime.RemovePersistentWorkspaceAsync(key));
+
+            await runtime.StopAsync(handle);
+            handle = null;
+            Assert.Contains(key, await runtime.ListPersistentWorkspaceKeysAsync()); // survived the container
+
+            Assert.True(await runtime.RemovePersistentWorkspaceAsync(key));
+            Assert.DoesNotContain(key, await runtime.ListPersistentWorkspaceKeysAsync());
+        }
+        finally
+        {
+            if (handle is not null)
+                await runtime.StopAsync(handle);
+            await runtime.RemovePersistentWorkspaceAsync(key); // best-effort if an assert failed
+        }
+    }
+
     private static bool DockerAvailableAndOptedIn(out string reason)
     {
         if (Environment.GetEnvironmentVariable("MINTOKEI_SANDBOX_DOCKER_ITEST") != "1")

@@ -9,7 +9,8 @@ namespace Mintokei.Sandbox.Docker;
 /// <see cref="ISandboxRuntime"/> over the local Docker CLI (shelling out, matching how the rest of
 /// Mintokei runs external processes). The Kubernetes backend implements the same interface later.
 /// </summary>
-public sealed class DockerSandboxRuntime : ISandboxRuntime, ISandboxLogSource, ISandboxAdmissionSource
+public sealed class DockerSandboxRuntime
+    : ISandboxRuntime, ISandboxLogSource, ISandboxAdmissionSource, ISandboxWorkspaceStore
 {
     private readonly ILogger<DockerSandboxRuntime> _logger;
     private readonly SandboxCredentialStager _seedStager;
@@ -35,6 +36,7 @@ public sealed class DockerSandboxRuntime : ISandboxRuntime, ISandboxLogSource, I
     public async Task<SandboxHandle> ProvisionAsync(SandboxSpec spec, CancellationToken ct = default)
     {
         spec = await StageSeedCredentialsAsync(spec, ct);
+        spec = await EnsurePersistentWorkspaceAsync(spec, ct);
 
         var (exit, stdout, stderr) = await RunDockerAsync(DockerCommand.BuildRunArgs(spec), ct);
         if (exit != 0)
@@ -78,6 +80,89 @@ public sealed class DockerSandboxRuntime : ISandboxRuntime, ISandboxLogSource, I
         await _seedStager.RemoveAsync(Guid.Empty, handle.Name, ct);
 
         _logger.LogInformation("Stopped sandbox {Name} ({Id})", handle.Name, Short(handle.Id));
+    }
+
+    /// <summary>
+    /// Back <c>/repos</c> with a named volume keyed by <see cref="SandboxSpec.PersistentWorkspaceKey"/>, so the
+    /// whole working tree — every repo in the session, plus the agent-CLI transcript the entrypoint symlinks onto
+    /// it — survives this container being recycled.
+    ///
+    /// Docker volumes must exist before <c>docker run</c>, which is why this is a step here rather than something
+    /// <see cref="DockerCommand"/> can express: without it the key is accepted and silently does nothing, and a
+    /// recycled session comes back with an empty tree and no transcript to <c>--resume</c> from — a failure that
+    /// surfaces far from its cause. Kubernetes honours the same key with a PVC it creates itself; the nested path
+    /// does exactly this.
+    ///
+    /// Only when the session actually has repos: with no working tree there is nothing worth keeping.
+    /// </summary>
+    private async Task<SandboxSpec> EnsurePersistentWorkspaceAsync(SandboxSpec spec, CancellationToken ct)
+    {
+        if (spec.PersistentWorkspaceKey is not { } key || !spec.Env.ContainsKey(SandboxSpecFactory.ReposEnvVar))
+            return spec;
+
+        var volumeName = SandboxWorkspaceStore.Name(key);
+        var (exit, _, stderr) = await RunDockerAsync(
+            ["volume", "create",
+             "--label", $"{DockerCommand.ManagedLabel}=1",
+             "--label", $"{SandboxWorkspaceStore.LabelKey}={key:N}",
+             volumeName], ct);
+        if (exit != 0)
+            throw new SandboxRuntimeException(
+                $"could not create workspace volume '{volumeName}': {stderr.Trim()}");
+
+        _logger.LogInformation("Persisting workspace for key {Key} on volume {Volume} (mounted at {Path})",
+            key, volumeName, SandboxSpecFactory.RepoRoot);
+
+        // DockerCommand drops the tmpfs for any path that is also a mount, so the volume wins at /repos.
+        return spec with
+        {
+            Mounts = [.. spec.Mounts, new SandboxMount(volumeName, SandboxSpecFactory.RepoRoot, ReadOnly: false)],
+        };
+    }
+
+    // --- ISandboxWorkspaceStore: reaper-driven GC of the per-workspace volumes created above ---
+
+    public async Task<IReadOnlyList<Guid>> ListPersistentWorkspaceKeysAsync(CancellationToken ct = default)
+    {
+        var (exit, stdout, _) = await RunDockerAsync(
+            ["volume", "ls", "--filter", $"label={DockerCommand.ManagedLabel}=1", "--format", "{{.Name}}"], ct);
+        if (exit != 0)
+            return [];
+
+        var keys = new List<Guid>();
+        foreach (var name in stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            if (SandboxWorkspaceStore.TryParseKey(name, out var key))
+                keys.Add(key);
+        return keys;
+    }
+
+    /// <summary>
+    /// Best-effort removal of a persisted workspace. Docker refuses while a container still mounts the volume —
+    /// the safety net against deleting a live session's tree — and that refusal must NOT read as success: a
+    /// caller mirroring the deletion into its own state (dropping a session id that lives on this volume) would
+    /// otherwise act on a tree that is still there. True means genuinely gone; retried on a later sweep.
+    /// </summary>
+    public async Task<bool> RemovePersistentWorkspaceAsync(Guid key, CancellationToken ct = default)
+    {
+        try
+        {
+            var volumeName = SandboxWorkspaceStore.Name(key);
+            var (exit, _, stderr) = await RunDockerAsync(["volume", "rm", volumeName], ct);
+            if (exit == 0)
+                return true;
+
+            // Already absent counts as removed — the post-condition the caller cares about is "not there".
+            if (stderr.Contains("No such volume", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            _logger.LogDebug("docker volume rm '{Name}' did not remove it: {Err}", volumeName, stderr.Trim());
+            return false;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "could not remove workspace volume for {Key}", key);
+            return false;
+        }
     }
 
     /// <summary>Container path prefix under which the spec factory mounts agent-CLI / git credentials.</summary>

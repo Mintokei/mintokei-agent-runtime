@@ -9,7 +9,9 @@ distance — as a container that dies in its entrypoint, a session that cannot j
 that quietly does not survive a recycle.
 
 Three such gaps have been found by tripping over them in practice, all the same shape: **local Docker was the
-backend that missed out**, every time.
+backend that missed out**, every time. All three are now closed — credential staging for the non-root
+container, admission read-back, and the persisted workspace at `/repos`. They are listed under
+[Closed gaps](#closed-gaps) because the pattern matters more than any one of them.
 
 ## The three backends
 
@@ -22,7 +24,7 @@ backend that missed out**, every time.
 The nested path is **deliberately not** an `ISandboxRuntime`: every method takes the worker's machine id, and
 that seam is host-agnostic. That decision is sound, but it has a cost worth naming — nothing type-checks the
 nested path against the other two, so every shared capability is re-implemented by hand there and can silently
-go missing. Two of the three gaps below were in local Docker, but the same exposure applies to nested.
+go missing. All three gaps found so far were in local Docker, but the same exposure applies to nested.
 
 ## Capability matrix
 
@@ -32,28 +34,10 @@ go missing. Two of the three gaps below were in local Docker, but the same expos
 | container logs | `ISandboxLogSource` | ✅ | ✅ | ✅ (own method) |
 | admission read-back | `ISandboxAdmissionSource` | ✅ | ✅ | ✅ (own method) |
 | credential staging for the non-root container | — (a provision step) | ✅ | ✅ init container | ✅ `SandboxCredentialStager` |
-| persistent workspace at `/repos` | `ISandboxWorkspaceStore` | ❌ **silently ignored** | ✅ PVC | ✅ named volume |
+| persistent workspace at `/repos` | `ISandboxWorkspaceStore` | ✅ named volume | ✅ PVC | ✅ named volume |
 | broker egress | — (a provision step) | ❌ fails closed | ✅ | ✅ |
 
 ## Open gaps
-
-### `PersistentWorkspaceKey` is silently ignored on local Docker
-
-`SandboxSpec.PersistentWorkspaceKey` is accepted and has **no effect** on the local Docker backend:
-`DockerCommand` never references it, and `DockerSandboxRuntime` does not implement `ISandboxWorkspaceStore`.
-`/repos` is therefore the container's ephemeral filesystem.
-
-The consequence is not a launch failure — it is that a recycled session comes back with an empty working tree
-and no agent-CLI transcript, so `--resume` fails with *"no conversation found"* long after the fact. The
-nested path's own code comments describe this exact outcome as the reason it creates the volume:
-
-> Docker volumes have to be created before `docker run`, hence this step — without it the key would be
-> silently ignored on this path and a recycled session would come back with an empty tree and no transcript
-> to `--resume` from.
-
-Fixing it means creating a named volume keyed by `PersistentWorkspaceKey` before `docker run` (as the nested
-path does) and implementing `ISandboxWorkspaceStore` so a reaper can GC it. Until then, **treat local Docker
-as ephemeral-only** and do not rely on resume across a recycle there.
 
 ### Broker egress is unsupported on local Docker
 
@@ -64,8 +48,22 @@ as ephemeral-only** and do not rely on resume across a recycle there.
 > (fail-closed).
 
 This one is listed as a gap but **not a defect**: it fails loudly, at launch, with an accurate message. That
-is the correct handling of an unimplemented capability, and the contrast with the silent case above is the
+is the correct handling of an unimplemented capability, and the contrast with the silent failures below is the
 whole point of this document.
+
+## Closed gaps
+
+All three were in local Docker, and all three failed *away* from their cause — which is what made them
+expensive. Kept here because the shape repeats.
+
+| gap | how it failed | why it was hard to see |
+|---|---|---|
+| credentials bind-mounted raw | container ran as a non-root uid it could not read them with; the entrypoint's `cp` died under `set -e` | reported only as *"exited before its agent runner could connect"*, which reads as a clone failure |
+| `mintokei.tools` written but never read back | every attempt to join an existing sandbox refused | the label was correct on the container; the *reader* was the missing half, so nothing looked wrong |
+| `PersistentWorkspaceKey` accepted and ignored | `/repos` stayed ephemeral, so a recycled session lost its tree and transcript | nothing failed at provision time — only a much later `--resume` |
+
+The third is the purest example: no error, no log line, no failed call. The key was accepted, the container
+ran, and the damage only appeared on the next turn after a recycle.
 
 ## Adding a capability
 

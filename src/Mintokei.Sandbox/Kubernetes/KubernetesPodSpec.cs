@@ -113,10 +113,12 @@ public static class KubernetesPodSpec
 
             // The init reads each source (as root) at /stage-in/<rel-under-/seed> and writes the emptyDir at /stage-out.
             var initMounts = new List<V1VolumeMount>();
+            var stagedRelPaths = new List<string>();
             foreach (var m in seedMounts)
             {
                 var name = $"seed-src-{h++}";
                 var rel = m.Target[SeedRoot.Length..].TrimStart('/'); // .claude | .claude.json | .codex | git
+                stagedRelPaths.Add(rel);
                 volumes.Add(new V1Volume { Name = name, HostPath = new V1HostPathVolumeSource { Path = m.Source } });
                 initMounts.Add(new V1VolumeMount { Name = name, MountPath = $"/stage-in/{rel}", ReadOnlyProperty = true });
             }
@@ -126,14 +128,27 @@ public static class KubernetesPodSpec
             mounts.Add(new V1VolumeMount { Name = staged, MountPath = SeedRoot });
 
             var uid = SandboxImage.AgentUid.ToString(CultureInfo.InvariantCulture);
+
+            // Copy each mounted source into the emptyDir, then hand ownership to the agent uid so the non-root
+            // main container can read it. Per-source and trimmed via SandboxCredentialStaging rather than one
+            // blanket `cp -aL /stage-in/.`: the blanket copy pulled the runner's whole agent home — plugin
+            // marketplaces, transcripts, caches — into a tmpfs emptyDir, which is ~1.1GB of MEMORY and ~35s of
+            // pod startup on a real box, every session, for a few KB of credentials. Best-effort per source.
+            var stagingSteps = new List<string> { SandboxCredentialStaging.ShellFunctions };
+            foreach (var rel in stagedRelPaths)
+            {
+                stagingSteps.Add(SandboxCredentialStaging.CopyCommand(
+                    $"/stage-in/{rel}", $"/stage-out/{rel}",
+                    SandboxCredentialStaging.KindFor(rel), SandboxStagingScope.AgentHome));
+            }
+            stagingSteps.Add($"chown -R {uid}:{uid} /stage-out");
+
             initContainers.Add(new V1Container
             {
                 Name = "stage-creds",
                 Image = spec.Image,                 // reuse the sandbox image (already on the node) — no extra pull
                 ImagePullPolicy = imagePullPolicy,
-                // Copy the mounted creds into the emptyDir preserving structure, then hand ownership to the agent
-                // uid so the non-root main container can read them. Best-effort per source (missing → skipped).
-                Command = ["sh", "-c", $"cp -aL /stage-in/. /stage-out/ 2>/dev/null || true; chown -R {uid}:{uid} /stage-out"],
+                Command = ["sh", "-c", string.Join("\n", stagingSteps)],
                 VolumeMounts = initMounts,
                 SecurityContext = new V1SecurityContext
                 {

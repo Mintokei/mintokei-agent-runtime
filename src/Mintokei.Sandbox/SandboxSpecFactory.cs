@@ -99,7 +99,7 @@ public sealed class SandboxSpecFactory(IOptions<SandboxOptions> options)
             Image = _options.Image,
             Name = req.Name,
             RuntimeClass = profile.Runtime,
-            Limits = profile.Limits,
+            Limits = req.LimitsOverride ?? profile.Limits,
             Egress = profile.Egress,
             EgressProxyUrl = profile.EgressProxyUrl,
             EgressAllowlist = egressAllowlist,

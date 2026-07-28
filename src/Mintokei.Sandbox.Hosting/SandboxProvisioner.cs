@@ -143,6 +143,7 @@ public sealed class SandboxProvisioner(
             Broker = request.Broker,
             PersistentWorkspaceKey = request.PersistentWorkspaceKey,
             AdmittedTools = request.AdmittedTools,
+            LimitsOverride = request.LimitsOverride,
         };
 
         if (configure is not null)
@@ -429,6 +430,10 @@ public sealed record SandboxProvisionRequest
     /// checked against it (<see cref="SandboxAdmission"/>). Leave empty for a sandbox that serves exactly the
     /// one session it is provisioned for.</summary>
     public IReadOnlyList<string> AdmittedTools { get; init; } = [];
+
+    /// <summary>Per-session override of the profile's cgroup limits — see
+    /// <see cref="SandboxSessionRequest.LimitsOverride"/>. Null → the profile's own limits.</summary>
+    public SandboxResourceLimits? LimitsOverride { get; init; }
 
     /// <summary>Overrides <see cref="SandboxAgentHostOptions.OnlineTimeoutSeconds"/>.</summary>
     public TimeSpan? OnlineTimeout { get; init; }

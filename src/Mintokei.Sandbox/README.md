@@ -110,6 +110,58 @@ await manager.RecycleAsync(lease.Handle.Name, ct);
 See the two samples above for the full lifecycle end to end;
 [`samples/SandboxPoolMinimal`](../../samples/SandboxPoolMinimal) adds the warm pool.
 
+## Sharing one sandbox between sessions
+
+A sandbox normally serves one session. It can serve several — every task in a workspace working on one tree,
+say — but sharing a sandbox shares more than the tree, and the library makes you say so explicitly.
+
+A sandbox has **one broker on one network**, and the broker cannot tell which session a connection came from.
+Its egress allowlist and the credentials it injects therefore apply to *every* session inside. Letting a
+session join a sandbox that was not built for its tool silently grants the sessions already in there that
+tool's network reach and credentials — for the sandbox's whole life, since the allowlist is fixed when the
+broker starts.
+
+So there are two halves: **declare** what a sandbox serves, and **check** before anyone joins.
+
+```csharp
+// 1. Provisioning: declare the tools this sandbox may serve, and key the working tree by whatever OWNS it
+//    (a workspace, a project — not the individual session, or nothing can be shared).
+var sandbox = await provisioner.ProvisionAsync(new SandboxProvisionRequest
+{
+    Profile = "standard",
+    Repos   = repos,
+    AdmittedTools          = ["ClaudeCodeCli"],   // omit → single-session, forever
+    PersistentWorkspaceKey = workspaceId,
+
+    // One container, one cgroup: N sessions share a single memory limit, and an OOM takes ALL of them.
+    // Size the ceiling for what the sandbox may host. The reserve stays null — it decides how many
+    // sandboxes fit a node, and raising it costs density whether or not the headroom is used.
+    LimitsOverride = new SandboxResources(
+        MemoryLimitBytes: 8L * 1024 * 1024 * 1024, CpuLimit: 2, PidsLimit: 512),
+});
+
+// 2. Joining: check BEFORE dispatching a second session into it. Reads the declaration off the sandbox
+//    itself, so a stale local record cannot let a session in.
+await provisioner.EnsureCanAttachAsync(existingHandle, "ClaudeCodeCli", ct);   // throws SandboxAdmissionException
+```
+
+`EnsureCanAttachAsync` refuses in three cases, all deliberate:
+
+| case | why |
+|---|---|
+| the tool is not declared | it would widen egress + credentials for the sessions already inside |
+| the sandbox carries **no** declaration | it is single-session — whoever is in it never agreed to share |
+| the backend cannot report a declaration | nothing to check against; sharing is unavailable, not assumed safe |
+
+Note the second one. Everywhere else an empty `AdmittedTools` means *unconstrained* (a sandbox serving the one
+session it was built for, with nothing to admit). At the attach gate it means the opposite — **do not join**.
+That inversion is the easiest thing here to get backwards, and getting it backwards opens every pre-existing
+sandbox to joiners.
+
+Reclaiming a shared workspace store is the mirror image: it belongs to *several* sessions, so it may only be
+removed once **all** of them are done. Deciding from one session deletes a working tree the others are still
+using.
+
 ## Configuration (`Sandbox` section)
 
 | Key | Default | Notes |

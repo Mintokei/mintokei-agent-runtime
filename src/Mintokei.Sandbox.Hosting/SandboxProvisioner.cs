@@ -455,6 +455,15 @@ public sealed class ProvisionedSandbox(Guid machineId, string name, string backe
     /// <summary>Which backend launched it: <c>docker</c>, <c>kubernetes</c>, or <c>docker-nested</c>.</summary>
     public string Backend { get; } = backend;
 
+    /// <summary>
+    /// The sandbox as the runtime addresses it — pass this to <see cref="SandboxProvisioner.EnsureCanAttachAsync"/>
+    /// when a second session wants to join, or to any <see cref="ISandboxRuntime"/> call.
+    ///
+    /// Name-based (id == name): the backends look sandboxes up by name, and it is the only identifier that
+    /// survives the control plane. Exposed because a caller cannot otherwise build one without knowing that.
+    /// </summary>
+    public SandboxHandle Handle { get; } = new(name, name, backend);
+
     /// <summary>Stop and remove the sandbox (plus staged credentials and broker, on the remote path).</summary>
     public Task RecycleAsync(CancellationToken ct = default) => recycle(ct);
 }

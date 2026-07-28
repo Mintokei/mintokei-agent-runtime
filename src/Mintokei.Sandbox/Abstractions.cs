@@ -61,6 +61,19 @@ public sealed record SandboxSpec
     public IReadOnlyList<string> EgressAllowlist { get; init; } = [];
 
     /// <summary>
+    /// The agent tools this sandbox was provisioned to serve. Once a sandbox can host MORE THAN ONE session,
+    /// this is what stops the second one widening the first one's blast radius: the egress allowlist and the
+    /// injected model credentials are per-SANDBOX (one broker, one network — it cannot tell which session a
+    /// connection came from), so admitting a tool the sandbox was not built for silently grants every session
+    /// in it that tool's reach.
+    ///
+    /// Empty means "unconstrained" — the single-session behaviour, where the sandbox serves exactly the one
+    /// session it was provisioned for and there is nothing to admit. Enforced by
+    /// <see cref="SandboxAdmission"/>, which fails closed.
+    /// </summary>
+    public IReadOnlyList<string> AdmittedTools { get; init; } = [];
+
+    /// <summary>
     /// Per-session Docker network the container joins — the deny-by-default <c>--internal</c> net in
     /// <see cref="SandboxEgress.Broker"/> mode (its only exit is the session broker). Null = the daemon's
     /// default bridge (Open/Proxy). Required when <see cref="Egress"/> is <see cref="SandboxEgress.Broker"/>.

@@ -67,6 +67,29 @@ public sealed class RemoteDockerSandboxRuntime(
         return new SandboxHandle(id, spec.Name, Backend);
     }
 
+    /// <summary>
+    /// Read the declaration back off the container on <paramref name="hostMachineId"/>. Takes the host id, so it
+    /// cannot sit behind <see cref="ISandboxAdmissionSource"/> (which is host-free) — the remote path is always
+    /// driven by a caller that already knows which worker the sandbox is on.
+    ///
+    /// A container that is gone, or a docker call that fails, yields empty. That reads as "unconstrained", which
+    /// is safe here only because the caller must still find a LIVE sandbox to attach to: an unreadable container
+    /// is not a sandbox anyone can join.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> GetAdmittedToolsAsync(
+        Guid hostMachineId, SandboxHandle handle, CancellationToken ct = default)
+    {
+        var (exit, stdout, _) = await DockerAsync(hostMachineId,
+            ["inspect", "--format", $"{{{{index .Config.Labels \"{DockerCommand.AdmittedToolsLabel}\"}}}}", handle.Id],
+            15_000, ct);
+
+        // `docker inspect` prints "<no value>" for a label the container does not carry.
+        if (exit != 0)
+            return [];
+        var value = stdout.Trim();
+        return value is "<no value>" ? [] : SandboxAdmission.ParseAdmittedTools(value);
+    }
+
     public async Task<SandboxStatus> GetStatusAsync(Guid hostMachineId, SandboxHandle handle, CancellationToken ct = default)
     {
         var (exit, stdout, stderr) = await DockerAsync(

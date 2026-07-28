@@ -30,6 +30,36 @@ public sealed class SandboxProvisioner(
     IServiceProvider services)
 {
     /// <summary>
+    /// Gate a session joining an EXISTING sandbox. Reads the declaration off the sandbox itself and refuses
+    /// unless it admits <paramref name="tool"/>.
+    ///
+    /// The read is the point: a caller's own record of what a sandbox serves can be stale (API restart, DB
+    /// rollback, a second embedder), and the only authority on what the running broker will actually serve is
+    /// the sandbox. Provisioning a NEW sandbox never comes through here — there is nobody to protect yet.
+    ///
+    /// Fails closed when the backend cannot report a declaration at all: without one there is nothing to check
+    /// a joining session against, so sharing is unavailable there rather than assumed safe.
+    /// </summary>
+    public async Task EnsureCanAttachAsync(SandboxHandle handle, string tool, CancellationToken ct = default)
+    {
+        if (runtime is not ISandboxAdmissionSource source)
+            throw new SandboxAdmissionException(
+                $"backend '{handle.Backend}' cannot report what sandbox '{handle.Name}' was provisioned to serve, "
+                + "so a second session cannot be admitted to it — provision a separate sandbox instead.");
+
+        var admitted = await source.GetAdmittedToolsAsync(handle, ct);
+
+        // An existing sandbox with NO declaration is a single-session sandbox: provisioned before sharing, or by
+        // a caller that never opted in. Joining it would put a second session beside one that never agreed to
+        // share its broker, so this is the one place an empty declaration must NOT read as "unconstrained".
+        if (admitted.Count == 0)
+            throw new SandboxAdmissionException(
+                $"sandbox '{handle.Name}' carries no tool declaration, so it is single-session — a second "
+                + "session cannot join it. Provision a separate sandbox.");
+
+        SandboxAdmission.EnsureAdmits(handle.Name, admitted, tool);
+    }
+    /// <summary>
     /// Provision a sandbox and wait for it to come online. Everything host-wide comes from the
     /// <c>Sandbox</c> config section; <paramref name="request"/> carries the per-session inputs.
     /// </summary>

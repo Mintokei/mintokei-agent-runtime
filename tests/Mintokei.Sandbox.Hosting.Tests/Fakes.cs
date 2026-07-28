@@ -10,7 +10,7 @@ namespace Mintokei.Sandbox.Hosting.Tests;
 
 /// <summary>Records what was provisioned/stopped and can pretend the container exited (so the online-wait
 /// bails immediately instead of burning a timeout). Also serves canned logs, like the real backends do.</summary>
-internal sealed class FakeRuntime : ISandboxRuntime, ISandboxLogSource
+internal class FakeRuntime : ISandboxRuntime, ISandboxLogSource
 {
     public List<SandboxSpec> Provisioned { get; } = [];
     public List<string> Stopped { get; } = [];

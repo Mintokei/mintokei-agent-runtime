@@ -18,7 +18,7 @@ public sealed class KubernetesSandboxRuntime(
     IKubernetes client,
     IOptions<SandboxOptions> options,
     ILogger<KubernetesSandboxRuntime> logger,
-    ISandboxBroker? broker = null) : ISandboxRuntime, ISandboxLogSource, ISandboxWorkspaceStore
+    ISandboxBroker? broker = null) : ISandboxRuntime, ISandboxLogSource, ISandboxWorkspaceStore, ISandboxAdmissionSource
 {
     private readonly string _namespace = string.IsNullOrWhiteSpace(options.Value.KubernetesNamespace)
         ? "default"
@@ -87,6 +87,26 @@ public sealed class KubernetesSandboxRuntime(
             spec.Name, Short(id), created.Spec?.RuntimeClassName ?? "(node default)", _namespace,
             spec.Egress == SandboxEgress.Broker ? " (broker egress)" : "");
         return new SandboxHandle(id, spec.Name, Backend);
+    }
+
+    /// <summary>
+    /// Read the declaration back off the Pod. A pod that is gone yields empty — the caller cannot attach to it
+    /// anyway, and reporting "unconstrained" here is harmless because there is nothing to join.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> GetAdmittedToolsAsync(SandboxHandle handle, CancellationToken ct = default)
+    {
+        try
+        {
+            var pod = await client.CoreV1.ReadNamespacedPodAsync(handle.Name, _namespace, cancellationToken: ct);
+            var annotations = pod.Metadata?.Annotations;
+            if (annotations is null || !annotations.TryGetValue(SandboxAdmission.ToolsLabel, out var value))
+                return [];
+            return SandboxAdmission.ParseAdmittedTools(value);
+        }
+        catch (HttpOperationException ex) when (ex.Response?.StatusCode == HttpStatusCode.NotFound)
+        {
+            return [];
+        }
     }
 
     public async Task<SandboxStatus> GetStatusAsync(SandboxHandle handle, CancellationToken ct = default)

@@ -32,7 +32,7 @@ public class KubernetesSandboxRuntimeIntegrationTests
             Image = image,
             Name = $"mk-itest-{Guid.NewGuid():N}"[..24], // DNS-1123 label (lowercase hex + hyphen)
             RuntimeClass = "runc",
-            Limits = new SandboxResourceLimits(128L * 1024 * 1024, 0.25, 128), // modest, so it schedules on a small node
+            Limits = new SandboxResources(128L * 1024 * 1024, 0.25, 128), // modest, so it schedules on a small node
             Tmpfs = [],
             Args = ["sleep", "60"],
         };

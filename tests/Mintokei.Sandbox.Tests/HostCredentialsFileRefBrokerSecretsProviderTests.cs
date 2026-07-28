@@ -24,7 +24,7 @@ public sealed class HostCredentialsFileRefBrokerSecretsProviderTests
         new() { BackendUrl = "https://api", EnrollmentToken = "t", Name = "s1", Broker = needs };
 
     private static SandboxProfile Profile() =>
-        new("broker", "runc", new SandboxResourceLimits(1, 1, 1), SandboxEgress.Broker, null);
+        new("broker", "runc", new SandboxResources(1, 1, 1), SandboxEgress.Broker, null);
 
     [Fact]
     public async Task Emits_a_json_ref_and_a_mount_for_the_declared_provider_without_reading_a_token()

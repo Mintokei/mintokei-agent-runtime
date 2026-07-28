@@ -124,7 +124,7 @@ sealed class FakeContainerRuntime(FakeBackend backend) : ISandboxRuntime
     public Task<SandboxHandle> ProvisionAsync(SandboxSpec spec, CancellationToken ct = default)
     {
         Console.WriteLine($"   [runtime] docker run {spec.Image} " +
-            $"(--runtime {spec.RuntimeClass}, mem={spec.Limits.MemoryBytes >> 20}MiB, cpus={spec.Limits.Cpus})");
+            $"(--runtime {spec.RuntimeClass}, mem={spec.Limits.MemoryLimitBytes >> 20}MiB, cpus={spec.Limits.CpuLimit})");
 
         // The real container execs `mintokei-runner <spec.Args>`; the args are --backend/--token/--name.
         var flags = ParseFlags(spec.Args);

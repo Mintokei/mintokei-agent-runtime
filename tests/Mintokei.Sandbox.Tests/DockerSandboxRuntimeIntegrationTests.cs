@@ -26,7 +26,7 @@ public class DockerSandboxRuntimeIntegrationTests
             Image = "alpine:latest",
             Name = $"mk-itest-{Guid.NewGuid():N}"[..24],
             RuntimeClass = "runc",
-            Limits = new SandboxResourceLimits(256L * 1024 * 1024, 1, 128),
+            Limits = new SandboxResources(256L * 1024 * 1024, 1, 128),
             Tmpfs = [],
             Args = ["sleep", "30"],
         };

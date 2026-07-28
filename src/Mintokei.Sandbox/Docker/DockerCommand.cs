@@ -32,11 +32,28 @@ public static class DockerCommand
 
         // cgroup caps.
         a.Add("--memory");
-        a.Add(spec.Limits.MemoryBytes.ToString(CultureInfo.InvariantCulture));
+        a.Add(spec.Limits.MemoryLimitBytes.ToString(CultureInfo.InvariantCulture));
         a.Add("--cpus");
-        a.Add(spec.Limits.Cpus.ToString(CultureInfo.InvariantCulture));
+        a.Add(spec.Limits.CpuLimit.ToString(CultureInfo.InvariantCulture));
         a.Add("--pids-limit");
         a.Add(spec.Limits.PidsLimit.ToString(CultureInfo.InvariantCulture));
+
+        // The reserve, as far as Docker can express it. Deliberately weaker than the K8s meaning:
+        // --memory-reservation is a SOFT limit that only bites under host memory pressure, and --cpu-shares is
+        // a relative weight, not a guarantee. Emitted only when set explicitly — the derived default exists for
+        // Kubernetes scheduling, and inventing a soft cap here from it would change Docker behaviour for
+        // everyone who never asked for one.
+        if (spec.Limits.MemoryReserveBytes is { } memReserve)
+        {
+            a.Add("--memory-reservation");
+            a.Add(memReserve.ToString(CultureInfo.InvariantCulture));
+        }
+        if (spec.Limits.CpuReserve is { } cpuReserve)
+        {
+            a.Add("--cpu-shares");
+            // Docker's default share weight is 1024 for one CPU's worth; scale the reserve onto that.
+            a.Add(Math.Max(2, (int)(cpuReserve * 1024)).ToString(CultureInfo.InvariantCulture));
+        }
 
         // Phase-1 "standard" hardening posture.
         a.Add("--cap-drop");

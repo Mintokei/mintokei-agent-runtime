@@ -146,7 +146,7 @@ public class SandboxAdmissionWiringTests
             Image = "img",
             Name = "sb-1",
             RuntimeClass = "runc",
-            Limits = new SandboxResourceLimits(1024, 1, 64),
+            Limits = new SandboxResources(1024, 1, 64),
             AdmittedTools = ["ClaudeCodeCli", "CodexCli"],
         };
 
@@ -166,10 +166,66 @@ public class SandboxAdmissionWiringTests
             Image = "img",
             Name = "sb-1",
             RuntimeClass = "runc",
-            Limits = new SandboxResourceLimits(1024, 1, 64),
+            Limits = new SandboxResources(1024, 1, 64),
         };
 
         var args = string.Join(' ', DockerCommand.BuildRunArgs(spec));
         Assert.DoesNotContain(DockerCommand.AdmittedToolsLabel, args);
+    }
+}
+
+/// <summary>
+/// Reserve is what the platform keeps available. It is NOT called "request" because that is Kubernetes' word
+/// for a scheduling guarantee and Docker gives none — so the two backends honour it with different strength,
+/// and the tests say which is which.
+/// </summary>
+public class SandboxResourceReserveTests
+{
+    private static SandboxSpec Spec(SandboxResources limits) => new()
+    {
+        Image = "img", Name = "sb", RuntimeClass = "runc", Limits = limits,
+    };
+
+    [Fact]
+    public void Null_reserve_keeps_the_derivation_this_shipped_with()
+    {
+        // The upgrade-safety property: an existing deployment sets no reserve, so its scheduling density must
+        // not move. Getting this wrong surfaces as FailedScheduling under load, not as a startup error.
+        var pod = Kubernetes.KubernetesPodSpec.Build(Spec(new SandboxResources(4L * 1024 * 1024 * 1024, 2, 512)));
+        var req = pod.Spec.Containers[0].Resources.Requests;
+
+        // Compared numerically: Kubernetes normalises quantities on the way in (0.5 CPU becomes "500m"), so a
+        // string comparison would be asserting the formatter, not the value.
+        Assert.Equal(1024L * 1024 * 1024, req["memory"].ToDecimal());  // half of 4 GiB, capped at 1 GiB
+        Assert.Equal(0.5m, req["cpu"].ToDecimal());                    // a quarter of 2
+    }
+
+    [Fact]
+    public void An_explicit_reserve_wins_on_kubernetes()
+    {
+        var pod = Kubernetes.KubernetesPodSpec.Build(Spec(new SandboxResources(
+            8L * 1024 * 1024 * 1024, 4, 512,
+            MemoryReserveBytes: 2L * 1024 * 1024 * 1024, CpuReserve: 1.5)));
+        var req = pod.Spec.Containers[0].Resources.Requests;
+
+        Assert.Equal(2L * 1024 * 1024 * 1024, req["memory"].ToDecimal());
+        Assert.Equal(1.5m, req["cpu"].ToDecimal());
+    }
+
+    [Fact]
+    public void Docker_emits_a_reserve_only_when_one_was_asked_for()
+    {
+        // The derived default exists for K8s scheduling. Inventing a soft cap from it on Docker would change
+        // behaviour for every deployment that never asked for one.
+        var withoutReserve = string.Join(' ', Docker.DockerCommand.BuildRunArgs(
+            Spec(new SandboxResources(4L * 1024 * 1024 * 1024, 2, 512))));
+        Assert.DoesNotContain("--memory-reservation", withoutReserve);
+        Assert.DoesNotContain("--cpu-shares", withoutReserve);
+
+        var withReserve = string.Join(' ', Docker.DockerCommand.BuildRunArgs(
+            Spec(new SandboxResources(4L * 1024 * 1024 * 1024, 2, 512,
+                MemoryReserveBytes: 1024L * 1024 * 1024, CpuReserve: 1))));
+        Assert.Contains($"--memory-reservation {1024L * 1024 * 1024}", withReserve);
+        Assert.Contains("--cpu-shares 1024", withReserve);
     }
 }

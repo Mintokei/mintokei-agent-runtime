@@ -72,3 +72,42 @@ public class SandboxAdmissionTests
             Assert.False(SandboxAdmission.Admits(declared, other), $"{other} must not be admitted");
     }
 }
+
+/// <summary>
+/// The declaration is carried ON the sandbox (a Docker label / pod annotation), so admission checks what the
+/// sandbox was BUILT with rather than what a caller believes — surviving an API restart, a DB rollback, or a
+/// second embedder of the library.
+/// </summary>
+public class SandboxAdmissionLabelTests
+{
+    [Fact]
+    public void Round_trips_a_declaration_through_the_label_value()
+    {
+        var parsed = SandboxAdmission.ParseAdmittedTools("ClaudeCodeCli,CodexCli");
+        Assert.Equal(["ClaudeCodeCli", "CodexCli"], parsed);
+        Assert.True(SandboxAdmission.Admits(parsed, "CodexCli"));
+        Assert.False(SandboxAdmission.Admits(parsed, "GithubCopilotCli"));
+    }
+
+    [Fact]
+    public void Tolerates_whitespace_and_empty_entries()
+    {
+        Assert.Equal(["ClaudeCodeCli", "CodexCli"],
+            SandboxAdmission.ParseAdmittedTools(" ClaudeCodeCli , , CodexCli "));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void An_absent_declaration_reads_as_unconstrained_not_as_admits_nothing(string? value)
+    {
+        // This is the ONE place the default runs toward permissive, and deliberately: a sandbox provisioned
+        // before this shipped genuinely has no declaration, and "admits nothing" would strand every sandbox
+        // running at deploy time. Safe only because sharing REQUIRES a declaration to check against — an
+        // undeclared sandbox is never shared, so nothing can slip in beside an existing session.
+        var parsed = SandboxAdmission.ParseAdmittedTools(value);
+        Assert.Empty(parsed);
+        Assert.True(SandboxAdmission.Admits(parsed, "anything"));
+    }
+}

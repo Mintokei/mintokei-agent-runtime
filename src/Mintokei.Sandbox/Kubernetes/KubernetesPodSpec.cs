@@ -227,6 +227,15 @@ public static class KubernetesPodSpec
                 Labels = spec.Egress == SandboxEgress.Broker
                     ? new Dictionary<string, string>(KubernetesBrokerSpec.SandboxLabels(spec.Name))
                     : new Dictionary<string, string> { [ManagedLabel] = "1" },
+                // What this sandbox may serve, carried on the sandbox itself so admission reads what it was
+                // BUILT with, not what a caller believes. An annotation rather than a label: tool keys are not
+                // constrained to label-value syntax, and nothing selects on this.
+                Annotations = spec.AdmittedTools is { Count: > 0 }
+                    ? new Dictionary<string, string>
+                    {
+                        [DockerCommand.AdmittedToolsLabel] = string.Join(',', spec.AdmittedTools),
+                    }
+                    : null,
             },
             Spec = new V1PodSpec
             {

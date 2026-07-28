@@ -91,9 +91,17 @@ public static class KubernetesBrokerSpec
                 initMounts.Add(new V1VolumeMount { Name = stagedVol, MountPath = $"/stage-out/{i}" });
                 // The broker reads the STAGED copy at the ref path (e.g. /creds/claude) — not the raw hostPath.
                 brokerMounts.Add(new V1VolumeMount { Name = stagedVol, MountPath = m.ContainerDir, ReadOnlyProperty = true });
-                cps.Add($"cp -aL /stage-in/{i}/. /stage-out/{i}/ 2>/dev/null || true");
+                // BrokerSecrets scope: take ONLY the files the broker's own refs read (.credentials.json /
+                // auth.json / the git creds), not the whole agent home. The broker runs no CLI, so it needs no
+                // config — and the home it was copying wholesale is GB-scale (plugins, and the conversation
+                // transcripts under projects/), landing in a tmpfs emptyDir. ~1.1GB of memory and ~35s of pod
+                // startup, gating every sandbox session behind it, to deliver a few hundred bytes.
+                cps.Add(SandboxCredentialStaging.CopyCommand(
+                    $"/stage-in/{i}", $"/stage-out/{i}",
+                    SandboxCredentialStaging.KindFor(m.ContainerDir), SandboxStagingScope.BrokerSecrets));
             }
-            var script = string.Join("; ", cps) + $"; chown -R {BrokerUid}:{BrokerUid} /stage-out";
+            var script = SandboxCredentialStaging.ShellFunctions + "\n"
+                + string.Join("\n", cps) + $"\nchown -R {BrokerUid}:{BrokerUid} /stage-out";
             initContainers.Add(new V1Container
             {
                 Name = "stage-creds",

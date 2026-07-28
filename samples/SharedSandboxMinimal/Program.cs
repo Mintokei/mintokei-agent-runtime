@@ -71,41 +71,53 @@ app.MapPost("/demo/shared", async (
         return Problem(ex);
     }
 
-    // ── session one: dispatch into the sandbox you just made. Nothing to check — nobody else is inside.
-    var first = await RunSessionAsync(plane, sandbox.MachineId, prompt, ct);
-
-    // ── session two: JOIN. The gate reads the declaration off the sandbox itself, not from any local
-    //    record — a stale record is exactly how a session gets into a sandbox that cannot serve it.
+    // Unlike SandboxAgentHost.RunAsync, provisioning directly means the sandbox's lifetime is YOURS — that is
+    // the point (it has to outlive session one for session two to join it), and it is also the catch: nothing
+    // else will ever recycle it. A demo that leaks a container per run is not a demo worth copying.
     try
     {
-        await provisioner.EnsureCanAttachAsync(sandbox.Handle, "ClaudeCodeCli", ct);
-    }
-    catch (SandboxAdmissionException ex)
-    {
-        // Provision a separate sandbox instead. Refusing is the safe outcome, not an error to work around.
-        return Results.Conflict(ex.Message);
-    }
-    catch (SandboxAgentException ex)
-    {
-        return Problem(ex);
-    }
+        // ── session one: dispatch into the sandbox you just made. Nothing to check — nobody else is inside.
+        var first = await RunSessionAsync(plane, sandbox.MachineId, prompt, ct);
 
-    var second = await RunSessionAsync(plane, sandbox.MachineId, prompt, ct);
+        // ── session two: JOIN. The gate reads the declaration off the sandbox itself, not from any local
+        //    record — a stale record is exactly how a session gets into a sandbox that cannot serve it.
+        try
+        {
+            await provisioner.EnsureCanAttachAsync(sandbox.Handle, "ClaudeCodeCli", ct);
+        }
+        catch (SandboxAdmissionException ex)
+        {
+            // Provision a separate sandbox instead. Refusing is the safe outcome, not an error to work around.
+            return Results.Conflict(ex.Message);
+        }
+        catch (SandboxAgentException ex)
+        {
+            return Problem(ex);
+        }
 
-    // ── and the refusal, which is the half worth seeing: a DIFFERENT tool is turned away, because admitting
-    //    it would widen the broker for the two sessions already running above.
-    string refusal;
-    try
-    {
-        await provisioner.EnsureCanAttachAsync(sandbox.Handle, "CodexCli", ct);
-        refusal = "UNEXPECTED: a codex session was admitted to a claude-only sandbox";
-    }
-    catch (SandboxAdmissionException ex)
-    {
-        refusal = ex.Message;
-    }
+        var second = await RunSessionAsync(plane, sandbox.MachineId, prompt, ct);
 
-    return Results.Ok(new { workspaceKey, sandbox = sandbox.Name, first, second, refusal });
+        // ── and the refusal, which is the half worth seeing: a DIFFERENT tool is turned away, because admitting
+        //    it would widen the broker for the two sessions already running above.
+        string refusal;
+        try
+        {
+            await provisioner.EnsureCanAttachAsync(sandbox.Handle, "CodexCli", ct);
+            refusal = "UNEXPECTED: a codex session was admitted to a claude-only sandbox";
+        }
+        catch (SandboxAdmissionException ex)
+        {
+            refusal = ex.Message;
+        }
+
+        return Results.Ok(new { workspaceKey, sandbox = sandbox.Name, first, second, refusal });
+    }
+    finally
+    {
+        // Takes the container, its staged credentials, and (on the remote path) its broker. In a real product
+        // this is the reaper's job once the workspace goes idle — not something you do at the end of a request.
+        await sandbox.RecycleAsync(CancellationToken.None);
+    }
 
     // The container's own logs are the only account of why it never came online — a backend URL it cannot
     // reach, a clone that failed, credentials it could not read. Anything else is guesswork.

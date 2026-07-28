@@ -31,6 +31,7 @@ public class DockerSandboxRuntimeIntegrationTests
             Limits = new SandboxResources(256L * 1024 * 1024, 1, 128),
             Tmpfs = [],
             Args = ["sleep", "30"],
+            AdmittedTools = ["ClaudeCodeCli"],
         };
 
         SandboxHandle? handle = null;
@@ -40,6 +41,10 @@ public class DockerSandboxRuntimeIntegrationTests
             Assert.Equal(spec.Name, handle.Name);
             Assert.Equal(SandboxState.Running, (await runtime.GetStatusAsync(handle)).State);
             Assert.Contains(await runtime.ListManagedAsync(), h => h.Name == spec.Name); // labelled + listed
+
+            // The declaration must survive the round trip through Docker: sharing depends on reading back what
+            // a RUNNING sandbox serves, and a label that writes but doesn't parse fails closed (no sharing).
+            Assert.Equal(["ClaudeCodeCli"], await runtime.GetAdmittedToolsAsync(handle));
 
             await runtime.StopAsync(handle);
             Assert.Equal(SandboxState.NotFound, (await runtime.GetStatusAsync(handle)).State);

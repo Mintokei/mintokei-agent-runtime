@@ -9,7 +9,7 @@ namespace Mintokei.Sandbox.Docker;
 /// <see cref="ISandboxRuntime"/> over the local Docker CLI (shelling out, matching how the rest of
 /// Mintokei runs external processes). The Kubernetes backend implements the same interface later.
 /// </summary>
-public sealed class DockerSandboxRuntime : ISandboxRuntime, ISandboxLogSource
+public sealed class DockerSandboxRuntime : ISandboxRuntime, ISandboxLogSource, ISandboxAdmissionSource
 {
     private readonly ILogger<DockerSandboxRuntime> _logger;
     private readonly SandboxCredentialStager _seedStager;
@@ -129,6 +129,34 @@ public sealed class DockerSandboxRuntime : ISandboxRuntime, ISandboxLogSource
             if (!string.IsNullOrWhiteSpace(source))
                 mounts.Add(new SandboxMount(source, target, ReadOnly: true));
         }
+    }
+
+    /// <summary>
+    /// Read back what this sandbox was provisioned to serve, from the label <see cref="DockerCommand"/> stamped
+    /// on it at launch. Read off the CONTAINER rather than from any caller's record: a record can be stale after
+    /// a restart or a rollback, and the sandbox itself is the only authority on what its broker actually serves.
+    ///
+    /// A container with no such label is undeclared, not "admits nothing" — it predates the declaration or was
+    /// launched single-session. <see cref="SandboxAdmission"/> decides what that means; reporting it faithfully
+    /// as empty is this method's whole job.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> GetAdmittedToolsAsync(
+        SandboxHandle handle, CancellationToken ct = default)
+    {
+        var (exit, stdout, stderr) = await RunDockerAsync(
+            ["inspect", "--format", $"{{{{index .Config.Labels \"{DockerCommand.AdmittedToolsLabel}\"}}}}", handle.Id], ct);
+
+        if (exit != 0)
+        {
+            if (stderr.Contains("No such object", StringComparison.OrdinalIgnoreCase))
+                return [];
+            throw new SandboxRuntimeException(
+                $"could not read the admitted tools of sandbox '{handle.Name}': {stderr.Trim()}");
+        }
+
+        // Docker prints "<no value>" for a label that isn't set — an absent declaration, same as blank.
+        var value = stdout.Trim();
+        return value is "<no value>" ? [] : SandboxAdmission.ParseAdmittedTools(value);
     }
 
     public async Task<string> GetLogsAsync(SandboxHandle handle, int tailLines = 40, CancellationToken ct = default)

@@ -233,7 +233,7 @@ public static class KubernetesPodSpec
                 Annotations = spec.AdmittedTools is { Count: > 0 }
                     ? new Dictionary<string, string>
                     {
-                        [DockerCommand.AdmittedToolsLabel] = string.Join(',', spec.AdmittedTools),
+                        [SandboxAdmission.ToolsLabel] = string.Join(',', spec.AdmittedTools),
                     }
                     : null,
             },

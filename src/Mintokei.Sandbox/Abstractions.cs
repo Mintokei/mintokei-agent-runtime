@@ -123,6 +123,22 @@ public sealed record SandboxSpec
 }
 
 /// <summary>
+/// A runtime that can report what an EXISTING sandbox was provisioned to serve, read back off the sandbox
+/// itself (a container label / pod annotation). This is what makes admission trustworthy: a caller's own record
+/// of a sandbox can be stale or wrong — after an API restart, a DB rollback, or under a second embedder — and
+/// the only authority on what a running broker will actually serve is the sandbox it belongs to.
+///
+/// A backend that does not implement this cannot support SHARING: without a readable declaration there is
+/// nothing to check a joining session against, and admitting one anyway would be a guess in the permissive
+/// direction. Sharing is simply unavailable there; single-session provisioning is unaffected.
+/// </summary>
+public interface ISandboxAdmissionSource
+{
+    /// <summary>The tools the sandbox was stamped with, or empty when it carries no declaration.</summary>
+    Task<IReadOnlyList<string>> GetAdmittedToolsAsync(SandboxHandle handle, CancellationToken ct = default);
+}
+
+/// <summary>
 /// A runtime that persists a workspace store (a K8s PVC / a Docker named volume) at <c>/repos</c> so a
 /// reaped-then-re-provisioned session keeps its working tree + CLI transcript. Implemented by backends that
 /// support persistence; the embedder's reaper GCs a store once whatever it is keyed by is finished.

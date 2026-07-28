@@ -21,6 +21,14 @@ public sealed class SandboxAdmissionException(string message) : InvalidOperation
 public static class SandboxAdmission
 {
     /// <summary>
+    /// Where the declaration is stamped: a Docker container label and a Kubernetes pod annotation. Lives here
+    /// rather than with either backend because both must agree on it — and because the VALUE is persisted on
+    /// live infrastructure: change it and every running sandbox reads back as unconstrained, i.e. admits
+    /// everything. Same standing constraint as SandboxWorkspaceStore's label key.
+    /// </summary>
+    public const string ToolsLabel = "mintokei.tools";
+
+    /// <summary>
     /// Read a declaration back off a sandbox (a Docker label / pod annotation). Unset or blank yields an empty
     /// list — i.e. UNCONSTRAINED, which is correct: a sandbox provisioned before this existed genuinely has no
     /// declaration, and treating it as "admits nothing" would strand every sandbox running at deploy time.

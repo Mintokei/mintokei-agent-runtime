@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>SharedSandboxMinimal</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Mintokei.Runner.Host.Hosting\Mintokei.Runner.Host.Hosting.csproj" />
+    <ProjectReference Include="..\..\src\Mintokei.Sandbox.Hosting\Mintokei.Sandbox.Hosting.csproj" />
+  </ItemGroup>
+
+</Project>

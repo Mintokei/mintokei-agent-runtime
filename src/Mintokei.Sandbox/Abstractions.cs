@@ -119,8 +119,12 @@ public interface ISandboxWorkspaceStore
     /// <summary>Keys that currently have a persistent workspace store on this backend.</summary>
     Task<IReadOnlyList<Guid>> ListPersistentWorkspaceKeysAsync(CancellationToken ct = default);
 
-    /// <summary>Remove a key's persistent workspace store. No-op (tolerant) when it is already gone.</summary>
-    Task RemovePersistentWorkspaceAsync(Guid key, CancellationToken ct = default);
+    /// <summary>
+    /// Remove a key's persistent workspace store. Tolerant when it is already gone. Returns true only when
+    /// the store is genuinely GONE afterwards, so a caller that mirrors the deletion into its own state
+    /// (dropping a stored session id whose transcript lived on it) never acts on a store that survived.
+    /// </summary>
+    Task<bool> RemovePersistentWorkspaceAsync(Guid key, CancellationToken ct = default);
 }
 
 /// <summary>Deterministic naming for the persistent workspace store, shared by the backends + the reaper.</summary>

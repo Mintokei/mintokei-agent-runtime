@@ -24,4 +24,18 @@ public interface IAgentBackend
 
     /// <summary>The backend's interaction reply serializer (permission/question answers).</summary>
     IInteractionReplyBuilder ReplyBuilder { get; }
+
+    /// <summary>
+    /// True when <paramref name="stderr"/> shows the CLI refused to start because the session it was
+    /// asked to resume no longer exists on disk — the transcript was reclaimed (GC'd workspace volume,
+    /// the CLI's own retention sweep) while the caller's stored session id lived on.
+    ///
+    /// This is a DETERMINISTIC failure: the same launch will fail identically forever, so a caller that
+    /// retries on process death needs to tell it apart from a transient crash and stop, rather than burn
+    /// its retry budget and report a misleading "the runner was unreachable".
+    ///
+    /// Defaults to false — a backend that can't recognise its own flavour of this must not guess, since a
+    /// false positive silently discards a resumable session.
+    /// </summary>
+    bool IsSessionNotFoundError(string stderr) => false;
 }

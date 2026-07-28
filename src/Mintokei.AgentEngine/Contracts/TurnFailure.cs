@@ -30,6 +30,13 @@ public enum TurnFailureKind
 
     /// <summary>Some other upstream API error (server error, invalid request).</summary>
     ApiError,
+
+    /// <summary>
+    /// The stored session could not be resumed — its transcript no longer exists (the workspace holding
+    /// it was reclaimed, or the CLI's own retention swept it). Deterministic: the identical resume can
+    /// never succeed, so this must NOT be retried. The conversation is gone; the working tree is not.
+    /// </summary>
+    SessionNotFound,
 }
 
 /// <summary>
@@ -53,6 +60,7 @@ public sealed record TurnFailure(TurnFailureKind Kind, string? Message)
         TurnFailureKind.MaxTokens => "Context limit reached",
         TurnFailureKind.Refusal => "Refused",
         TurnFailureKind.ApiError => "API error",
+        TurnFailureKind.SessionNotFound => "Session history unavailable",
         _ => "Failed",
     };
 

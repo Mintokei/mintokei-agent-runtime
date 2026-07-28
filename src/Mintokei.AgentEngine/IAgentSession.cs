@@ -57,6 +57,15 @@ public interface IAgentSession : IAsyncDisposable
     /// </summary>
     Task AttachAsync(CancellationToken ct = default);
 
+    /// <summary>
+    /// The CLI's most recent stderr lines (ring-buffered), or null if it wrote none. Survives the pump
+    /// ending, so a caller reacting to a dead process can read WHY it died in the CLI's own words —
+    /// the difference between "resume target is gone" and "the box fell over", which look identical
+    /// from the exit code alone. Pair with <see cref="IAgentBackend.IsSessionNotFoundError"/> rather
+    /// than string-matching at the call site.
+    /// </summary>
+    string? RecentStderr => null;
+
     /// <summary>Sends a plain-text user turn — shorthand for <c>SendTurnAsync(new SessionTurn(content))</c>.</summary>
     Task SendMessageAsync(string content, CancellationToken ct = default);
 

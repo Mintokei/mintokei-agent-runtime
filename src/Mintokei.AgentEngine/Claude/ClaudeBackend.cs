@@ -22,6 +22,15 @@ public sealed class ClaudeBackend : IAgentBackend
     public IAgentSessionProtocol CreateProtocol(AgentSessionSpec spec, ILogger logger)
         => new ClaudeSessionProtocol(logger);
 
+    // `claude --resume <id>` with no matching transcript prints exactly this on stderr, writes nothing
+    // to stdout, and exits 1. Matched on the stable prefix so the session id (and any trailing detail)
+    // doesn't have to be parsed out.
+    private const string SessionNotFoundMarker = "No conversation found with session ID";
+
+    /// <inheritdoc />
+    public bool IsSessionNotFoundError(string stderr)
+        => stderr.Contains(SessionNotFoundMarker, StringComparison.OrdinalIgnoreCase);
+
     public CommandLineOptions BuildCommandLine(AgentSessionSpec spec)
     {
         var config = spec.Config ?? new Dictionary<string, string?>();

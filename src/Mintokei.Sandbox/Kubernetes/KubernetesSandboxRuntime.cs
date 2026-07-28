@@ -238,16 +238,24 @@ public sealed class KubernetesSandboxRuntime(
         return ids;
     }
 
-    public async Task RemovePersistentWorkspaceAsync(Guid taskId, CancellationToken ct = default)
+    public async Task<bool> RemovePersistentWorkspaceAsync(Guid taskId, CancellationToken ct = default)
     {
         try
         {
             await client.CoreV1.DeleteNamespacedPersistentVolumeClaimAsync(
                 SandboxWorkspaceStore.Name(taskId), _namespace, cancellationToken: ct);
+            return true;
         }
         catch (HttpOperationException ex) when (ex.Response?.StatusCode == HttpStatusCode.NotFound)
         {
-            // already gone
+            return true; // already gone — the caller's post-condition ("not there") holds
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Anything else (RBAC, conflict, API down) left the PVC in place: report failure so the
+            // caller doesn't mirror a deletion that didn't happen. Retried on the next sweep.
+            logger.LogDebug(ex, "could not delete workspace PVC for {Key}", taskId);
+            return false;
         }
     }
 

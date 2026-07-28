@@ -73,4 +73,36 @@ public class ClaudeBackendTests
         var model = Backend.BuildCommandLine(new AgentSessionSpec { Config = new Dictionary<string, string?> { ["model"] = "claude-x" } });
         Assert.Equal("claude-x", model.Arguments!["--model"]);
     }
+
+    // --- IsSessionNotFoundError ---
+    // Verbatim from `claude --resume <unknown-id>`: stderr only, empty stdout, exit 1. A caller uses this
+    // to stop retrying a launch that can never succeed, so both directions matter — a miss burns the retry
+    // budget and reports the wrong cause, a false positive throws away a resumable session.
+
+    [Fact]
+    public void Recognises_the_CLI_missing_session_error()
+    {
+        Assert.True(Backend.IsSessionNotFoundError(
+            "No conversation found with session ID: 00000000-1111-2222-3333-444444444444"));
+    }
+
+    [Fact]
+    public void Recognises_it_among_surrounding_stderr_lines()
+    {
+        // stderr arrives ring-buffered, so the marker is rarely the whole string.
+        Assert.True(Backend.IsSessionNotFoundError(
+            "some earlier warning\nNo conversation found with session ID: abc\n"));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("Error: connect ECONNREFUSED 127.0.0.1:443")]
+    [InlineData("Invalid API key · Please run /login")]
+    [InlineData("Killed")]
+    [InlineData("error: unknown option '--resume'")]
+    public void Does_not_claim_unrelated_failures(string stderr)
+    {
+        // These are transient or fixable — they MUST stay on the retry path.
+        Assert.False(Backend.IsSessionNotFoundError(stderr));
+    }
 }

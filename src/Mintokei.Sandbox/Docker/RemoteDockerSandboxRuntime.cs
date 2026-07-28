@@ -170,18 +170,28 @@ public sealed class RemoteDockerSandboxRuntime(
     }
 
     /// <summary>Best-effort removal of a persisted workspace volume. Docker refuses while a container still mounts it
-    /// (the safety net against removing a live session's tree); retried on a later tick. Never throws.</summary>
-    public async Task RemoveVolumeAsync(Guid hostMachineId, string volumeName, CancellationToken ct = default)
+    /// (the safety net against removing a live session's tree); retried on a later tick. Never throws.
+    ///
+    /// Returns true only when the volume is genuinely GONE — removed now, or already absent. A refusal
+    /// ("volume is in use") returns false, so a caller that mirrors the deletion into its own state (say,
+    /// dropping a stored session id that lives on this volume) doesn't act on a tree that is still there.</summary>
+    public async Task<bool> RemoveVolumeAsync(Guid hostMachineId, string volumeName, CancellationToken ct = default)
     {
         try
         {
             var (exit, _, stderr) = await DockerAsync(hostMachineId, ["volume", "rm", volumeName], 15_000, ct);
-            if (exit != 0 && !stderr.Contains("No such volume", StringComparison.OrdinalIgnoreCase))
-                logger.LogDebug("docker volume rm '{Name}' on runner {Host} did not remove it: {Err}", volumeName, hostMachineId, stderr.Trim());
+            if (exit == 0)
+                return true;
+            // Already gone counts as removed — the post-condition the caller cares about is "not there".
+            if (stderr.Contains("No such volume", StringComparison.OrdinalIgnoreCase))
+                return true;
+            logger.LogDebug("docker volume rm '{Name}' on runner {Host} did not remove it: {Err}", volumeName, hostMachineId, stderr.Trim());
+            return false;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogDebug(ex, "could not dispatch 'docker volume rm' to runner {Host} for '{Name}'", hostMachineId, volumeName);
+            return false;
         }
     }
 

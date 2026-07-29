@@ -162,6 +162,43 @@ Reclaiming a shared workspace store is the mirror image: it belongs to *several*
 removed once **all** of them are done. Deciding from one session deletes a working tree the others are still
 using.
 
+## Egress postures
+
+A profile picks one of three, via `Sandbox:Profiles:<name>:Egress`:
+
+| Posture | Network | Credentials |
+|---|---|---|
+| `open` (default) | unrestricted | seeded into the container under `/seed` |
+| `proxy` | routed through an allowlisting CONNECT proxy — **advisory**, honoured only by clients that obey `HTTP(S)_PROXY` | still seeded |
+| `broker` | **deny-by-default**: a per-session network whose only reachable peer is the session's broker (Docker: an `--internal` network) | **none seeded** — the broker injects short-lived, scoped credentials on demand |
+
+`broker` is the hardened posture, and the one worth understanding before you choose it: the network is the
+enforcement, not the proxy env vars, so a process that ignores them still has no route out.
+
+### Broker egress requires an `https` backend the sandbox trusts
+
+This is a **deployment constraint, not a config detail** — decide it before you adopt the posture.
+
+Because the sandbox's only route out is the broker's CONNECT proxy, and .NET only CONNECT-tunnels TLS, a
+plaintext `http://` backend URL would not traverse the proxy at all — and on a deny-by-default network it
+simply never connects. So:
+
+- **`BackendUrl` / `GrpcBackendUrl` must be `https://`** — enforced at provision time, fail-closed with an
+  explicit message.
+- **Their host must also be in the profile's `EgressAllowlist`** — *not* enforced, because the allowlist is
+  opaque host matching and the URL may legitimately be reached via a name the list spells differently. Only
+  its non-emptiness is checked. Omit the backend host and provisioning succeeds; the broker then refuses the
+  CONNECT and the runner never enrols, which reads as a startup failure rather than a config mistake.
+- **The sandbox must trust that certificate.** It validates normally — there is no skip-verify switch, and no
+  per-session way to inject a CA. Behind an internal CA (most on-prem deployments) you must bake it into your
+  own sandbox image: `COPY ca.crt /usr/local/share/ca-certificates/ && update-ca-certificates`.
+- **`AddHostGateway` is rejected** in this posture — host reachability defeats containment, so the
+  `host.docker.internal` shortcut every other setup relies on is unavailable by design.
+
+The practical consequence: broker egress cannot be pointed at a plain `http://localhost` backend the way the
+open posture can. [`samples/BrokerSandboxMinimal`](../../samples/BrokerSandboxMinimal) documents the full
+local loop, including the TLS wiring, and marks which parts are covered by tests versus environment-specific.
+
 ## Configuration (`Sandbox` section)
 
 | Key | Default | Notes |

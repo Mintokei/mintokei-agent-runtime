@@ -4,6 +4,20 @@ The smallest host that accepts a **remote Mintokei runner** over gRPC and runs a
 (Claude Code, …) on it — built on `Mintokei.Runner.Host` + `Mintokei.AgentControlPlane` +
 `Mintokei.AgentEngine`, with **none** of a full product host's extra weight.
 
+## Run it with one command
+
+[`scripts/run-remote-runner-sample.sh`](../../scripts/run-remote-runner-sample.sh) checks every prerequisite below, starts the sample, runs a real
+turn, and cleans up:
+
+```bash
+./scripts/run-remote-runner-sample.sh
+```
+
+It fails fast with the exact fix when a prerequisite is missing — including the two that otherwise surface
+only as *"the sandbox exited before its agent runner could connect"*: a host bound to `127.0.0.1` (a container
+reaches the host on the bridge gateway, not loopback) and a default-deny firewall dropping container→host
+traffic.
+
 If you only want to drive a CLI on the current machine, start with
 [`samples/LocalAgentMinimal`](../LocalAgentMinimal). If you want local multi-session orchestration,
 start with [`samples/ControlPlaneLocal`](../ControlPlaneLocal). This sample is the distributed

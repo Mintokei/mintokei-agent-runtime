@@ -32,6 +32,20 @@ The backend is a **deployment choice, not a code choice** — `Program.cs` is id
 | **Kubernetes** | `Sandbox:Backend=kubernetes` + `Sandbox:KubernetesNamespace` |
 | **A remote worker** (nested Docker) | `.AddRemoteWorkers()` + set `SandboxAgentRequest.HostMachineId` |
 
+## Run it with one command
+
+[`scripts/run-sandbox-runner-host-sample.sh`](../../scripts/run-sandbox-runner-host-sample.sh) checks every
+prerequisite below, starts the sample, runs a real turn, and cleans up:
+
+```bash
+./scripts/run-sandbox-runner-host-sample.sh
+```
+
+It fails fast with the exact fix when something is missing — including the two causes that otherwise surface
+only as *"the sandbox exited before its agent runner could connect"*: a host bound to `127.0.0.1` (a container
+reaches the host on the bridge gateway, not loopback) and a default-deny firewall dropping container→host
+traffic.
+
 ## Prerequisites (this one is NOT "runs anywhere")
 
 Unlike the other samples it launches a real container, so it needs:

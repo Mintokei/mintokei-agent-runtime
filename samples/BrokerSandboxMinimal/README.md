@@ -30,6 +30,20 @@ the broker.
    plaintext `http://` URL is rejected (fail-closed), and the backend host must be allowlisted or the runner
    can't connect. (This is why the sample is not a same-host `localhost` demo like `RemoteSandboxMinimal`.)
 
+## No one-command script — and why
+
+Every other sandbox sample has a `scripts/run-*-sample.sh` that sets its prerequisites up and runs it.
+This one does not, because it cannot be made to run on a bare machine the way the others can: broker egress
+routes the runner's dial-back through a **CONNECT proxy that only tunnels TLS**, so it needs a real,
+allowlisted `https://` backend. A loopback demo would have to terminate TLS with a certificate the container
+trusts — setup that belongs to your environment, not to a sample script.
+
+What you need beyond the other samples: a connected worker, the **broker image** built
+(`docker build -f Dockerfile.broker -t mintokei/sandbox-broker:latest .`), an `https://` backend reachable
+from the worker, and that backend's host in `EgressAllowlist`. Get those and the flow is the same as
+[`RemoteSandboxMinimal`](../RemoteSandboxMinimal), which
+[`scripts/run-remote-sandbox-sample.sh`](../../scripts/run-remote-sandbox-sample.sh) automates end to end.
+
 ## Configure (`appsettings.json`, env `Sandbox__*`, or CLI)
 
 - `Sandbox:Profiles:hardened:EgressAllowlist` — the **only** hosts the sandbox may reach: your backend, the git

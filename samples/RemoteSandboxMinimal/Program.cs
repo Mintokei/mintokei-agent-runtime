@@ -114,11 +114,29 @@ app.MapPost("/demo/remote-sandbox-run", async (
     } // ← sandbox disposed here: docker rm + remove the staged creds, both on the worker
 });
 
+// Mint another one-time worker token on demand (the boot one expires, and a second worker needs its own).
+app.MapPost("/demo/enroll-token", async (IRunnerEnrollment enroll) =>
+    Results.Ok((await enroll.CreateEnrollmentTokenAsync()).Token));
+
+// Mint + print a worker enrollment token on boot. Without this the first prerequisite — "a connected
+// worker" — has no way to be satisfied: attaching a runner needs a token, and nothing else here issues one.
+// (The CreateEnrollmentTokenAsync call inside the demo endpoint mints the SANDBOX's ephemeral machine, which
+// is a different thing entirely.)
+string workerToken;
+using (var scope = app.Services.CreateScope())
+    workerToken = (await scope.ServiceProvider.GetRequiredService<IRunnerEnrollment>()
+        .CreateEnrollmentTokenAsync()).Token;
+
 app.Logger.LogInformation("──────────────────────────────────────────────────────────────");
-app.Logger.LogInformation("RemoteSandboxMinimal is up. Connect a worker, then:");
+app.Logger.LogInformation("RemoteSandboxMinimal is up. Attach a worker (valid ~15 min):");
+app.Logger.LogInformation("  Runner__GrpcBackendUrl=http://localhost:5085 \\");
+app.Logger.LogInformation("  dotnet run --project src/Mintokei.Runner -- \\");
+app.Logger.LogInformation("  --backend http://localhost:5084 --token {Token} --data-dir ./runner-data", workerToken);
+app.Logger.LogInformation("Then:");
 app.Logger.LogInformation("  GET  http://localhost:5084/demo/workers");
 app.Logger.LogInformation("  curl -X POST 'http://localhost:5084/demo/remote-sandbox-run?host=<worker-id>&repo=<git-url>&prompt=hi'");
 app.Logger.LogInformation("Needs: a connected worker with Docker + the sandbox image; URLs reachable from the worker.");
+app.Logger.LogInformation("  (scripts/run-remote-sandbox-sample.sh does all of the above on one machine)");
 app.Logger.LogInformation("──────────────────────────────────────────────────────────────");
 
 app.Run();

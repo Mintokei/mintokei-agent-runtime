@@ -31,7 +31,13 @@ This is **not** "runs anywhere" — it dispatches a real container to a real wor
      dotnet run --project src/Mintokei.Runner -- \
        --backend http://<backend-host>:5084 --token <enrollment-token> --data-dir ./runner-data
    ```
-   (The backend prints a one-time enrollment token on boot; the runner dials out, no inbound port.)
+   The backend prints a one-time enrollment token on boot, and `POST /demo/enroll-token` mints another; the
+   runner dials out, so it needs no inbound port.
+
+   **A worker does not have to be a second machine** — it is just the runner process dialing out, so it can
+   be a local one. [`scripts/run-remote-sandbox-sample.sh`](../../scripts/run-remote-sandbox-sample.sh) does
+   the whole flow (backend → token → local worker → turn → cleanup) on this machine, exercising the real
+   distributed path with only the worker's address as loopback.
 3. **Docker on the worker** + the **sandbox image** present/pullable there (`Sandbox:Image`, default
    `ghcr.io/mintokei/mintokei-sandbox:latest`; or build `Dockerfile.sandbox`).
 4. **URLs reachable from the worker** — `Sandbox:BackendUrl` / `Sandbox:GrpcBackendUrl` are dialed by the

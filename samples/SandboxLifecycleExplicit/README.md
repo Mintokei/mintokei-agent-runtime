@@ -2,6 +2,20 @@
 
 The sandbox lifecycle **written out step by step** — no `Fake*` types, and no facade either.
 
+## Run it with one command
+
+[`scripts/run-sandbox-lifecycle-sample.sh`](../../scripts/run-sandbox-lifecycle-sample.sh) checks every prerequisite below, starts the sample, runs a real
+turn, and cleans up:
+
+```bash
+./scripts/run-sandbox-lifecycle-sample.sh
+```
+
+It fails fast with the exact fix when a prerequisite is missing — including the two that otherwise surface
+only as *"the sandbox exited before its agent runner could connect"*: a host bound to `127.0.0.1` (a container
+reaches the host on the bridge gateway, not loopback) and a default-deny firewall dropping container→host
+traffic.
+
 > **Copy [`SandboxRunnerHostMinimal`](../SandboxRunnerHostMinimal) instead** if you just want to run an agent
 > in a sandbox: `SandboxAgentHost.RunAsync()` does everything below in one call.
 >

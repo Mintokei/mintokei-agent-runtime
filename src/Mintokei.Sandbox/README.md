@@ -201,6 +201,11 @@ local loop, including the TLS wiring, and marks which parts are covered by tests
 
 ## Configuration (`Sandbox` section)
 
+The keys below are the sandbox layer's own. For how they combine with the rest of the runtime — which layers
+to take, where containers run, which egress posture, where injected credentials come from — see
+[`docs/usage-options.md`](../../docs/usage-options.md), which documents each choice and what the runtime does
+under it.
+
 | Key | Default | Notes |
 |---|---|---|
 | `Backend` | `docker` | `docker` \| `kubernetes` (alias `k8s`). One backend per process. |

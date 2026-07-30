@@ -28,6 +28,10 @@ You embed them and supply your own persistence and orchestration through small c
 Install with `dotnet add package <name>` — the family is versioned in lockstep, and each layer pulls
 in the ones below it, so you never reference a lower package directly.
 
+> Deploying rather than just referencing? [`docs/usage-options.md`](docs/usage-options.md) lays the whole
+> surface out as **five independent choices** — which layers, where containers run, egress posture, where
+> injected credentials come from, and per-session shape — with what the runtime actually does under each.
+
 - **Drive one agent CLI in-process** → `Mintokei.AgentEngine`. That's the whole dependency.
 - **Manage many local sessions with capacity limits / admission** → add `Mintokei.AgentControlPlane`.
 - **Run agents on remote worker machines** → add `Mintokei.Runner.Host` on the backend, and on each

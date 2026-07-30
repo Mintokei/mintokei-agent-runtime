@@ -22,6 +22,10 @@ one that is simply misconfigured, so it is worth knowing which you are looking a
 New to this? Start with `LocalAgentMinimal`, then `SandboxSessionMinimal` (no infrastructure at all), then
 `SandboxRunnerHostMinimal` for the real thing.
 
+Looking for a combination no sample covers — Kubernetes, `proxy` egress, a persistent workspace?
+[`docs/usage-options.md`](../docs/usage-options.md) documents every choice and how the runtime behaves under
+it, and says plainly which ones have no sample here.
+
 ## What "reachability" means
 
 The samples that launch a container are the ones people get stuck on, and almost always for one of two

@@ -204,7 +204,8 @@ local loop, including the TLS wiring, and marks which parts are covered by tests
 The keys below are the sandbox layer's own. For how they combine with the rest of the runtime — which layers
 to take, where containers run, which egress posture, where injected credentials come from — see
 [`docs/usage-options.md`](../../docs/usage-options.md), which documents each choice and what the runtime does
-under it.
+under it. For what happens after you provision one — the states, the phases, the cleanup loops, and how the
+backends diverge at runtime — see [`docs/sandbox-lifecycle.md`](../../docs/sandbox-lifecycle.md).
 
 | Key | Default | Notes |
 |---|---|---|

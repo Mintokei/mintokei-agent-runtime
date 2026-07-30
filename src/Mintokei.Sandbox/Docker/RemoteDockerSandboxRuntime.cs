@@ -34,6 +34,12 @@ public sealed class RemoteDockerSandboxRuntime(
 
     private readonly int _runTimeoutMs = Math.Max(10_000, options.Value.RemoteRunTimeoutSeconds * 1000);
 
+    // Built here rather than injected, for the same reason DockerSandboxRuntime builds its own: the stager is a
+    // thin script dispatcher over the command runner this type already holds, and taking it as a constructor
+    // dependency would be a breaking change to a public type for no gain. RemoteSandboxManager still owns the
+    // per-session stage/remove; this instance exists only for the inventory-driven sweep below.
+    private readonly SandboxCredentialStager _stager = new(commandRunner, options);
+
     /// <summary>Deterministic volume name for a workspace key — stable across recycle/resume, so a continued
     /// session remounts its own tree.</summary>
     public static string WorkspaceVolumeName(Guid key) => SandboxWorkspaceStore.Name(key);
@@ -239,6 +245,28 @@ public sealed class RemoteDockerSandboxRuntime(
         var networks = await ListNamesAsync(hostMachineId,
             ["network", "ls", "--filter", $"label={DockerCommand.ManagedLabel}=1", "--format", "{{.Name}}"], ct);
         return new RemoteManagedResources(containers, networks);
+    }
+
+    /// <summary>
+    /// Remove staged credential copies on <paramref name="hostMachineId"/> that no live container owns, using the
+    /// worker's OWN inventory as the authority. Returns how many were removed; never throws.
+    ///
+    /// <para>This is the path where the leak was actually observed: a per-session copy of the host's model token
+    /// survived its session by days, and the token-sync that keeps brokers current kept refreshing it — so the
+    /// orphan stayed a VALID credential at a predictable path rather than aging into a useless one.</para>
+    ///
+    /// <para>Both sandbox and broker containers carry the managed label, so passing the full container inventory
+    /// keeps a live session's copy regardless of which of the two the staging was named for.</para>
+    /// </summary>
+    public async Task<int> SweepStagedCredentialsAsync(Guid hostMachineId, CancellationToken ct = default)
+    {
+        var managed = await ListManagedAsync(hostMachineId, ct);
+        var swept = await _stager.SweepAsync(hostMachineId, managed.Containers, ct: ct);
+        if (swept > 0)
+            logger.LogInformation(
+                "Swept {Count} orphaned staged credential cop{Suffix} on runner {Host}",
+                swept, swept == 1 ? "y" : "ies", hostMachineId);
+        return swept;
     }
 
     private async Task<IReadOnlyList<string>> ListNamesAsync(Guid hostMachineId, IReadOnlyList<string> argv, CancellationToken ct)

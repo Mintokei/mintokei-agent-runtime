@@ -117,4 +117,68 @@ public class SandboxCredentialStagerTests
         // Best-effort cleanup path must never throw.
         await New(fake).RemoveAsync(Guid.NewGuid(), "s", CancellationToken.None);
     }
+
+    // --- Sweep: the collector for copies RemoveAsync missed. A staged copy is a real credential, and on the
+    // nested path a leaked one is kept permanently VALID by the broker token-sync, so this is the backstop.
+
+    [Fact]
+    public async Task Sweep_passes_the_root_grace_window_and_live_names_positionally()
+    {
+        var fake = new FakeCommandRunner { Handler = (_, _) => new RunCommandResponse("", 0, "", "", null) };
+
+        await New(fake, root: "/var/seed").SweepAsync(
+            Guid.NewGuid(), ["sbx-live-1", "sbx-live-2"], minimumAgeMinutes: 7, ct: CancellationToken.None);
+
+        var call = Assert.Single(fake.Calls);
+        Assert.Equal("sh", call.Exe);
+        Assert.Contains("mintokei-sweep-seed", call.Args); // $0 label
+        Assert.Contains("/var/seed", call.Args);           // $1 root
+        Assert.Contains("7", call.Args);                   // $2 grace window
+        Assert.Contains("sbx-live-1", call.Args);          // $3.. live names — args, never interpolated
+        Assert.Contains("sbx-live-2", call.Args);
+    }
+
+    [Fact]
+    public async Task Sweep_sanitizes_live_names_so_they_match_the_dirs_Stage_created()
+    {
+        var fake = new FakeCommandRunner { Handler = (_, _) => new RunCommandResponse("", 0, "", "", null) };
+
+        // Stage writes the SANITIZED segment; comparing raw names would fail to match and delete a live
+        // session's credentials out from under it.
+        await New(fake).SweepAsync(Guid.NewGuid(), ["sbx/../evil"], ct: CancellationToken.None);
+
+        var args = Assert.Single(fake.Calls).Args;
+        Assert.DoesNotContain("sbx/../evil", args);
+        Assert.Contains("sbx____evil", args);
+    }
+
+    [Fact]
+    public async Task Sweep_counts_the_removals_the_script_reports()
+    {
+        var fake = new FakeCommandRunner
+        {
+            Handler = (_, _) => new RunCommandResponse("", 0, "SWEPT a\nSWEPT b\nnoise\n", "", null),
+        };
+
+        Assert.Equal(2, await New(fake).SweepAsync(Guid.NewGuid(), [], ct: CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Sweep_reports_nothing_on_failure_rather_than_claiming_removals()
+    {
+        // A non-zero exit means the sweep did not do what it says; counting the markers anyway would report
+        // credentials as collected when they are still on disk.
+        var fake = new FakeCommandRunner { Handler = (_, _) => new RunCommandResponse("", 1, "SWEPT a\n", "boom", null) };
+
+        Assert.Equal(0, await New(fake).SweepAsync(Guid.NewGuid(), [], ct: CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Sweep_swallows_runner_errors()
+    {
+        var fake = new FakeCommandRunner { Handler = (_, _) => throw new InvalidOperationException("disconnected") };
+
+        // Runs from reconcile paths that must not be taken down by an unreachable worker.
+        Assert.Equal(0, await New(fake).SweepAsync(Guid.NewGuid(), [], ct: CancellationToken.None));
+    }
 }

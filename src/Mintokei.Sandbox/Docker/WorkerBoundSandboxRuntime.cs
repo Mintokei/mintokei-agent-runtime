@@ -18,7 +18,7 @@ namespace Mintokei.Sandbox.Docker;
 /// the ordinary interfaces, and the capability-parity test can hold all three backends to one list.
 /// </summary>
 public sealed class WorkerBoundSandboxRuntime(RemoteDockerSandboxRuntime inner, Guid hostMachineId)
-    : ISandboxRuntime, ISandboxLogSource, ISandboxAdmissionSource, ISandboxWorkspaceStore
+    : ISandboxRuntime, ISandboxLogSource, ISandboxAdmissionSource, ISandboxWorkspaceStore, ISandboxCredentialSweeper
 {
     /// <summary>The worker this view is bound to.</summary>
     public Guid HostMachineId => hostMachineId;
@@ -62,4 +62,11 @@ public sealed class WorkerBoundSandboxRuntime(RemoteDockerSandboxRuntime inner, 
 
     public Task<bool> RemovePersistentWorkspaceAsync(Guid key, CancellationToken ct = default)
         => inner.RemoveVolumeAsync(hostMachineId, RemoteDockerSandboxRuntime.WorkspaceVolumeName(key), ct);
+
+    /// <inheritdoc/>
+    /// <remarks>The bound worker resolves its own live inventory, so the caller-supplied names are ignored here —
+    /// the worker's Docker is a better authority on what exists there than anything this host believes.</remarks>
+    public Task<int> SweepStagedCredentialsAsync(
+        IReadOnlyCollection<string> liveSessionNames, CancellationToken ct = default)
+        => inner.SweepStagedCredentialsAsync(hostMachineId, ct);
 }

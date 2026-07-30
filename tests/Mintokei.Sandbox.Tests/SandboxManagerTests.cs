@@ -151,4 +151,75 @@ public class SandboxManagerTests
         Assert.Contains("exited-one", runtime.Stopped);
         Assert.DoesNotContain("running-one", runtime.Stopped); // running container is left alone
     }
+
+    /// <summary>A runtime that stages credentials on a host filesystem, and so can leak them.</summary>
+    private sealed class SweepingRuntime : ISandboxRuntime, ISandboxCredentialSweeper
+    {
+        public SandboxState Status { get; set; } = SandboxState.Running;
+        public HashSet<string> ExitedNames { get; } = [];
+        public List<SandboxHandle> Managed { get; } = [];
+        public List<IReadOnlyCollection<string>> SweptWith { get; } = [];
+        public int SweepResult { get; set; }
+
+        public string Backend => "fake-sweeping";
+
+        public Task<SandboxHandle> ProvisionAsync(SandboxSpec spec, CancellationToken ct = default)
+            => Task.FromResult(new SandboxHandle($"id-{spec.Name}", spec.Name, Backend));
+
+        public Task<SandboxStatus> GetStatusAsync(SandboxHandle handle, CancellationToken ct = default)
+            => Task.FromResult(new SandboxStatus(ExitedNames.Contains(handle.Name) ? SandboxState.Exited : Status));
+
+        public Task StopAsync(SandboxHandle handle, CancellationToken ct = default) => Task.CompletedTask;
+
+        public Task<IReadOnlyList<SandboxHandle>> ListManagedAsync(CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<SandboxHandle>>(Managed);
+
+        public Task<int> SweepStagedCredentialsAsync(IReadOnlyCollection<string> liveSessionNames, CancellationToken ct = default)
+        {
+            SweptWith.Add([.. liveSessionNames]);
+            return Task.FromResult(SweepResult);
+        }
+    }
+
+    private static SandboxManager NewManagerOver(ISandboxRuntime runtime)
+    {
+        var options = Options.Create(new SandboxOptions
+        {
+            Image = "img:1",
+            AllowedProfiles = ["standard"],
+            Profiles = { ["standard"] = new SandboxProfileConfig() },
+        });
+        return new SandboxManager(runtime, new SandboxProfileResolver(options), new SandboxSpecFactory(options),
+            options, NullLogger<SandboxManager>.Instance, new NoSandboxBrokerSecrets());
+    }
+
+    [Fact]
+    public async Task Reconcile_sweeps_staged_credentials_against_the_containers_that_survived()
+    {
+        // Crash recovery is exactly when credential copies are orphaned: teardown was interrupted, so
+        // RemoveAsync never ran. The live set must be what remains AFTER the reap — a container reaped in
+        // this same pass must not keep its credentials alive.
+        var runtime = new SweepingRuntime { SweepResult = 1 };
+        runtime.Managed.Add(new SandboxHandle("id-running", "running-one", "fake-sweeping"));
+        runtime.Managed.Add(new SandboxHandle("id-exited", "exited-one", "fake-sweeping"));
+        runtime.ExitedNames.Add("exited-one");
+
+        await NewManagerOver(runtime).ReconcileAsync();
+
+        var live = Assert.Single(runtime.SweptWith);
+        Assert.Contains("running-one", live);
+        Assert.DoesNotContain("exited-one", live);
+    }
+
+    [Fact]
+    public async Task Reconcile_still_works_on_a_backend_with_nothing_to_sweep()
+    {
+        // Feature-detected: a backend whose staged copies die with the sandbox (Kubernetes) never implements
+        // the capability, and reconcile must not require it.
+        var (manager, runtime) = NewManager();
+        runtime.Managed.Add(new SandboxHandle("id-exited", "exited-one", "fake"));
+        runtime.ExitedNames.Add("exited-one");
+
+        Assert.Equal(1, await manager.ReconcileAsync());
+    }
 }

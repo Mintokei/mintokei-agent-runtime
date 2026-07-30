@@ -40,6 +40,7 @@ backends fall under one capability check.
 | container logs | `ISandboxLogSource` | ✅ | ✅ | ✅ (own method) |
 | admission read-back | `ISandboxAdmissionSource` | ✅ | ✅ | ✅ (own method) |
 | credential staging for the non-root container | — (a provision step) | ✅ | ✅ init container | ✅ `SandboxCredentialStager` |
+| **staged-credential sweep** | `ISandboxCredentialSweeper` | ✅ | n/a — staged into the Pod's own emptyDir | ✅ |
 | persistent workspace at `/repos` | `ISandboxWorkspaceStore` | ✅ named volume | ✅ PVC | ✅ named volume |
 | broker egress | — (a provision step) | ❌ fails closed | ✅ | ✅ |
 
@@ -70,6 +71,22 @@ expensive. Kept here because the shape repeats.
 
 The third is the purest example: no error, no log line, no failed call. The key was accepted, the container
 ran, and the damage only appeared on the next turn after a recycle.
+
+Two more of the same shape were found later, and both are closed:
+
+| gap | how it failed | why it was hard to see |
+|---|---|---|
+| staged credential copies were never collected | `RemoveAsync` is best-effort, so an interrupted teardown left a real credential on the host with nothing to sweep it | nothing failed at all — and the deployment's token-sync kept refreshing the orphan, so it stayed permanently VALID instead of ageing into a dead token |
+| `PersistentWorkspaceKey` honoured differently per backend | Kubernetes created a PVC for a repo-less session; both Docker paths skipped it | both behaviours were locally reasonable; the divergence only appears to an embedder's GC, as a key one backend would never have produced |
+
+The credential one is the worst of the five, because the system was working *against* the cleanup: the sync
+that keeps live brokers current had no liveness check, so it maintained an orphaned copy of the model token at
+a predictable path for as long as the host ran. Closed on both sides — `ISandboxCredentialSweeper` removes
+orphans from reconcile, and [`scripts/sandbox/broker-creds-sync.sh`](../scripts/sandbox/broker-creds-sync.sh)
+no longer refreshes a copy whose session is gone.
+
+The workspace-key one is why that decision now lives in `SandboxSpecFactory` rather than in each backend: a
+value normalized where the backends converge cannot diverge across them again.
 
 ## Adding a capability
 

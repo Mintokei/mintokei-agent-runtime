@@ -109,7 +109,16 @@ public sealed class SandboxSpecFactory(IOptions<SandboxOptions> options)
             Tmpfs = tmpfs,
             ReadOnlyRootfs = profile.ReadOnlyRootfs,
             AddHostGateway = req.AddHostGateway,
-            PersistentWorkspaceKey = req.PersistentWorkspaceKey,
+            // A persistent workspace store backs /repos, so it is meaningless without a working tree to keep —
+            // and creating one anyway is not harmless: the store shows up in ListPersistentWorkspaceKeysAsync,
+            // where an embedder's GC has to decide about a key that never had content.
+            //
+            // Both Docker backends already skipped it on exactly this condition; Kubernetes created the PVC
+            // whenever the key was set, so the same repo-less session left an empty PVC on one backend and
+            // nothing on the other. Dropping the key HERE makes every backend agree by construction — the
+            // backends' own guards become redundant rather than load-bearing, which is the point: this is the
+            // fourth divergence of the "one backend missed out" shape, and the fix belongs where they converge.
+            PersistentWorkspaceKey = env.ContainsKey(ReposEnvVar) ? req.PersistentWorkspaceKey : null,
             AdmittedTools = req.AdmittedTools,
         };
     }

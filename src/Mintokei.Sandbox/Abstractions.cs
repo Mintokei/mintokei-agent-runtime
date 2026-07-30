@@ -181,6 +181,25 @@ public interface ISandboxWorkspaceStore
     Task<bool> RemovePersistentWorkspaceAsync(Guid key, CancellationToken ct = default);
 }
 
+/// <summary>
+/// A runtime that stages credential copies on a host filesystem and can therefore LEAK them: staging happens
+/// before the container exists, and the matching removal runs on best-effort cleanup paths, so an interrupted
+/// teardown leaves a real credential behind with nothing to collect it.
+///
+/// Sweeping is a capability rather than a step inside provisioning because the authority for "is this an
+/// orphan?" is the backend's own container inventory, which only the backend can produce. Backends that stage
+/// INTO the sandbox's own lifetime (the Kubernetes init containers write to the Pod's emptyDir, which dies with
+/// the Pod) have nothing to sweep and do not implement this.
+/// </summary>
+public interface ISandboxCredentialSweeper
+{
+    /// <summary>
+    /// Remove staged credential copies not owned by one of <paramref name="liveSessionNames"/>, returning how
+    /// many were removed. Best-effort: never throws, so a reconcile path can call it unguarded.
+    /// </summary>
+    Task<int> SweepStagedCredentialsAsync(IReadOnlyCollection<string> liveSessionNames, CancellationToken ct = default);
+}
+
 /// <summary>Deterministic naming for the persistent workspace store, shared by the backends + the reaper.</summary>
 public static class SandboxWorkspaceStore
 {

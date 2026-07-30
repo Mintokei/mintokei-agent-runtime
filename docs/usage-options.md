@@ -493,6 +493,7 @@ egress. Provisioning succeeds and the failure appears later, as a sandbox that n
 **No sample covers Kubernetes** (2c), the `proxy` posture (3b), persistence (axis 5), or a warm pool against a
 real backend. Those are configuration-only changes to the samples above, but they are unexercised here.
 
-See [`samples/README.md`](../samples/README.md) for what each one needs before it will run, and
-[`sandbox-backend-capabilities.md`](sandbox-backend-capabilities.md) for which capabilities each backend
-actually implements.
+See [`samples/README.md`](../samples/README.md) for what each one needs before it will run,
+[`sandbox-lifecycle.md`](sandbox-lifecycle.md) for the states a sandbox passes through and how each backend
+behaves once it is running, and [`sandbox-backend-capabilities.md`](sandbox-backend-capabilities.md) for which
+capabilities each backend actually implements.

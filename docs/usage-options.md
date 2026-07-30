@@ -397,10 +397,10 @@ survive a recycle. That is the difference between a reaped session that **re-pro
 The key is **opaque** — the runtime only names and labels the store with it. Key by whatever owns the working
 tree in your product: one per task, or one per workspace shared by every task in it.
 
-**One divergence between backends:** both Docker paths skip the store entirely when the session has no repos
-(no working tree, nothing to keep), while Kubernetes creates the PVC whenever the key is set. So a
-repo-less session leaves an empty PVC behind on Kubernetes and nothing on Docker — your GC sees a key the
-Docker backends would never have created.
+**A session with no repos never gets a store**, on any backend: the key is dropped in `SandboxSpecFactory`,
+where all three converge. (This used to diverge — Kubernetes created a PVC for a repo-less session while both
+Docker paths skipped it, so the same session left an empty PVC on one backend and nothing on the other, and an
+embedder's GC saw a key one backend would never have produced.)
 
 GC is yours (`ListPersistentWorkspaceKeysAsync` / `RemovePersistentWorkspaceAsync`). Removal returns **false**
 when the store survived — including when a live container still mounts it — so a caller mirroring the deletion

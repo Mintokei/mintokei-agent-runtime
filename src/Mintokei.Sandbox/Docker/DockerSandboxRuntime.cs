@@ -10,7 +10,7 @@ namespace Mintokei.Sandbox.Docker;
 /// Mintokei runs external processes). The Kubernetes backend implements the same interface later.
 /// </summary>
 public sealed class DockerSandboxRuntime
-    : ISandboxRuntime, ISandboxLogSource, ISandboxAdmissionSource, ISandboxWorkspaceStore
+    : ISandboxRuntime, ISandboxLogSource, ISandboxAdmissionSource, ISandboxWorkspaceStore, ISandboxCredentialSweeper
 {
     private readonly ILogger<DockerSandboxRuntime> _logger;
     private readonly SandboxCredentialStager _seedStager;
@@ -119,6 +119,13 @@ public sealed class DockerSandboxRuntime
             Mounts = [.. spec.Mounts, new SandboxMount(volumeName, SandboxSpecFactory.RepoRoot, ReadOnly: false)],
         };
     }
+
+    // --- ISandboxCredentialSweeper: GC of staged credential copies this backend created ---
+
+    /// <inheritdoc/>
+    public Task<int> SweepStagedCredentialsAsync(
+        IReadOnlyCollection<string> liveSessionNames, CancellationToken ct = default)
+        => _seedStager.SweepAsync(Guid.Empty, liveSessionNames, ct: ct); // local host — no machine to target
 
     // --- ISandboxWorkspaceStore: reaper-driven GC of the per-workspace volumes created above ---
 

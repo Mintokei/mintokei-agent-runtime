@@ -31,13 +31,21 @@ public class BackendCapabilityParityTests
         typeof(ISandboxLogSource),
         typeof(ISandboxAdmissionSource),
         typeof(ISandboxWorkspaceStore),
+        typeof(ISandboxCredentialSweeper),
     ];
 
     /// <summary>
     /// Backends that deliberately do NOT implement a capability, and why. An entry here is a decision on the
     /// record — it must also fail closed at runtime rather than silently accepting input it cannot honour.
     /// </summary>
-    private static readonly Dictionary<(Type Backend, Type Capability), string> Exempt = new();
+    private static readonly Dictionary<(Type Backend, Type Capability), string> Exempt = new()
+    {
+        [(typeof(Kubernetes.KubernetesSandboxRuntime), typeof(ISandboxCredentialSweeper))] =
+            "Nothing to sweep: the Kubernetes backend stages credentials in an init container into the Pod's own "
+            + "emptyDir, so the copy is bounded by the Pod's lifetime and is destroyed with it. There is no "
+            + "host-level staging root that can outlive a session, which is the leak this capability collects. "
+            + "Fails closed trivially — the copy cannot survive the thing that owns it.",
+    };
 
     public static TheoryData<Type, Type> BackendCapabilityPairs()
     {

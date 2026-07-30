@@ -75,9 +75,72 @@ public sealed class SandboxCredentialStager(IRemoteCommandRunner commandRunner, 
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _ = ex; // best-effort: the session's container is already gone; a stale copy is GC'd on reboot
+            // Best-effort: the session's container is already gone. What catches a miss is SweepAsync — NOT a
+            // reboot, which is what this comment used to claim and which never comes on a long-lived runner.
+            _ = ex;
         }
     }
+
+    /// <summary>
+    /// Remove staged credential copies that no live session owns, and report how many went.
+    ///
+    /// <para><see cref="RemoveAsync"/> is best-effort by design — it runs on cleanup paths that must not throw —
+    /// so a copy outlives its session whenever teardown is interrupted (host restart between provision and
+    /// recycle, a crashed reconcile, a killed process). Nothing collected those: the assumption was that a reboot
+    /// would, and on a runner that stays up for weeks it does not. A staged copy is a real credential, so it must
+    /// be swept against a live inventory rather than left to time.</para>
+    ///
+    /// <para>Worse than merely lingering: a leaked copy does not decay into a harmless stale token. Deployments
+    /// that keep the broker's staged token in sync with the rotating host token (so a mid-session rotation does
+    /// not 401) refresh <em>every</em> staged copy they find, so an orphan is kept permanently VALID at a
+    /// predictable path. That is the failure this exists to end.</para>
+    ///
+    /// <para><paramref name="minimumAgeMinutes"/> is what makes this safe to run against a live host: credentials
+    /// are staged BEFORE the container is created, so a sandbox mid-provision legitimately has a staged copy and
+    /// no container yet. Only copies older than that window are candidates, which puts them well past any
+    /// provision. Never throws.</para>
+    /// </summary>
+    /// <param name="hostMachineId">The machine holding the staging root.</param>
+    /// <param name="liveSessionNames">Names of sessions that still exist — anything else is an orphan. Pass the
+    /// backend's own container inventory, not the caller's records: a caller that lost track of a sandbox is
+    /// exactly the case this cleans up after.</param>
+    /// <param name="minimumAgeMinutes">Grace window; copies younger than this are never removed.</param>
+    /// <param name="ct">Cancellation.</param>
+    public async Task<int> SweepAsync(
+        Guid hostMachineId,
+        IReadOnlyCollection<string> liveSessionNames,
+        int minimumAgeMinutes = DefaultSweepGraceMinutes,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            // Live names go as positional args, sanitized the same way the staging dir was, so the comparison is
+            // against the dir name that Stage actually created rather than the raw session name.
+            string[] argv =
+            [
+                "-c", SweepScript, "mintokei-sweep-seed", _root,
+                Math.Max(0, minimumAgeMinutes).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                .. liveSessionNames.Select(SanitizeSegment),
+            ];
+
+            var result = await commandRunner.RunAsync(hostMachineId, "/", "sh", argv, 30_000, ct);
+            if (result.ExitCode != 0)
+                return 0;
+
+            return (result.Stdout ?? string.Empty)
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Count(line => line.StartsWith("SWEPT ", StringComparison.Ordinal));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _ = ex; // best-effort: a worker that is unreachable now is swept on the next reconcile
+            return 0;
+        }
+    }
+
+    /// <summary>Default grace window before a staged copy with no session is considered an orphan. Comfortably
+    /// longer than any provision, since staging happens before the container exists.</summary>
+    public const int DefaultSweepGraceMinutes = 10;
 
     private string SeedStagingDir(string sessionName) => $"{_root}/{SanitizeSegment(sessionName)}";
 
@@ -112,6 +175,37 @@ public sealed class SandboxCredentialStager(IRemoteCommandRunner commandRunner, 
           if [ "$g" = 1 ]; then echo "STAGED git"; fi
         fi
         chown -R "$6":"$6" "$S" 2>/dev/null || chmod -R a+rX "$S"
+        """;
+
+    // POSIX sh. $1 = staging root, $2 = minimum age in minutes, $3.. = the sanitized names of live sessions.
+    // Removes every immediate child dir of the root that is (a) not a live session and (b) older than the grace
+    // window, echoing a SWEPT marker per removal.
+    //
+    // The age test reads the SESSION dir's own mtime, which only changes when the copy is staged — a token
+    // re-sync writes .claude/.credentials.json, which touches that file and its parent, not this dir. So a
+    // synced-but-orphaned copy still ages out, which is precisely the case worth removing.
+    //
+    // Written with explicit `if` rather than `&&` chains: under `set -e` a trailing false test in an AND-list
+    // is a footgun, and this script deletes things.
+    private const string SweepScript = """
+        set -eu
+        R=$1
+        A=$2
+        shift 2
+        [ -d "$R" ] || exit 0
+        for d in "$R"/*/; do
+          [ -d "$d" ] || continue
+          n=$(basename "$d")
+          keep=0
+          for l in "$@"; do
+            if [ "$n" = "$l" ]; then keep=1; break; fi
+          done
+          if [ "$keep" = 1 ]; then continue; fi
+          if [ -n "$(find "$R" -mindepth 1 -maxdepth 1 -type d -name "$n" -mmin +"$A" 2>/dev/null)" ]; then
+            rm -rf "$d"
+            echo "SWEPT $n"
+          fi
+        done
         """;
 
     private static string ClaudeHomeCopy => SandboxCredentialStaging.CopyCommand(

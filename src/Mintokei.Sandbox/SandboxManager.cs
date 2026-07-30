@@ -128,6 +128,7 @@ public sealed class SandboxManager(
     public async Task<int> ReconcileAsync(CancellationToken ct = default)
     {
         var reaped = 0;
+        var live = new List<string>();
         foreach (var handle in await runtime.ListManagedAsync(ct))
         {
             var status = await runtime.GetStatusAsync(handle, ct);
@@ -137,6 +138,23 @@ public sealed class SandboxManager(
                 _leases.TryRemove(handle.Name, out _);
                 reaped++;
             }
+            else
+            {
+                live.Add(handle.Name);
+            }
+        }
+
+        // A dead container is not the only thing an interrupted teardown leaves behind: backends that stage a
+        // credential copy on the host filesystem leak a REAL CREDENTIAL the same way, and unlike a container
+        // shell nothing was collecting those. Sweep them against the inventory just established, after the
+        // reap so a container removed in this pass isn't counted as live and doesn't keep its copy alive.
+        if (runtime is ISandboxCredentialSweeper sweeper)
+        {
+            var swept = await sweeper.SweepStagedCredentialsAsync(live, ct);
+            if (swept > 0)
+                logger.LogInformation(
+                    "Sandbox reconcile: swept {Count} orphaned staged credential cop{Suffix}",
+                    swept, swept == 1 ? "y" : "ies");
         }
 
         return reaped;

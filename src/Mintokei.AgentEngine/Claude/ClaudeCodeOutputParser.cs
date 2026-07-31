@@ -10,9 +10,9 @@ namespace Mintokei.AgentEngine.Claude;
 /// Each stdout JSON line is parsed independently. A <see cref="ToolUseInfo"/> registry is used
 /// to correlate tool_use blocks with their subsequent tool_result blocks.
 /// </summary>
-internal static class ClaudeCodeOutputParser
+public static class ClaudeCodeOutputParser
 {
-    internal readonly record struct ToolUseInfo(string ToolName, string? InputJson);
+    public readonly record struct ToolUseInfo(string ToolName, string? InputJson);
 
     public static IReadOnlyList<AgentMessage> ParseAssistantEvent(
         Guid agentTaskId,

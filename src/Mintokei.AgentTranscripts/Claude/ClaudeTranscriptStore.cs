@@ -327,8 +327,13 @@ public sealed partial class ClaudeTranscriptStore : ITranscriptStore
 
         var dir = Path.Combine(ProjectsRoot, SlugFor(cwd));
         var path = Path.Combine(dir, $"{sessionId}.jsonl");
-        var model = options.Model ?? session.Model ?? "claude-sonnet-4-5";
-        var version = options.CliVersion ?? session.CliVersion ?? "2.1.0";
+        // Only inherit the source's model/version when the transcript came from THIS store. A
+        // transcript converted from another CLI carries that CLI's model name, and stamping e.g.
+        // `claude-opus-5` into a Codex rollout makes the resumed session fail outright rather than
+        // quietly pick a default.
+        var sameStore = session.Tool == Tool;
+        var model = options.Model ?? (sameStore ? session.Model : null) ?? "claude-sonnet-4-5";
+        var version = options.CliVersion ?? (sameStore ? session.CliVersion : null) ?? "2.1.0";
 
         var lines = new List<JsonObject>();
         string? parentUuid = null;

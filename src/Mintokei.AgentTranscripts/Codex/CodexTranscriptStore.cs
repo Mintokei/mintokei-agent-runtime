@@ -383,8 +383,13 @@ public sealed class CodexTranscriptStore : ITranscriptStore
         if (string.IsNullOrWhiteSpace(cwd))
             throw new TranscriptStoreException("A non-empty cwd is required to write a Codex rollout.");
 
-        var model = options.Model ?? transcript.Model ?? "gpt-5.5";
-        var version = options.CliVersion ?? transcript.CliVersion ?? "0.144.0";
+        // Only inherit the source's model/version when the transcript came from THIS store. A
+        // transcript converted from another CLI carries that CLI's model name, and stamping e.g.
+        // `claude-opus-5` into a Codex rollout makes the resumed session fail outright rather than
+        // quietly pick a default.
+        var sameStore = transcript.Tool == Tool;
+        var model = options.Model ?? (sameStore ? transcript.Model : null) ?? "gpt-5.5";
+        var version = options.CliVersion ?? (sameStore ? transcript.CliVersion : null) ?? "0.144.0";
         var stamp = now.UtcDateTime.ToString("yyyy-MM-ddTHH-mm-ss", CultureInfo.InvariantCulture);
         var dir = Path.Combine(SessionsRoot, $"{now:yyyy}", $"{now:MM}", $"{now:dd}");
         var path = Path.Combine(dir, $"rollout-{stamp}-{sessionId}.jsonl");

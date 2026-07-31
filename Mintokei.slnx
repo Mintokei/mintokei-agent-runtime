@@ -26,6 +26,7 @@
   </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/LocalAgentMinimal/LocalAgentMinimal.csproj" />
+    <Project Path="samples/FailoverAgentMinimal/FailoverAgentMinimal.csproj" />
     <Project Path="samples/ControlPlaneLocal/ControlPlaneLocal.csproj" />
     <Project Path="samples/RemoteRunnerMinimal/RemoteRunnerMinimal.csproj" />
     <Project Path="samples/SandboxPoolMinimal/SandboxPoolMinimal.csproj" />

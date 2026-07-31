@@ -61,6 +61,10 @@
     <Description>Spawn, track, and capacity-manage many Mintokei.AgentEngine sessions across machines, with admission control.</Description>
     <PackageTags>agent;orchestration;control-plane;capacity;ai;cli</PackageTags>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Mintokei.AgentTranscripts'">
+    <Description>Read and write the on-disk session stores of coding-agent CLIs (Claude Code and Codex today; Copilot next), normalized to the same AgentMessage contract Mintokei.AgentEngine emits for live sessions — so a stored transcript can be moved between CLIs and resumed there.</Description>
+    <PackageTags>claude-code;codex;copilot;session;transcript;migration;agent;cli;ai</PackageTags>
+  </PropertyGroup>
   <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Mintokei.Filesystem'">
     <Description>Small filesystem helpers (git-aware suffix search, watcher-event filtering) shared by the Mintokei runner and runtime embedders.</Description>
     <PackageTags>filesystem;git;file-watch</PackageTags>

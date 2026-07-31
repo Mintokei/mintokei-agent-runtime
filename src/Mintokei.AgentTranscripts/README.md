@@ -20,7 +20,7 @@ var newId = await claude.WriteAsync(transcript, new TranscriptWriteOptions { Cwd
 // `claude --resume <newId>` now picks the conversation up
 ```
 
-Converting between CLIs is then `Read(A) → Write(B)`, once more than one store exists.
+Converting between CLIs is then `Read(A) → Write(B)`.
 
 ## Transcript vs session
 
@@ -34,13 +34,20 @@ value you pass to `claude --resume`.
 
 ## Status
 
-| CLI | Read | Write |
-|---|---|---|
-| Claude Code | ✅ | ✅ |
-| Codex | — | — |
-| GitHub Copilot CLI | — | — |
+| CLI | Read | Write | Index |
+|---|---|---|---|
+| Claude Code | ✅ | ✅ | none needed — the file *is* the session |
+| Codex | ✅ | ✅ | `threads` row in `state_*.sqlite` |
+| GitHub Copilot CLI | — | — | — |
 
-Claude Code only in this release. See **Adding a store** for why the others are not trivial.
+Converting Codex → Claude Code (and back) works today:
+
+```csharp
+var source = await new CodexTranscriptStore().ReadAsync(sessionId);
+var newId  = await new ClaudeTranscriptStore().WriteAsync(source, new TranscriptWriteOptions { Cwd = cwd });
+```
+
+See **Adding a store** for what Copilot still needs.
 
 ## Why `AgentMessage` and not a transfer DTO
 
@@ -80,10 +87,15 @@ That reuse is **partial**, and the boundary is worth knowing before assuming it 
 Claude Code is the easy one: the file *is* the session, and `claude --resume <id>` finds it by
 scanning. The others are not the same shape, and the engine's parsers do **not** transfer:
 
-- **Codex** — `CodexStreamParser` keys off JSON-RPC `method` (`item/completed`, `turn/completed`),
-  which is the `codex app-server` protocol. Rollout files have no `method` at all; they use
-  `response_item` / `event_msg` / `session_meta`. A new reader is required, plus a `threads` row
-  in `state_*.sqlite` for the session to show up in the resume picker.
+- **Codex** (done, and the shape of the work) — none of the engine's Codex parsing was reusable:
+  `CodexStreamParser` keys off JSON-RPC `method` (`item/completed`, `turn/completed`), the
+  `codex app-server` protocol. Rollout files carry no `method` at all, using `response_item` /
+  `event_msg` / `session_meta` / `turn_context`. Two wire formats for the same conversation.
+  Beyond the reader, it needed: skipping `event_msg` (it mirrors `response_item`, so reading both
+  doubles every message), filtering `developer` turns and synthetic `<…>` preambles that Codex
+  regenerates each launch, joining `function_call` to its later `function_call_output` by
+  `call_id`, parsing the exit code out of the `exec_command` output header, and writing a
+  `threads` row so the session appears in the interactive picker.
 - **GitHub Copilot CLI** — the engine parses ACP `session/update` notifications, while the store
   speaks Copilot's own event vocabulary. It also validates envelopes strictly (`id` must be a
   UUID, `turnId` is required) and needs rows in `session-store.db` alongside `events.jsonl`.

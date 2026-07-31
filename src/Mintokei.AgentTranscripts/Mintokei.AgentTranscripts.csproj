@@ -10,4 +10,18 @@
     <ProjectReference Include="..\Mintokei.AgentEngine\Mintokei.AgentEngine.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Mintokei.AgentTranscripts.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Codex keeps its resume index in ~/.codex/state_*.sqlite; the transcript alone is enough
+         to resume by explicit id, but not to appear in the interactive picker. -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.2" />
+    <!-- Security override, matching Mintokei.Runner.Host.Hosting: Microsoft.Data.Sqlite 10.0.2
+         pulls SQLitePCLRaw.bundle_e_sqlite3 2.1.11 transitively, whose bundled e_sqlite3 build has
+         a known high-severity vulnerability (GHSA-2m69-gcr7-jv3q); 2.1.12 is the patched release. -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.12" />
+  </ItemGroup>
+
 </Project>

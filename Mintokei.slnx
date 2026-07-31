@@ -3,7 +3,7 @@
     <Project Path="src/Mintokei.AgentEngine/Mintokei.AgentEngine.csproj" />
     <Project Path="src/Mintokei.AgentControlPlane/Mintokei.AgentControlPlane.csproj" />
     <Project Path="src/Mintokei.Filesystem/Mintokei.Filesystem.csproj" />
-    <Project Path="src/Mintokei.AgentSessions/Mintokei.AgentSessions.csproj" />
+    <Project Path="src/Mintokei.AgentTranscripts/Mintokei.AgentTranscripts.csproj" />
     <Project Path="src/Mintokei.Runner.Contracts/Mintokei.Runner.Contracts.csproj" />
     <Project Path="src/Mintokei.Runner.Contracts.Grpc/Mintokei.Runner.Contracts.Grpc.csproj" />
     <Project Path="src/Mintokei.Runner.Host/Mintokei.Runner.Host.csproj" />
@@ -18,7 +18,7 @@
     <Project Path="tests/Mintokei.AgentEngine.Tests/Mintokei.AgentEngine.Tests.csproj" />
     <Project Path="tests/Mintokei.AgentControlPlane.Tests/Mintokei.AgentControlPlane.Tests.csproj" />
     <Project Path="tests/Mintokei.Filesystem.Tests/Mintokei.Filesystem.Tests.csproj" />
-    <Project Path="tests/Mintokei.AgentSessions.Tests/Mintokei.AgentSessions.Tests.csproj" />
+    <Project Path="tests/Mintokei.AgentTranscripts.Tests/Mintokei.AgentTranscripts.Tests.csproj" />
     <Project Path="tests/Mintokei.Sandbox.Tests/Mintokei.Sandbox.Tests.csproj" />
     <Project Path="tests/Mintokei.Sandbox.Hosting.Tests/Mintokei.Sandbox.Hosting.Tests.csproj" />
     <Project Path="tests/Mintokei.Runner.Host.Tests/Mintokei.Runner.Host.Tests.csproj" />

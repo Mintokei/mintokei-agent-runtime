@@ -1,9 +1,9 @@
 using Mintokei.AgentEngine.Contracts;
-using Mintokei.AgentSessions.Claude;
+using Mintokei.AgentTranscripts.Claude;
 
 using Xunit;
 
-namespace Mintokei.AgentSessions.Tests;
+namespace Mintokei.AgentTranscripts.Tests;
 
 /// <summary>
 /// Reads a transcript Claude Code actually wrote, rather than one this library round-tripped
@@ -24,10 +24,10 @@ public sealed class ClaudeRealTranscriptTests : IDisposable
 
     public ClaudeRealTranscriptTests()
     {
-        var dir = Path.Combine(_home, "projects", ClaudeSessionStore.SlugFor(Cwd));
+        var dir = Path.Combine(_home, "projects", ClaudeTranscriptStore.SlugFor(Cwd));
         Directory.CreateDirectory(dir);
         File.Copy(
-            Path.Combine(AppContext.BaseDirectory, "Fixtures", "claude-real-session.jsonl"),
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "claude-real-transcript.jsonl"),
             Path.Combine(dir, $"{SessionId}.jsonl"));
     }
 
@@ -40,7 +40,7 @@ public sealed class ClaudeRealTranscriptTests : IDisposable
     [Fact]
     public async Task Reads_a_transcript_Claude_Code_actually_wrote()
     {
-        var session = await new ClaudeSessionStore(_home)
+        var session = await new ClaudeTranscriptStore(_home)
             .ReadAsync(SessionId, TestContext.Current.CancellationToken);
 
         Assert.NotNull(session);
@@ -62,7 +62,7 @@ public sealed class ClaudeRealTranscriptTests : IDisposable
     [Fact]
     public async Task Tool_calls_arrive_once_each_with_their_results_attached()
     {
-        var session = await new ClaudeSessionStore(_home)
+        var session = await new ClaudeTranscriptStore(_home)
             .ReadAsync(SessionId, TestContext.Current.CancellationToken);
 
         Assert.NotNull(session);
@@ -84,12 +84,12 @@ public sealed class ClaudeRealTranscriptTests : IDisposable
     [Fact]
     public async Task File_only_line_kinds_do_not_become_messages()
     {
-        var session = await new ClaudeSessionStore(_home)
+        var session = await new ClaudeTranscriptStore(_home)
             .ReadAsync(SessionId, TestContext.Current.CancellationToken);
 
         Assert.NotNull(session);
         var raw = await File.ReadAllLinesAsync(
-            Path.Combine(_home, "projects", ClaudeSessionStore.SlugFor(Cwd), $"{SessionId}.jsonl"),
+            Path.Combine(_home, "projects", ClaudeTranscriptStore.SlugFor(Cwd), $"{SessionId}.jsonl"),
             TestContext.Current.CancellationToken);
 
         // The fixture really does contain the kinds the stream never emits — otherwise this test
@@ -106,7 +106,7 @@ public sealed class ClaudeRealTranscriptTests : IDisposable
     [Fact]
     public async Task The_title_comes_from_the_ai_title_line()
     {
-        var session = await new ClaudeSessionStore(_home)
+        var session = await new ClaudeTranscriptStore(_home)
             .ReadAsync(SessionId, TestContext.Current.CancellationToken);
 
         Assert.NotNull(session);

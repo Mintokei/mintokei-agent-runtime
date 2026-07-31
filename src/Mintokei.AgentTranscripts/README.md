@@ -1,4 +1,4 @@
-# Mintokei.AgentSessions
+# Mintokei.AgentTranscripts
 
 Read and write the on-disk session stores of coding-agent CLIs, normalized to the same
 `AgentMessage` contract [`Mintokei.AgentEngine`](https://www.nuget.org/packages/Mintokei.AgentEngine)
@@ -8,19 +8,29 @@ emits for live sessions.
 transcripts it leaves behind — so a conversation can be moved between CLIs and resumed there.
 
 ```csharp
-var claude = new ClaudeSessionStore();
+var claude = new ClaudeTranscriptStore();
 
 await foreach (var s in claude.ListAsync(cwd: "/repo"))
     Console.WriteLine($"{s.SessionId}  {s.FirstUserMessage}");
 
-var session = await claude.ReadAsync(sessionId);
-// session.Messages is IReadOnlyList<AgentMessage> — the same type a live IAgentSession emits
+var transcript = await claude.ReadAsync(sessionId);
+// transcript.Messages is IReadOnlyList<AgentMessage> — the same type a live IAgentSession emits
 
-var newId = await claude.WriteAsync(session, new SessionWriteOptions { Cwd = "/repo" });
+var newId = await claude.WriteAsync(transcript, new TranscriptWriteOptions { Cwd = "/repo" });
 // `claude --resume <newId>` now picks the conversation up
 ```
 
 Converting between CLIs is then `Read(A) → Write(B)`, once more than one store exists.
+
+## Transcript vs session
+
+Deliberately not called "session": `Mintokei.AgentEngine` already owns `AgentSession` /
+`IAgentSession` / `AgentSessionSpec`, meaning a **live** CLI conversation you can send turns to.
+A `StoredTranscript` is the **durable record** of one — inert, readable long after the process
+exited, and writable into a store the CLI has never run against.
+
+`SessionId` stays named that on `StoredTranscript`, because it is the CLI's own identifier: the
+value you pass to `claude --resume`.
 
 ## Status
 
@@ -45,7 +55,7 @@ calls, `CommandExecutionData.ExitCode`, and `FileChangeData.Diff`.
 ### Ids are derived, not minted
 
 A live session mints `AgentMessage.Id` as frames arrive. A file reader has no such moment, so
-`SessionIds.Derive` produces them deterministically from the CLI's own ids. Reading the same
+`TranscriptIds.Derive` produces them deterministically from the CLI's own ids. Reading the same
 transcript twice yields the same Guids — otherwise every re-read looks like a fresh set of
 messages to anything downstream that dedupes or resumes an interrupted import.
 
@@ -90,7 +100,7 @@ scanning. The others are not the same shape, and the engine's parsers do **not**
 ## Failure behaviour
 
 These formats are undocumented and versioned. A transcript that exists but cannot be parsed
-throws `SessionStoreException` rather than returning the parsable prefix — silently handing back
+throws `TranscriptStoreException` rather than returning the parsable prefix — silently handing back
 half a conversation is the failure that loses data without anyone noticing.
 
 Writes create a new session and never mutate one the caller did not ask for.

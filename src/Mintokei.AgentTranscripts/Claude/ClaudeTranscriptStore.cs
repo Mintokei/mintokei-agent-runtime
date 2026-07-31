@@ -7,7 +7,7 @@ using Mintokei.AgentEngine.AgentTools;
 using Mintokei.AgentEngine.Claude;
 using Mintokei.AgentEngine.Contracts;
 
-namespace Mintokei.AgentSessions.Claude;
+namespace Mintokei.AgentTranscripts.Claude;
 
 /// <summary>
 /// Claude Code's session store: one JSON-lines transcript per session under
@@ -23,14 +23,14 @@ namespace Mintokei.AgentSessions.Claude;
 /// (<c>attachment</c>, <c>ai-title</c>, <c>file-history-snapshot</c>, …); those are skipped here
 /// rather than pushed through the parser.
 /// </summary>
-public sealed partial class ClaudeSessionStore : IAgentSessionStore
+public sealed partial class ClaudeTranscriptStore : ITranscriptStore
 {
     private readonly string _home;
     private readonly ILogger? _logger;
 
     /// <param name="home">Claude config directory. Null resolves <c>CLAUDE_CONFIG_DIR</c>, then <c>~/.claude</c>.</param>
     /// <param name="logger">Optional; the reused parser logs frames it cannot make sense of.</param>
-    public ClaudeSessionStore(string? home = null, ILogger? logger = null)
+    public ClaudeTranscriptStore(string? home = null, ILogger? logger = null)
     {
         _home = home
             ?? Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR")
@@ -54,7 +54,7 @@ public sealed partial class ClaudeSessionStore : IAgentSessionStore
 
     // ── read ──────────────────────────────────────────────────────────────
 
-    public async IAsyncEnumerable<StoredSessionInfo> ListAsync(
+    public async IAsyncEnumerable<StoredTranscriptInfo> ListAsync(
         string? cwd = null,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
     {
@@ -78,7 +78,7 @@ public sealed partial class ClaudeSessionStore : IAgentSessionStore
     }
 
     /// <summary>Reads only as far as the first user turn — a long transcript is megabytes.</summary>
-    private async Task<StoredSessionInfo?> ReadHeaderAsync(FileInfo file, CancellationToken ct)
+    private async Task<StoredTranscriptInfo?> ReadHeaderAsync(FileInfo file, CancellationToken ct)
     {
         string? cwd = null, title = null, firstUser = null;
         var scanned = 0;
@@ -112,7 +112,7 @@ public sealed partial class ClaudeSessionStore : IAgentSessionStore
         if (cwd is null)
             return null;   // not a Claude transcript
 
-        return new StoredSessionInfo
+        return new StoredTranscriptInfo
         {
             Tool = Tool,
             SessionId = Path.GetFileNameWithoutExtension(file.Name),
@@ -123,7 +123,7 @@ public sealed partial class ClaudeSessionStore : IAgentSessionStore
         };
     }
 
-    public async Task<StoredSession?> ReadAsync(string sessionId, CancellationToken ct = default)
+    public async Task<StoredTranscript?> ReadAsync(string sessionId, CancellationToken ct = default)
     {
         var file = FindSessionFile(sessionId);
         if (file is null)
@@ -133,7 +133,7 @@ public sealed partial class ClaudeSessionStore : IAgentSessionStore
         // registry has to live across the whole file rather than per line.
         var registry = new Dictionary<string, ClaudeCodeOutputParser.ToolUseInfo>();
         var messages = new List<AgentMessage>();
-        var sessionScopedId = SessionIds.Derive(nameof(AgentToolKey.ClaudeCodeCli), sessionId);
+        var sessionScopedId = TranscriptIds.Derive(nameof(AgentToolKey.ClaudeCodeCli), sessionId);
 
         string? cwd = null, version = null, branch = null, title = null, model = null;
         DateTimeOffset created = default;
@@ -146,7 +146,7 @@ public sealed partial class ClaudeSessionStore : IAgentSessionStore
             if (string.IsNullOrWhiteSpace(line))
                 continue;
             if (!TryParseLine(line, out var root))
-                throw new SessionStoreException(
+                throw new TranscriptStoreException(
                     $"{file}: line {lineNo} is not valid JSON — the transcript is truncated or corrupt.");
 
             var type = GetString(root, "type");
@@ -200,9 +200,9 @@ public sealed partial class ClaudeSessionStore : IAgentSessionStore
         messages = CollapseByExternalId(messages);
 
         if (cwd is null)
-            throw new SessionStoreException($"{file}: no cwd on any line — not a Claude Code transcript.");
+            throw new TranscriptStoreException($"{file}: no cwd on any line — not a Claude Code transcript.");
 
-        return new StoredSession
+        return new StoredTranscript
         {
             Tool = Tool,
             SessionId = sessionId,
@@ -259,7 +259,7 @@ public sealed partial class ClaudeSessionStore : IAgentSessionStore
         var externalId = GetString(root, "uuid");
         return new AgentMessage
         {
-            Id = SessionIds.Derive(sessionScopedId.ToString(), externalId ?? text),
+            Id = TranscriptIds.Derive(sessionScopedId.ToString(), externalId ?? text),
             AgentTaskId = sessionScopedId,
             ExternalId = externalId,
             Role = MessageRole.User,
@@ -316,13 +316,13 @@ public sealed partial class ClaudeSessionStore : IAgentSessionStore
     // ── write ─────────────────────────────────────────────────────────────
 
     public async Task<string> WriteAsync(
-        StoredSession session, SessionWriteOptions? options = null, CancellationToken ct = default)
+        StoredTranscript session, TranscriptWriteOptions? options = null, CancellationToken ct = default)
     {
-        options ??= new SessionWriteOptions();
+        options ??= new TranscriptWriteOptions();
         var sessionId = options.SessionId ?? Guid.NewGuid().ToString();
         var cwd = options.Cwd ?? session.Cwd;
         if (string.IsNullOrWhiteSpace(cwd))
-            throw new SessionStoreException(
+            throw new TranscriptStoreException(
                 "Claude Code files sessions by working directory, so a non-empty cwd is required.");
 
         var dir = Path.Combine(ProjectsRoot, SlugFor(cwd));
@@ -453,7 +453,7 @@ public sealed partial class ClaudeSessionStore : IAgentSessionStore
         }
 
         if (lines.Count == 0)
-            throw new SessionStoreException("Nothing to write — the session has no transferable messages.");
+            throw new TranscriptStoreException("Nothing to write — the session has no transferable messages.");
 
         Directory.CreateDirectory(dir);
         await using var writer = new StreamWriter(path, append: false);

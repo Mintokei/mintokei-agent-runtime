@@ -1,6 +1,6 @@
 using Mintokei.AgentEngine.AgentTools;
 
-namespace Mintokei.AgentSessions;
+namespace Mintokei.AgentTranscripts;
 
 /// <summary>
 /// Read and write one CLI's on-disk session store.
@@ -21,7 +21,7 @@ namespace Mintokei.AgentSessions;
 /// time and never mutate one the caller did not ask for, so two concurrent writes cannot corrupt
 /// each other — but a store whose index is a shared SQLite file will serialize on that file.
 /// </summary>
-public interface IAgentSessionStore
+public interface ITranscriptStore
 {
     /// <summary>Which CLI this store belongs to.</summary>
     AgentToolKey Tool { get; }
@@ -31,25 +31,25 @@ public interface IAgentSessionStore
     /// </summary>
     /// <param name="cwd">Restrict to sessions filed under this working directory; null for all.</param>
     /// <param name="ct">Cancellation token.</param>
-    IAsyncEnumerable<StoredSessionInfo> ListAsync(string? cwd = null, CancellationToken ct = default);
+    IAsyncEnumerable<StoredTranscriptInfo> ListAsync(string? cwd = null, CancellationToken ct = default);
 
     /// <summary>
     /// Read one session, or null when the store has no such id.
     /// </summary>
-    /// <exception cref="SessionStoreException">
+    /// <exception cref="TranscriptStoreException">
     /// The session exists but could not be parsed — a truncated write, or a schema this version
     /// does not understand. Deliberately not swallowed: silently returning a partial transcript
     /// would let a caller convert it and quietly lose the rest of the conversation.
     /// </exception>
-    Task<StoredSession?> ReadAsync(string sessionId, CancellationToken ct = default);
+    Task<StoredTranscript?> ReadAsync(string sessionId, CancellationToken ct = default);
 
     /// <summary>
     /// Write <paramref name="session"/> as a NEW session in this store and return its id, which the
     /// CLI's own resume flow will accept.
     /// </summary>
-    /// <exception cref="SessionStoreException">The store is in a shape this version will not write to.</exception>
+    /// <exception cref="TranscriptStoreException">The store is in a shape this version will not write to.</exception>
     Task<string> WriteAsync(
-        StoredSession session, SessionWriteOptions? options = null, CancellationToken ct = default);
+        StoredTranscript session, TranscriptWriteOptions? options = null, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -59,8 +59,8 @@ public interface IAgentSessionStore
 /// something a CLI will later choke on — or worse, silently mis-read. Implementations throw this
 /// rather than guessing.
 /// </summary>
-public sealed class SessionStoreException : Exception
+public sealed class TranscriptStoreException : Exception
 {
-    public SessionStoreException(string message) : base(message) { }
-    public SessionStoreException(string message, Exception inner) : base(message, inner) { }
+    public TranscriptStoreException(string message) : base(message) { }
+    public TranscriptStoreException(string message, Exception inner) : base(message, inner) { }
 }

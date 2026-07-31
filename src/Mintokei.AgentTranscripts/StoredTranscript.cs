@@ -1,7 +1,7 @@
 using Mintokei.AgentEngine.AgentTools;
 using Mintokei.AgentEngine.Contracts;
 
-namespace Mintokei.AgentSessions;
+namespace Mintokei.AgentTranscripts;
 
 /// <summary>
 /// A whole agent conversation as it exists on disk, normalized to the engine's
@@ -13,7 +13,7 @@ namespace Mintokei.AgentSessions;
 /// The alternative — a bespoke transfer DTO — would mean two normalizations to keep in step
 /// with every CLI release.
 /// </summary>
-public sealed record StoredSession
+public sealed record StoredTranscript
 {
     /// <summary>Which CLI's store this came from (or is destined for).</summary>
     public required AgentToolKey Tool { get; init; }
@@ -49,7 +49,7 @@ public sealed record StoredSession
 /// Listing-level summary of a stored session — enough to show a picker without paying to parse
 /// the whole transcript, which for a long session is megabytes.
 /// </summary>
-public sealed record StoredSessionInfo
+public sealed record StoredTranscriptInfo
 {
     public required AgentToolKey Tool { get; init; }
     public required string SessionId { get; init; }
@@ -61,8 +61,8 @@ public sealed record StoredSessionInfo
     public string? FirstUserMessage { get; init; }
 }
 
-/// <summary>Knobs for <see cref="IAgentSessionStore.WriteAsync"/>.</summary>
-public sealed record SessionWriteOptions
+/// <summary>Knobs for <see cref="ITranscriptStore.WriteAsync"/>.</summary>
+public sealed record TranscriptWriteOptions
 {
     /// <summary>Session id to write under. Null generates one in the store's native id format
     /// (Claude uses UUIDv4, Codex UUIDv7), which is almost always what you want — reusing a

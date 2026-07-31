@@ -19,7 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Mintokei.AgentSessions\Mintokei.AgentSessions.csproj" />
+    <ProjectReference Include="..\..\src\Mintokei.AgentTranscripts\Mintokei.AgentTranscripts.csproj" />
   </ItemGroup>
 
   <ItemGroup>

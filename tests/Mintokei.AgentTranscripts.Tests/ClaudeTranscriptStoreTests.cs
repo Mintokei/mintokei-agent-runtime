@@ -2,13 +2,13 @@ using System.Text.Json;
 
 using Mintokei.AgentEngine.AgentTools;
 using Mintokei.AgentEngine.Contracts;
-using Mintokei.AgentSessions.Claude;
+using Mintokei.AgentTranscripts.Claude;
 
 using Xunit;
 
-namespace Mintokei.AgentSessions.Tests;
+namespace Mintokei.AgentTranscripts.Tests;
 
-public sealed class ClaudeSessionStoreTests : IDisposable
+public sealed class ClaudeTranscriptStoreTests : IDisposable
 {
     private readonly string _home = Path.Combine(
         Path.GetTempPath(), "mintokei-sessions-tests", Guid.NewGuid().ToString("N"));
@@ -19,9 +19,9 @@ public sealed class ClaudeSessionStoreTests : IDisposable
             Directory.Delete(_home, recursive: true);
     }
 
-    private ClaudeSessionStore Store() => new(_home);
+    private ClaudeTranscriptStore Store() => new(_home);
 
-    private static StoredSession SessionWith(params AgentMessage[] messages) => new()
+    private static StoredTranscript SessionWith(params AgentMessage[] messages) => new()
     {
         Tool = AgentToolKey.ClaudeCodeCli,
         SessionId = "source-session",
@@ -46,9 +46,9 @@ public sealed class ClaudeSessionStoreTests : IDisposable
     public void SlugFor_replaces_every_non_alphanumeric_character()
     {
         // The store's whole layout hangs off this; Claude Code computes it the same way.
-        Assert.Equal("-tmp-my-app", ClaudeSessionStore.SlugFor("/tmp/my.app"));
+        Assert.Equal("-tmp-my-app", ClaudeTranscriptStore.SlugFor("/tmp/my.app"));
         Assert.Equal("-root-projects-mintokei-new",
-            ClaudeSessionStore.SlugFor("/root/projects/mintokei-new"));
+            ClaudeTranscriptStore.SlugFor("/root/projects/mintokei-new"));
     }
 
     [Fact]
@@ -168,7 +168,7 @@ public sealed class ClaudeSessionStoreTests : IDisposable
             "{ this is not json",
         ], TestContext.Current.CancellationToken);
 
-        var ex = await Assert.ThrowsAsync<SessionStoreException>(() => Store().ReadAsync(id, TestContext.Current.CancellationToken));
+        var ex = await Assert.ThrowsAsync<TranscriptStoreException>(() => Store().ReadAsync(id, TestContext.Current.CancellationToken));
         Assert.Contains("truncated or corrupt", ex.Message);
     }
 
@@ -200,14 +200,14 @@ public sealed class ClaudeSessionStoreTests : IDisposable
         var store = Store();
         await store.WriteAsync(SessionWith(User("first")), ct: TestContext.Current.CancellationToken);
 
-        var all = new List<StoredSessionInfo>();
+        var all = new List<StoredTranscriptInfo>();
         await foreach (var s in store.ListAsync(ct: TestContext.Current.CancellationToken))
             all.Add(s);
         Assert.Single(all);
         Assert.Equal("/tmp/demo.project", all[0].Cwd);
         Assert.Contains("first", all[0].FirstUserMessage);
 
-        var none = new List<StoredSessionInfo>();
+        var none = new List<StoredTranscriptInfo>();
         await foreach (var s in store.ListAsync("/somewhere/else", TestContext.Current.CancellationToken))
             none.Add(s);
         Assert.Empty(none);
@@ -217,23 +217,23 @@ public sealed class ClaudeSessionStoreTests : IDisposable
     public async Task Writing_without_a_cwd_is_refused()
     {
         var session = SessionWith(User("hi")) with { Cwd = "" };
-        await Assert.ThrowsAsync<SessionStoreException>(() => Store().WriteAsync(session, ct: TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<TranscriptStoreException>(() => Store().WriteAsync(session, ct: TestContext.Current.CancellationToken));
     }
 
     [Fact]
     public void Derived_ids_are_stable_across_reads()
     {
         // Re-reading the same transcript must not look like a fresh set of messages.
-        Assert.Equal(SessionIds.Derive("claude", "abc"), SessionIds.Derive("claude", "abc"));
-        Assert.NotEqual(SessionIds.Derive("claude", "abc"), SessionIds.Derive("claude", "abd"));
-        Assert.NotEqual(SessionIds.Derive("ab", "c"), SessionIds.Derive("a", "bc"));
+        Assert.Equal(TranscriptIds.Derive("claude", "abc"), TranscriptIds.Derive("claude", "abc"));
+        Assert.NotEqual(TranscriptIds.Derive("claude", "abc"), TranscriptIds.Derive("claude", "abd"));
+        Assert.NotEqual(TranscriptIds.Derive("ab", "c"), TranscriptIds.Derive("a", "bc"));
     }
 
     [Fact]
     public void NewV7_ids_sort_in_creation_order()
     {
-        var early = SessionIds.NewV7(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
-        var late = SessionIds.NewV7(new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero));
+        var early = TranscriptIds.NewV7(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        var late = TranscriptIds.NewV7(new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero));
         Assert.Equal(7, (early.ToString()[14] - '0'));
         Assert.True(string.CompareOrdinal(early.ToString(), late.ToString()) < 0);
     }

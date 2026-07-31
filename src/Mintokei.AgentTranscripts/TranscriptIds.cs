@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 
-namespace Mintokei.AgentSessions;
+namespace Mintokei.AgentTranscripts;
 
 /// <summary>
 /// Deterministic ids for messages read out of a store.
@@ -15,7 +15,7 @@ namespace Mintokei.AgentSessions;
 /// every re-read looks like a brand-new set of messages to anything downstream that dedupes,
 /// diffs, or resumes an interrupted import.
 /// </summary>
-public static class SessionIds
+public static class TranscriptIds
 {
     // Fixed namespace for this library's derived ids. Arbitrary but stable — changing it would
     // renumber every message every consumer has already seen.

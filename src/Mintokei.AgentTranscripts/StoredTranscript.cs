@@ -41,6 +41,13 @@ public sealed record StoredTranscript
     /// <summary>Git branch recorded at session start, when the store keeps one.</summary>
     public string? GitBranch { get; init; }
 
+    /// <summary>
+    /// Where this transcript was read from, when it came off disk. Conversion is lossy, so an agent
+    /// or an operator that needs a detail which did not survive can go and read the original.
+    /// Null for a transcript that was constructed rather than read.
+    /// </summary>
+    public string? SourcePath { get; init; }
+
     /// <summary>The transcript, in order.</summary>
     public IReadOnlyList<AgentMessage> Messages { get; init; } = [];
 }

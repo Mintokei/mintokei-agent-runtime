@@ -43,6 +43,10 @@ var factory = new AgentSessionFactory(new LocalCommandLineRunnerFactory(), NullL
 // attempt (nothing to resume yet) and after a hop where the conversation could not be moved.
 string? resumeSessionId = null;
 
+// What to send to the current link. The original prompt to begin with; after a hop, a handoff turn
+// instead — re-sending the prompt would duplicate a request the transferred history already holds.
+var nextTurn = options.Prompt;
+
 for (var attempt = 0; attempt < options.Chain.Count; attempt++)
 {
     var link = options.Chain[attempt];
@@ -71,7 +75,7 @@ for (var attempt = 0; attempt < options.Chain.Count; attempt++)
         ct: shutdown.Token))
     {
         var turn = ConsumeTurnAsync(session, link.Describe(), shutdown.Token);
-        await session.SendMessageAsync(options.Prompt, shutdown.Token);
+        await session.SendMessageAsync(nextTurn, shutdown.Token);
         failure = await turn;
 
         // --simulate exists because a demo should be runnable on demand: real rate limits do not
@@ -115,8 +119,11 @@ for (var attempt = 0; attempt < options.Chain.Count; attempt++)
         return 1;
     }
 
-    resumeSessionId = await MoveConversationAsync(
-        link, options.Chain[next], agentSessionId, options.WorkingDirectory, shutdown.Token);
+    var hop = await MoveConversationAsync(
+        link, options.Chain[next], agentSessionId, options.WorkingDirectory,
+        failure, options.HandoffTemplate, shutdown.Token);
+    resumeSessionId = hop.SessionId;
+    nextTurn = hop.Turn ?? options.Prompt;
 }
 
 return 1;
@@ -126,13 +133,14 @@ return 1;
 // Reads the conversation out of the current CLI's store and writes it into the next one's, so the
 // next CLI resumes with the history rather than starting cold. Returns the new session id, or
 // null when there is nothing to carry — in which case the next link simply starts fresh.
-static async Task<string?> MoveConversationAsync(
-    ChainLink from, ChainLink to, string? sessionId, string cwd, CancellationToken ct)
+static async Task<Hop> MoveConversationAsync(
+    ChainLink from, ChainLink to, string? sessionId, string cwd,
+    TurnFailure failure, string? handoffTemplate, CancellationToken ct)
 {
     if (sessionId is null)
     {
         Console.WriteLine("   the CLI never reported a session id — starting the next link fresh");
-        return null;
+        return new Hop(null, null);
     }
 
     // Same CLI, different model: the transcript is already in the right store, so resume it
@@ -141,7 +149,7 @@ static async Task<string?> MoveConversationAsync(
     if (from.Tool == to.Tool)
     {
         Console.WriteLine($"   same CLI — reusing session {sessionId}, nothing to convert");
-        return sessionId;
+        return new Hop(sessionId, null);
     }
 
     var source = StoreFor(from.Tool);
@@ -151,16 +159,29 @@ static async Task<string?> MoveConversationAsync(
         Console.WriteLine(
             $"   no transcript store for {(source is null ? from.Tool : to.Tool)} yet — "
             + "starting the next link fresh (it will not remember the conversation)");
-        return null;
+        return new Hop(null, null);
     }
 
     try
     {
-        var transcript = await source.ReadAsync(sessionId, ct);
-        if (transcript is null || transcript.Messages.Count == 0)
+        var read = await source.ReadAsync(sessionId, ct);
+        if (read is null || read.Messages.Count == 0)
         {
             Console.WriteLine("   nothing transferable in the transcript — starting fresh");
-            return null;
+            return new Hop(null, null);
+        }
+
+        // Drop the turn the agent never finished answering. Without this the target receives the
+        // same request twice — once as history, once as the turn it is asked to do — and tends to
+        // redo work that may already have taken effect.
+        var (transcript, droppedRequest, unresolved) = read.TrimIncompleteTail();
+        if (droppedRequest is not null)
+            Console.WriteLine($"   trimmed the unfinished turn ({(unresolved ? "its last step has no recorded result" : "no answer recorded")})");
+
+        if (transcript.Messages.Count == 0)
+        {
+            Console.WriteLine("   nothing left after trimming — starting fresh");
+            return new Hop(null, null);
         }
 
         var newId = await target.WriteAsync(
@@ -170,16 +191,30 @@ static async Task<string?> MoveConversationAsync(
         Console.WriteLine(
             $"   moved {transcript.Messages.Count} message(s), {tools} tool call(s) "
             + $"{from.Tool} -> {to.Tool} as {newId}");
-        return newId;
+
+        var turn = HandoffPrompt.Render(handoffTemplate, new HandoffContext
+        {
+            SourceTool = from.Tool,
+            TargetTool = to.Tool,
+            SourceSessionId = sessionId,
+            SourcePath = read.SourcePath,
+            Request = droppedRequest,
+            Reason = failure.StatusLabel,
+            FailureKind = failure.Kind.ToString(),
+            Cwd = cwd,
+            HasUnresolvedToolCall = unresolved,
+        });
+        return new Hop(newId, turn);
     }
     catch (TranscriptStoreException ex)
     {
         // A conversation we could not move is worth continuing without, but not worth hiding.
         Console.Error.WriteLine($"   could not move the conversation: {ex.Message}");
         Console.Error.WriteLine("   the next link starts fresh and will not remember it");
-        return null;
+        return new Hop(null, null);
     }
 }
+
 
 // Which failures another provider might survive. Deliberately narrow: failing over on
 // MaxTokens just burns the chain on a context that is too big
@@ -260,6 +295,11 @@ static void PrintUsage()
           --dir <path>       working directory (default: current)
           --simulate <kind>  force the FIRST turn to fail, so the failover path can be
                              demonstrated on demand: rate-limited | overloaded | api-error | auth
+          --handoff <text>   what to send the next CLI after a hop. `default` explains the
+                             handoff and asks the agent to verify before repeating work;
+                             `minimal` is "You were interrupted. Continue the work."; any
+                             other value is used literally.
+          --handoff-file <p> read the handoff template from a file
           --help
 
         Examples:
@@ -273,11 +313,22 @@ static void PrintUsage()
         untouched, while a cross-CLI hop has to convert the transcript. Put model changes
         first.
 
+        The handoff template may use any of these placeholders; a line whose placeholder has
+        no value is dropped, so a template can mention one that is not always known:
+          {request} {reason} {failureKind} {sourceCli} {targetCli}
+          {sourceSessionId} {sourcePath} {cwd} {unresolvedToolCall}
+
         Needs the CLIs in the chain installed and authenticated.
         """);
 }
 
 // ── options ──────────────────────────────────────────────────────────────
+
+/// <summary>
+/// The result of one hop: the session to resume in the next link, and the turn to send it.
+/// A null turn means "send the original prompt" — nothing was carried across.
+/// </summary>
+internal sealed record Hop(string? SessionId, string? Turn);
 
 internal sealed record ChainLink(AgentToolKey Tool, string? Model)
 {
@@ -314,6 +365,7 @@ internal sealed record FailoverOptions(
     string WorkingDirectory,
     string Prompt,
     TurnFailureKind? Simulate,
+    string? HandoffTemplate,
     bool ShowHelp)
 {
     public static FailoverOptions Parse(string[] args)
@@ -322,6 +374,7 @@ internal sealed record FailoverOptions(
         var dir = Environment.CurrentDirectory;
         var promptParts = new List<string>();
         TurnFailureKind? simulate = null;
+        string? handoff = null;
         var showHelp = false;
 
         for (var i = 0; i < args.Length; i++)
@@ -345,6 +398,17 @@ internal sealed record FailoverOptions(
                 case "--simulate" when i + 1 < args.Length:
                     simulate = ParseKind(args[++i]);
                     break;
+                case "--handoff" when i + 1 < args.Length:
+                    handoff = args[++i] switch
+                    {
+                        "default" => null,                       // null => HandoffPrompt.DefaultTemplate
+                        "minimal" => HandoffPrompt.MinimalTemplate,
+                        var literal => literal,
+                    };
+                    break;
+                case "--handoff-file" when i + 1 < args.Length:
+                    handoff = File.ReadAllText(args[++i]);
+                    break;
                 default:
                     promptParts.Add(args[i]);
                     break;
@@ -359,7 +423,7 @@ internal sealed record FailoverOptions(
         if (string.IsNullOrWhiteSpace(prompt) && !showHelp)
             prompt = "Summarise this repository in three bullets.";
 
-        return new FailoverOptions(chain, dir, prompt, simulate, showHelp);
+        return new FailoverOptions(chain, dir, prompt, simulate, handoff, showHelp);
     }
 
     private static TurnFailureKind ParseKind(string raw) => raw.Replace("-", "").ToLowerInvariant() switch

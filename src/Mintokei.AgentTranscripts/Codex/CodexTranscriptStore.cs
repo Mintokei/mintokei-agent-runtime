@@ -203,6 +203,7 @@ public sealed class CodexTranscriptStore : ITranscriptStore
             Model = model,
             CliVersion = version,
             GitBranch = branch,
+            SourcePath = file,
             Messages = messages,
         };
     }

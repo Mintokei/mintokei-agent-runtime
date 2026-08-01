@@ -212,6 +212,7 @@ public sealed partial class ClaudeTranscriptStore : ITranscriptStore
             Title = title,
             CliVersion = version,
             GitBranch = branch,
+            SourcePath = file,
             Messages = messages,
         };
     }

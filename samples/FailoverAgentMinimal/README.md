@@ -53,10 +53,52 @@ Codex picks up knowing what Claude had already done, because the transcript came
 | `--prompt <text>` | the prompt to send |
 | `--dir <path>` | working directory (default: current) |
 | `--simulate <kind>` | force the **first** turn to fail: `rate-limited`, `overloaded`, `api-error`, `auth` |
+| `--handoff <text>` | what to send after a hop: `default`, `minimal`, or any literal template |
+| `--handoff-file <path>` | read the handoff template from a file |
 
 `--simulate` exists because a demo has to be runnable on demand — real rate limits do not arrive
 when you want to show someone what happens. Everything after the failure is the same code path
 either way.
+
+## What the next CLI is told
+
+Re-sending the original prompt is the obvious move and the wrong one: the transferred history
+already contains it, so the target sees the same request twice and tends to redo work that may
+already have taken effect. Instead the sample trims the turn the agent never finished answering,
+and sends a **handoff turn** describing the situation.
+
+The default asks the agent to check before repeating anything — which is the part that does the
+work. Against a run where the previous CLI had already applied the edit:
+
+```
+[codex] $ sed -n '1,40p' service.yaml
+[codex] Checked /root/hd/service.yaml; it already has the requested value: port: 9090
+        I didn't need to change anything.
+```
+
+Configure it with `--handoff`:
+
+```bash
+--handoff default                       # explain + verify (the default)
+--handoff minimal                       # "You were interrupted. Continue the work."
+--handoff "Interrupted ({failureKind}). Continue: {request}"
+--handoff-file ./handoff.txt
+```
+
+Placeholders: `{request}` `{reason}` `{failureKind}` `{sourceCli}` `{targetCli}`
+`{sourceSessionId}` `{sourcePath}` `{cwd}` `{unresolvedToolCall}`
+
+A line whose placeholder has no value is dropped whole, so a template can mention `{sourcePath}`
+and still read correctly when it is unknown. Keep a label on the **same line** as its placeholder —
+`Outstanding request: {request}` — because a label on its own line survives when the value does
+not, leaving a heading with nothing under it.
+
+`{sourcePath}` is worth including: conversion is lossy, and it tells the agent where to find the
+original transcript if it needs a detail that did not survive the crossing.
+
+> **Caveat on `--simulate`:** it injects the failure *after* a turn has completed, so the trimming
+> path is not exercised by it — a real mid-turn kill is needed for that. The trim itself is covered
+> by unit tests (`TranscriptTrimmingTests`).
 
 ## Order the chain: model changes before CLI changes
 

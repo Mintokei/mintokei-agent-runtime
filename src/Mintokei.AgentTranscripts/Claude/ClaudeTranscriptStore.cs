@@ -70,7 +70,15 @@ public sealed partial class ClaudeTranscriptStore : ITranscriptStore
         if (!Directory.Exists(ProjectsRoot))
             yield break;
 
-        var files = Directory.EnumerateFiles(ProjectsRoot, "*.jsonl", SearchOption.AllDirectories)
+        // The project directory name IS the flattened cwd, so a cwd filter can go straight to the
+        // one directory instead of reading a header out of every transcript on the machine and
+        // discarding all but a handful. Worth the special case: an interactive picker asks this
+        // question on every keystroke-free startup, and users accumulate hundreds of sessions.
+        var root = cwd is null ? ProjectsRoot : Path.Combine(ProjectsRoot, SlugFor(cwd));
+        if (!Directory.Exists(root))
+            yield break;
+
+        var files = Directory.EnumerateFiles(root, "*.jsonl", SearchOption.AllDirectories)
             .Select(p => new FileInfo(p))
             .OrderByDescending(f => f.LastWriteTimeUtc);
 

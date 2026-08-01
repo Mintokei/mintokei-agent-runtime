@@ -46,6 +46,29 @@ public sealed class HandoffPromptTests
     }
 
     [Fact]
+    public void A_deliberate_move_does_not_invent_a_failure()
+    {
+        // agentmove moves a finished conversation on purpose. Saying "the previous turn did not
+        // finish" would be a lie the next agent then acts on.
+        var text = HandoffPrompt.Render(null, Full with { Reason = null, Request = null });
+
+        Assert.Contains("moved here from Claude Code", text);
+        Assert.DoesNotContain("did not finish", text);
+        Assert.DoesNotContain("Outstanding request", text);
+    }
+
+    [Fact]
+    public void The_moved_template_gives_no_instruction_to_finish_anything()
+    {
+        var text = HandoffPrompt.Render(HandoffPrompt.MovedTemplate, Full with { Reason = null });
+
+        Assert.Contains("moved here from Claude Code", text);
+        Assert.Contains("history from the previous agent", text);
+        Assert.DoesNotContain("finish the", text);
+        Assert.DoesNotContain("did not finish", text);
+    }
+
+    [Fact]
     public void The_unresolved_step_line_disappears_when_the_tail_was_clean()
     {
         var text = HandoffPrompt.Render(null, Full with { HasUnresolvedToolCall = false });

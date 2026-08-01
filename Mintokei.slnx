@@ -14,6 +14,9 @@
     <Project Path="src/Mintokei.Runner.Host.Hosting/Mintokei.Runner.Host.Hosting.csproj" />
     <Project Path="src/Mintokei.Sandbox.Hosting/Mintokei.Sandbox.Hosting.csproj" />
   </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/Mintokei.AgentMove/Mintokei.AgentMove.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Mintokei.AgentEngine.Tests/Mintokei.AgentEngine.Tests.csproj" />
     <Project Path="tests/Mintokei.AgentControlPlane.Tests/Mintokei.AgentControlPlane.Tests.csproj" />

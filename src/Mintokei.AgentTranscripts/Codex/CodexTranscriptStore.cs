@@ -71,9 +71,25 @@ public sealed class CodexTranscriptStore : ITranscriptStore
         string? cwd = null,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
     {
+        // Codex maintains an index for its own picker, with the title and cwd already extracted.
+        // Reading it beats opening every rollout: it is indexed on cwd, and it is the only place a
+        // title exists at all — the transcript itself has none.
+        var indexed = ListFromIndex(cwd);
+        if (indexed is not null)
+        {
+            foreach (var info in indexed)
+            {
+                ct.ThrowIfCancellationRequested();
+                yield return info;
+            }
+            yield break;
+        }
+
         if (!Directory.Exists(SessionsRoot))
             yield break;
 
+        // No index (a fresh CODEX_HOME, a schema this version does not know): fall back to reading
+        // headers, which always works and is merely slower.
         var files = Directory.EnumerateFiles(SessionsRoot, "rollout-*.jsonl", SearchOption.AllDirectories)
             .Select(p => new FileInfo(p))
             .OrderByDescending(f => f.LastWriteTimeUtc);
@@ -88,6 +104,84 @@ public sealed class CodexTranscriptStore : ITranscriptStore
                 continue;
             yield return info;
         }
+    }
+
+    /// <summary>
+    /// Reads the <c>threads</c> index, or null when there is nothing usable to read — a missing
+    /// database, no such table, or a schema without the columns this needs. Null means "fall back",
+    /// never "no sessions", because reporting an empty list would look like the user has none.
+    /// </summary>
+    private List<StoredTranscriptInfo>? ListFromIndex(string? cwd)
+    {
+        var db = StateDatabase();
+        if (db is null)
+            return null;
+
+        try
+        {
+            using var conn = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = db,
+                Mode = SqliteOpenMode.ReadOnly,
+            }.ToString());
+            conn.Open();
+
+            var columns = new HashSet<string>(StringComparer.Ordinal);
+            using (var pragma = conn.CreateCommand())
+            {
+                pragma.CommandText = "PRAGMA table_info(threads)";
+                using var r = pragma.ExecuteReader();
+                while (r.Read())
+                    columns.Add(r.GetString(1));
+            }
+            if (!columns.Contains("id") || !columns.Contains("cwd"))
+                return null;
+
+            var title = columns.Contains("title") ? "title" : "''";
+            var first = columns.Contains("first_user_message") ? "first_user_message" : "''";
+            var updated = columns.Contains("updated_at") ? "updated_at" : "0";
+            var archived = columns.Contains("archived") ? "archived = 0" : "1 = 1";
+
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText =
+                $"SELECT id, cwd, {title}, {first}, {updated} FROM threads "
+                + $"WHERE {archived}" + (cwd is null ? "" : " AND cwd = $cwd")
+                + $" ORDER BY {updated} DESC";
+            if (cwd is not null)
+                cmd.Parameters.AddWithValue("$cwd", cwd);
+
+            var results = new List<StoredTranscriptInfo>();
+            using var rows = cmd.ExecuteReader();
+            while (rows.Read())
+            {
+                var seconds = rows.IsDBNull(4) ? 0 : rows.GetInt64(4);
+                results.Add(new StoredTranscriptInfo
+                {
+                    Tool = Tool,
+                    SessionId = rows.GetString(0),
+                    Cwd = rows.IsDBNull(1) ? string.Empty : rows.GetString(1),
+                    Title = Blank(rows, 2),
+                    FirstUserMessage = Blank(rows, 3),
+                    UpdatedAt = seconds > 0
+                        ? DateTimeOffset.FromUnixTimeSeconds(seconds)
+                        : default,
+                });
+            }
+            return results;
+        }
+        catch (SqliteException ex)
+        {
+            _logger?.LogDebug(ex, "Could not read the Codex thread index; falling back to file scan");
+            return null;
+        }
+    }
+
+    private static string? Blank(SqliteDataReader r, int i)
+    {
+        if (r.IsDBNull(i))
+            return null;
+        var value = r.GetString(i);
+        return string.IsNullOrWhiteSpace(value) ? null : value;
     }
 
     private async Task<StoredTranscriptInfo?> ReadHeaderAsync(FileInfo file, CancellationToken ct)

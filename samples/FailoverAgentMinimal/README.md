@@ -153,6 +153,6 @@ recover on its own.
 - **Translate permissions.** Each CLI keeps its own sandbox and approval semantics; the sample
   runs `InteractionMode.AutoApprove` throughout. A real deployment should decide per link what the
   fallback is allowed to do, because a hop can otherwise widen what the agent may touch.
-- **Cover every CLI.** Transcript stores exist for Claude Code and Codex. A hop into or out of
-  Copilot or OpenCode still runs — the next link just starts fresh, and the sample says so rather
-  than pretending the history came along.
+- **Cover every CLI.** Transcript stores exist for Claude Code, Codex and GitHub Copilot CLI. A hop
+  into or out of OpenCode still runs — the next link just starts fresh, and the sample says so
+  rather than pretending the history came along.

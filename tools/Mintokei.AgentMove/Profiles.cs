@@ -145,6 +145,12 @@ public sealed record MoveConfig
                 Description = "Codex, asks before acting outside the workspace",
                 Config = new(StringComparer.OrdinalIgnoreCase) { ["approvalPolicy"] = "on-request" },
             },
+            ["copilot"] = new Profile
+            {
+                Tool = "copilot",
+                Description = "GitHub Copilot CLI, asks before acting",
+                Config = new(StringComparer.OrdinalIgnoreCase) { ["autopilot"] = "interactive" },
+            },
         },
     };
 

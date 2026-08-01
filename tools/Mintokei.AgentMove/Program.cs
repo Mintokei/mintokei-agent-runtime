@@ -3,6 +3,7 @@ using Mintokei.AgentMove;
 using Mintokei.AgentTranscripts;
 using Mintokei.AgentTranscripts.Claude;
 using Mintokei.AgentTranscripts.Codex;
+using Mintokei.AgentTranscripts.Copilot;
 
 // agentmove — pick a session from one agent CLI and carry on with it in another.
 //
@@ -43,6 +44,7 @@ var sources = new (AgentToolKey Key, string Name, ITranscriptStore Store)[]
 {
     (AgentToolKey.ClaudeCodeCli, "Claude Code", new ClaudeTranscriptStore()),
     (AgentToolKey.CodexCli, "Codex", new CodexTranscriptStore()),
+    (AgentToolKey.GithubCopilotCli, "GitHub Copilot CLI", new CopilotTranscriptStore()),
 };
 
 var available = new List<(string Name, ITranscriptStore Store, List<StoredTranscriptInfo> Sessions)>();
@@ -65,7 +67,7 @@ foreach (var (_, name, store) in sources)
 if (available.Count == 0)
 {
     Console.Error.WriteLine($"No sessions found for {cwd}.");
-    Console.Error.WriteLine("Only Claude Code and Codex have transcript stores so far.");
+    Console.Error.WriteLine("Only Claude Code, Codex and GitHub Copilot CLI have transcript stores so far.");
     return 1;
 }
 
@@ -293,6 +295,7 @@ static ITranscriptStore? StoreFor(AgentToolKey tool) => tool switch
 {
     AgentToolKey.ClaudeCodeCli => new ClaudeTranscriptStore(),
     AgentToolKey.CodexCli => new CodexTranscriptStore(),
+    AgentToolKey.GithubCopilotCli => new CopilotTranscriptStore(),
     _ => null,
 };
 
@@ -304,6 +307,7 @@ static string ResumeCommand(AgentToolKey tool, string id, Profile p)
     {
         AgentToolKey.ClaudeCodeCli => $"claude --resume {id}{model}{extra}",
         AgentToolKey.CodexCli => $"codex resume {id}{extra}",
+        AgentToolKey.GithubCopilotCli => $"copilot --resume {id}{model}{extra}",
         _ => $"<{tool}> resume {id}",
     };
 }
@@ -404,7 +408,7 @@ static void PrintUsage() => Console.WriteLine("""
       agentmove --init                write a starter agentmove.json
 
       --dir <path>       directory to look in (default: current)
-      --from <cli>       skip the source prompt: claude | codex
+      --from <cli>       skip the source prompt: claude | codex | copilot
       --session <id>     skip the session prompt (a unique prefix is enough)
       --to <profile>     skip the target prompt
       --limit <n>        how many sessions to list (default 15)

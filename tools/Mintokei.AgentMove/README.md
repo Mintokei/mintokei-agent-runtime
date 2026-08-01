@@ -111,7 +111,7 @@ you which flag was missing.
 | Flag | |
 |---|---|
 | `--dir <path>` | directory to look in (default: current) |
-| `--from <cli>` | `claude` \| `codex` |
+| `--from <cli>` | `claude` \| `codex` \| `copilot` |
 | `--session <id>` | unique prefix is enough |
 | `--to <profile>` | profile name |
 | `--limit <n>` | how many sessions to list (default 15) |
@@ -127,8 +127,8 @@ you which flag was missing.
   handoff says the last step's outcome is unknown instead of throwing it away.
 - **Long conversations can be summarised** (`summariseOver`) into a briefing, because every move
   re-ingests the whole transcript and can overflow the target's context.
-- **Only Claude Code and Codex** have transcript stores so far. Copilot and OpenCode cannot be a
-  source or a target yet.
+- **Claude Code, Codex and GitHub Copilot CLI** are supported as both source and target. OpenCode
+  has no store yet.
 
 Conversion is lossy — opaque reasoning cannot cross, and tool calls with no equivalent become prose.
 The handoff includes the path to the original transcript so anything missing can still be read.

@@ -121,7 +121,7 @@ for (var attempt = 0; attempt < options.Chain.Count; attempt++)
 
     var hop = await MoveConversationAsync(
         link, options.Chain[next], agentSessionId, options.WorkingDirectory,
-        failure, options.HandoffTemplate, shutdown.Token);
+        failure, options.HandoffTemplate, options.SummariseOver, shutdown.Token);
     resumeSessionId = hop.SessionId;
     nextTurn = hop.Turn ?? options.Prompt;
 }
@@ -135,7 +135,7 @@ return 1;
 // null when there is nothing to carry — in which case the next link simply starts fresh.
 static async Task<Hop> MoveConversationAsync(
     ChainLink from, ChainLink to, string? sessionId, string cwd,
-    TurnFailure failure, string? handoffTemplate, CancellationToken ct)
+    TurnFailure failure, string? handoffTemplate, int? summariseOver, CancellationToken ct)
 {
     if (sessionId is null)
     {
@@ -185,6 +185,15 @@ static async Task<Hop> MoveConversationAsync(
         {
             Console.WriteLine("   nothing left after trimming — starting fresh");
             return new Hop(null, null);
+        }
+
+        // Every hop re-ingests the whole transcript, so a long conversation can overflow the
+        // target's context. Compressing it loses the turn-by-turn record but keeps the hop possible.
+        if (summariseOver is { } limit && transcript.Messages.Count > limit)
+        {
+            var before = transcript.Messages.Count;
+            transcript = transcript.Summarise();
+            Console.WriteLine($"   summarised {before} messages into a briefing (over the {limit}-message limit)");
         }
 
         var newId = await target.WriteAsync(
@@ -303,6 +312,10 @@ static void PrintUsage()
                              `minimal` is "You were interrupted. Continue the work."; any
                              other value is used literally.
           --handoff-file <p> read the handoff template from a file
+          --summarise-over <n>  when a conversation is longer than n messages, compress it
+                             into a briefing before handing it over, instead of moving the
+                             whole transcript. Lossy — use it when the alternative is not
+                             fitting in the target's context at all.
           --help
 
         Examples:
@@ -369,6 +382,7 @@ internal sealed record FailoverOptions(
     string Prompt,
     TurnFailureKind? Simulate,
     string? HandoffTemplate,
+    int? SummariseOver,
     bool ShowHelp)
 {
     public static FailoverOptions Parse(string[] args)
@@ -378,6 +392,7 @@ internal sealed record FailoverOptions(
         var promptParts = new List<string>();
         TurnFailureKind? simulate = null;
         string? handoff = null;
+        int? summariseOver = null;
         var showHelp = false;
 
         for (var i = 0; i < args.Length; i++)
@@ -412,6 +427,9 @@ internal sealed record FailoverOptions(
                 case "--handoff-file" when i + 1 < args.Length:
                     handoff = File.ReadAllText(args[++i]);
                     break;
+                case "--summarise-over" or "--summarize-over" when i + 1 < args.Length:
+                    summariseOver = int.Parse(args[++i]);
+                    break;
                 default:
                     promptParts.Add(args[i]);
                     break;
@@ -426,7 +444,7 @@ internal sealed record FailoverOptions(
         if (string.IsNullOrWhiteSpace(prompt) && !showHelp)
             prompt = "Summarise this repository in three bullets.";
 
-        return new FailoverOptions(chain, dir, prompt, simulate, handoff, showHelp);
+        return new FailoverOptions(chain, dir, prompt, simulate, handoff, summariseOver, showHelp);
     }
 
     private static TurnFailureKind ParseKind(string raw) => raw.Replace("-", "").ToLowerInvariant() switch

@@ -55,6 +55,7 @@ Codex picks up knowing what Claude had already done, because the transcript came
 | `--simulate <kind>` | force the **first** turn to fail: `rate-limited`, `overloaded`, `api-error`, `auth` |
 | `--handoff <text>` | what to send after a hop: `default`, `minimal`, or any literal template |
 | `--handoff-file <path>` | read the handoff template from a file |
+| `--summarise-over <n>` | compress the conversation into a briefing when it exceeds n messages |
 
 `--simulate` exists because a demo has to be runnable on demand — real rate limits do not arrive
 when you want to show someone what happens. Everything after the failure is the same code path
@@ -99,6 +100,15 @@ original transcript if it needs a detail that did not survive the crossing.
 > **Caveat on `--simulate`:** it injects the failure *after* a turn has completed, so the trimming
 > path is not exercised by it — a real mid-turn kill is needed for that. The trim itself is covered
 > by unit tests (`TranscriptTrimmingTests`).
+
+## Long conversations
+
+Every hop re-ingests the whole transcript, so a long conversation can overflow the target's context
+window. `--summarise-over 200` compresses anything larger into a single briefing — the requests in
+order, files touched, recent commands, where the previous agent left off, and a path to the full
+transcript for anything omitted.
+
+Lossy on purpose, and off by default: move the real transcript while it fits.
 
 ## Order the chain: model changes before CLI changes
 

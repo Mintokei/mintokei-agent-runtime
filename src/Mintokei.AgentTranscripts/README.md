@@ -100,6 +100,28 @@ scanning. The others are not the same shape, and the engine's parsers do **not**
   speaks Copilot's own event vocabulary. It also validates envelopes strictly (`id` must be a
   UUID, `turnId` is required) and needs rows in `session-store.db` alongside `events.jsonl`.
 
+## Long conversations: summarising
+
+Every hop re-ingests the whole transcript, so a long conversation can overflow the target's context
+window — and the cost is paid again on each hop.
+
+```csharp
+var moved = transcript.SummariseIfLonger(maxMessages: 200);   // untouched when it already fits
+await target.WriteAsync(moved, options);
+```
+
+`Summarise()` replaces the conversation with a single briefing exchange: where it came from, the
+requests in order, files touched, recent commands, and where the previous agent left off — plus the
+path to the full transcript, so anything omitted can still be looked up. `SummaryOptions` controls
+the limits, whether tool activity is included, and the wording of the header and acknowledgement.
+
+The briefing ends on an assistant turn on purpose. A transcript ending on a user turn reads as an
+unanswered question — to the next CLI, and to `TrimIncompleteTail`, which would otherwise strip the
+briefing that was just built.
+
+This is lossy and is **the wrong default**. Move the real transcript when it fits; reach for this
+when the alternative is not fitting at all.
+
 ## What does not survive a write
 
 - **Opaque reasoning** — Codex `encrypted_content`, Copilot `reasoningOpaque`, Claude thinking

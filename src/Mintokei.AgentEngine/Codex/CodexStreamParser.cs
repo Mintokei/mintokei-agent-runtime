@@ -347,8 +347,20 @@ internal sealed class CodexStreamParser : IAgentStreamParser
 
         if (willRetry)
         {
+            // Codex is recovering on its own, so this is not a turn failure — but swallowing it
+            // entirely leaves the caller with no sign anything is wrong until the retry budget is
+            // spent. Surfaced as ApiRetrying so a caller can react now and still let Codex try.
+            var retryMessage = ExtractErrorMessage(
+                @params.TryGetProperty("error", out var retryErr) ? retryErr : @params);
+
             _logger.LogWarning("Codex error (will retry) for AgentTask {TaskId}: {Msg}",
                 _agentTaskId, @params.GetRawText());
+
+            yield return new ApiRetrying(
+                TurnFailure.ClassifyFromText(retryMessage) is var k and not TurnFailureKind.Unknown
+                    ? k
+                    : TurnFailureKind.ApiError,
+                retryMessage);
             yield break;
         }
 

@@ -123,10 +123,29 @@ transcript out of one store and write it into another, which is where fidelity i
 limits are usually per-model, so trying a smaller model on the same CLI first is both cheaper and
 lossless.
 
+## It reacts on the first retry, not the last
+
+Every CLI retries a provider error by itself before giving up. Claude Code defaults to ten attempts
+and honours `retry-after`, so a caller that waits for the turn to end learns about a rate limit
+minutes after it started. `AgentEngine` surfaces `ApiRetrying` on the **first** failed attempt, and
+this sample abandons the turn there:
+
+```
+  [claude] RateLimited on attempt 1/10, would wait 45s — not waiting for it to give up
+  ...
+  done on codex
+```
+
+That run took **10 seconds** end to end. Waiting for Claude's own budget would have been ten
+attempts at 45 seconds apiece.
+
+For a failure kind the chain would not fail over on, the retry is reported and the CLI is left to
+recover on its own.
+
 ## What it does not do
 
-- **Retry or back off.** A rate limit that reports `retry-after: 8s` is often better waited out
-  than paid for in context fidelity. This sample switches immediately, because it is demonstrating
+- **Back off before switching.** A rate limit reporting `retry-after: 8s` is sometimes better waited
+  out than paid for in context fidelity. This sample always switches, because it is demonstrating
   the switch.
 - **Fail over on everything.** `MaxTokens` means the context is too big everywhere, and
   `SessionNotFound` is deterministic — spending the chain on either just fails slower. See

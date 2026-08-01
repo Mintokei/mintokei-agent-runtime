@@ -15,6 +15,7 @@ You embed them and supply your own persistence and orchestration through small c
 | Package | What it does | Depends on |
 |---|---|---|
 | **Mintokei.AgentEngine** | Drive one agent-CLI session over its native stdio protocol — handshake, turns, streaming, interrupts, compaction, permissions — and get a single normalized `AgentMessage` contract across every provider. | logging + DI abstractions only |
+| **Mintokei.AgentTranscripts** | Read and write the session files agent CLIs leave on disk, normalized to the same `AgentMessage` contract — so a conversation can be moved between CLIs and resumed there. | AgentEngine |
 | **Mintokei.AgentControlPlane** | Spawn / track many engine sessions with capacity accounting and machine admission. | AgentEngine |
 | **Mintokei.Filesystem** | Low-level filesystem helpers used by the runner-side file-search and file-watch flows. Most consumers never reference it directly. | — |
 | **Mintokei.Runner.Contracts** (+ `.Grpc`) | Dependency-free wire records + the gRPC/tunnel protocol between backend and worker. | — |
@@ -37,6 +38,9 @@ in the ones below it, so you never reference a lower package directly.
 - **Run agents on remote worker machines** → add `Mintokei.Runner.Host` on the backend, and on each
   worker either `Mintokei.Runner` (ready-to-run executable) or `Mintokei.Runner.Client` (to embed in
   your own host). `Runner.Contracts` / `.Grpc` come along transitively.
+- **Move a conversation from one agent CLI to another, or read the transcripts they leave behind** →
+  add `Mintokei.AgentTranscripts`. Claude Code and Codex today; see
+  [`src/Mintokei.AgentTranscripts/README.md`](src/Mintokei.AgentTranscripts/README.md).
 - **Reuse the runner's file-search or file-watch filtering rules in your own code** →
   `Mintokei.Filesystem` (advanced; most users do not need this directly).
 - **Isolate each agent session in its own throwaway container** → add `Mintokei.Sandbox` on the

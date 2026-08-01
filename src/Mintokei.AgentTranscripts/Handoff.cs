@@ -162,28 +162,53 @@ public static class HandoffPrompt
     };
 }
 
-/// <summary>What <see cref="TranscriptTrimming.TrimIncompleteTail"/> removed.</summary>
-/// <param name="Transcript">The transcript with any incomplete trailing turn removed.</param>
-/// <param name="DroppedRequest">The user turn that was removed, or null if nothing was.</param>
-/// <param name="DroppedUnresolvedToolCall">
-/// Whether the removed tail contained a tool call with no recorded result.
-/// </param>
-public sealed record TrimResult(
-    StoredTranscript Transcript, string? DroppedRequest, bool DroppedUnresolvedToolCall);
+/// <summary>The outcome of inspecting a transcript's tail before handing it to another CLI.</summary>
+public sealed record TrimResult
+{
+    /// <summary>The transcript, with an unproductive trailing turn removed if there was one.</summary>
+    public required StoredTranscript Transcript { get; init; }
+
+    /// <summary>The user turn that was removed, or null if nothing was.</summary>
+    public string? DroppedRequest { get; init; }
+
+    /// <summary>Whether the removed tail held a tool call with no recorded result.</summary>
+    public bool DroppedUnresolvedToolCall { get; init; }
+
+    /// <summary>
+    /// The last real user turn, whether or not it was trimmed — what the next CLI still owes an
+    /// answer to. Available even when nothing was dropped, because a long multi-step turn that was
+    /// cut off mid-way keeps its history (the completed steps are worth carrying) while still
+    /// leaving the original request outstanding.
+    /// </summary>
+    public string? OutstandingRequest { get; init; }
+
+    /// <summary>
+    /// True when the transcript ends on tool activity rather than on the agent saying something —
+    /// the signature of a turn that was cut off. Distinct from
+    /// <see cref="DroppedUnresolvedToolCall"/>, which is only about the part that was removed.
+    /// </summary>
+    public bool EndsMidTurn { get; init; }
+}
 
 public static class TranscriptTrimming
 {
     /// <summary>
-    /// Removes a trailing turn the agent never finished answering, so the target does not receive
-    /// the same request twice — once in the history and once as the turn it is asked to do.
+    /// Inspects the tail of a transcript before it is handed to another CLI.
     ///
-    /// "Unfinished" means the last user turn is followed by no assistant prose. Tool calls alone do
-    /// not count: an agent that ran a tool and then died mid-turn has not answered, and its half-done
-    /// step is exactly what should not be replayed as settled history.
+    /// Removes a trailing turn the agent produced <em>nothing</em> for, so the target does not
+    /// receive the same request twice — once as history and once as the turn it is asked to do.
+    /// A turn that got as far as running a tool still counts as unproductive: its half-done step is
+    /// exactly what should not be replayed as settled history.
+    ///
+    /// A turn that produced prose along the way is KEPT even if it never finished. A five-file edit
+    /// killed after the fourth file has four files' worth of work worth carrying; throwing that away
+    /// would make the next CLI redo it. For that case nothing is dropped and
+    /// <see cref="TrimResult.EndsMidTurn"/> reports that the turn was cut off.
     /// </summary>
     public static TrimResult TrimIncompleteTail(this StoredTranscript transcript)
     {
         var messages = transcript.Messages;
+
         var lastUser = -1;
         for (var i = messages.Count - 1; i >= 0; i--)
         {
@@ -194,22 +219,42 @@ public static class TranscriptTrimming
             }
         }
 
+        var outstanding = lastUser >= 0 ? messages[lastUser].Content : null;
+        var last = messages.Count > 0 ? messages[^1] : null;
+        var endsMidTurn = last is not null
+            && !(last.Type == MessageType.AgentMessage && !string.IsNullOrWhiteSpace(last.Content));
+
         if (lastUser < 0)
-            return new TrimResult(transcript, null, false);
+        {
+            return new TrimResult
+            {
+                Transcript = transcript, OutstandingRequest = null, EndsMidTurn = endsMidTurn,
+            };
+        }
 
         var tail = messages.Skip(lastUser + 1).ToList();
-        var answered = tail.Any(m =>
+        var producedSomething = tail.Any(m =>
             m.Type == MessageType.AgentMessage && !string.IsNullOrWhiteSpace(m.Content));
-        if (answered)
-            return new TrimResult(transcript, null, false);
+
+        if (producedSomething)
+        {
+            return new TrimResult
+            {
+                Transcript = transcript, OutstandingRequest = outstanding, EndsMidTurn = endsMidTurn,
+            };
+        }
 
         var unresolved = tail.Any(m =>
             (m.ToolCall is not null || m.CommandExecution is not null)
             && m.Status != MessageStatus.Completed);
 
-        return new TrimResult(
-            transcript with { Messages = messages.Take(lastUser).ToList() },
-            messages[lastUser].Content,
-            unresolved);
+        return new TrimResult
+        {
+            Transcript = transcript with { Messages = messages.Take(lastUser).ToList() },
+            DroppedRequest = outstanding,
+            DroppedUnresolvedToolCall = unresolved,
+            OutstandingRequest = outstanding,
+            EndsMidTurn = true,
+        };
     }
 }

@@ -174,9 +174,12 @@ static async Task<Hop> MoveConversationAsync(
         // Drop the turn the agent never finished answering. Without this the target receives the
         // same request twice — once as history, once as the turn it is asked to do — and tends to
         // redo work that may already have taken effect.
-        var (transcript, droppedRequest, unresolved) = read.TrimIncompleteTail();
-        if (droppedRequest is not null)
-            Console.WriteLine($"   trimmed the unfinished turn ({(unresolved ? "its last step has no recorded result" : "no answer recorded")})");
+        var trim = read.TrimIncompleteTail();
+        var transcript = trim.Transcript;
+        if (trim.DroppedRequest is not null)
+            Console.WriteLine($"   trimmed the unproductive turn ({(trim.DroppedUnresolvedToolCall ? "its last step has no recorded result" : "nothing was produced")})");
+        else if (trim.EndsMidTurn)
+            Console.WriteLine("   the turn was cut off mid-way — keeping the work it did produce");
 
         if (transcript.Messages.Count == 0)
         {
@@ -198,11 +201,11 @@ static async Task<Hop> MoveConversationAsync(
             TargetTool = to.Tool,
             SourceSessionId = sessionId,
             SourcePath = read.SourcePath,
-            Request = droppedRequest,
+            Request = trim.OutstandingRequest,
             Reason = failure.StatusLabel,
             FailureKind = failure.Kind.ToString(),
             Cwd = cwd,
-            HasUnresolvedToolCall = unresolved,
+            HasUnresolvedToolCall = trim.EndsMidTurn,
         });
         return new Hop(newId, turn);
     }

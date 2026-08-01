@@ -52,6 +52,15 @@ public sealed partial class ClaudeTranscriptStore : ITranscriptStore
     [GeneratedRegex("[^A-Za-z0-9]")]
     private static partial Regex NonAlphanumeric();
 
+    /// <summary>
+    /// Claude Code writes a synthetic user turn when a turn is cut short — a Ctrl-C, a SIGTERM, a
+    /// crash. It is the CLI narrating its own interruption, not something a human asked for, so
+    /// reading it as a request makes a handoff say "Outstanding request: [Request interrupted by
+    /// user]". Matched narrowly, because a genuine message may well start with '['.
+    /// </summary>
+    [GeneratedRegex(@"^\[Request interrupted[^\]]*\]$", RegexOptions.IgnoreCase)]
+    private static partial Regex InterruptMarker();
+
     // ── read ──────────────────────────────────────────────────────────────
 
     public async IAsyncEnumerable<StoredTranscriptInfo> ListAsync(
@@ -234,7 +243,7 @@ public sealed partial class ClaudeTranscriptStore : ITranscriptStore
         if (content.ValueKind == JsonValueKind.String)
         {
             text = content.GetString() ?? string.Empty;
-            return !string.IsNullOrWhiteSpace(text);
+            return !string.IsNullOrWhiteSpace(text) && !InterruptMarker().IsMatch(text.Trim());
         }
 
         if (content.ValueKind != JsonValueKind.Array)
@@ -252,7 +261,7 @@ public sealed partial class ClaudeTranscriptStore : ITranscriptStore
         }
 
         text = string.Join('\n', parts);
-        return !string.IsNullOrWhiteSpace(text);
+        return !string.IsNullOrWhiteSpace(text) && !InterruptMarker().IsMatch(text.Trim());
     }
 
     private static AgentMessage UserMessage(Guid sessionScopedId, JsonElement root, string text)

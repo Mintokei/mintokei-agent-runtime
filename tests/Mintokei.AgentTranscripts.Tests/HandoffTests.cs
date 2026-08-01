@@ -185,4 +185,33 @@ public sealed class TranscriptTrimmingTests
         var t = With(Assistant("orphaned"));
         Assert.Null(t.TrimIncompleteTail().DroppedRequest);
     }
+
+    [Fact]
+    public void A_multi_step_turn_cut_off_mid_way_keeps_the_work_it_produced()
+    {
+        // A five-file edit killed after the fourth has four files' worth of work worth carrying.
+        // Trimming it would make the next CLI redo them.
+        var t = With(
+            User("edit all five files"),
+            Assistant("done a.yaml"), Assistant("done b.yaml"),
+            Tool(MessageStatus.Completed));
+
+        var result = t.TrimIncompleteTail();
+
+        Assert.Null(result.DroppedRequest);                       // nothing thrown away
+        Assert.Equal(4, result.Transcript.Messages.Count);
+        Assert.True(result.EndsMidTurn);                          // but it did not finish
+        Assert.Equal("edit all five files", result.OutstandingRequest);
+    }
+
+    [Fact]
+    public void The_outstanding_request_survives_even_when_nothing_is_trimmed()
+    {
+        var t = With(User("do the thing"), Assistant("all done"));
+        var result = t.TrimIncompleteTail();
+
+        Assert.Null(result.DroppedRequest);
+        Assert.False(result.EndsMidTurn);
+        Assert.Equal("do the thing", result.OutstandingRequest);
+    }
 }

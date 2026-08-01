@@ -52,6 +52,15 @@ public sealed partial class ClaudeTranscriptStore : ITranscriptStore
     [GeneratedRegex("[^A-Za-z0-9]")]
     private static partial Regex NonAlphanumeric();
 
+    /// <summary>
+    /// Claude Code writes a synthetic user turn when a turn is cut short — a Ctrl-C, a SIGTERM, a
+    /// crash. It is the CLI narrating its own interruption, not something a human asked for, so
+    /// reading it as a request makes a handoff say "Outstanding request: [Request interrupted by
+    /// user]". Matched narrowly, because a genuine message may well start with '['.
+    /// </summary>
+    [GeneratedRegex(@"^\[Request interrupted[^\]]*\]$", RegexOptions.IgnoreCase)]
+    private static partial Regex InterruptMarker();
+
     // ── read ──────────────────────────────────────────────────────────────
 
     public async IAsyncEnumerable<StoredTranscriptInfo> ListAsync(
@@ -61,7 +70,15 @@ public sealed partial class ClaudeTranscriptStore : ITranscriptStore
         if (!Directory.Exists(ProjectsRoot))
             yield break;
 
-        var files = Directory.EnumerateFiles(ProjectsRoot, "*.jsonl", SearchOption.AllDirectories)
+        // The project directory name IS the flattened cwd, so a cwd filter can go straight to the
+        // one directory instead of reading a header out of every transcript on the machine and
+        // discarding all but a handful. Worth the special case: an interactive picker asks this
+        // question on every keystroke-free startup, and users accumulate hundreds of sessions.
+        var root = cwd is null ? ProjectsRoot : Path.Combine(ProjectsRoot, SlugFor(cwd));
+        if (!Directory.Exists(root))
+            yield break;
+
+        var files = Directory.EnumerateFiles(root, "*.jsonl", SearchOption.AllDirectories)
             .Select(p => new FileInfo(p))
             .OrderByDescending(f => f.LastWriteTimeUtc);
 
@@ -212,6 +229,7 @@ public sealed partial class ClaudeTranscriptStore : ITranscriptStore
             Title = title,
             CliVersion = version,
             GitBranch = branch,
+            SourcePath = file,
             Messages = messages,
         };
     }
@@ -233,7 +251,7 @@ public sealed partial class ClaudeTranscriptStore : ITranscriptStore
         if (content.ValueKind == JsonValueKind.String)
         {
             text = content.GetString() ?? string.Empty;
-            return !string.IsNullOrWhiteSpace(text);
+            return !string.IsNullOrWhiteSpace(text) && !InterruptMarker().IsMatch(text.Trim());
         }
 
         if (content.ValueKind != JsonValueKind.Array)
@@ -251,7 +269,7 @@ public sealed partial class ClaudeTranscriptStore : ITranscriptStore
         }
 
         text = string.Join('\n', parts);
-        return !string.IsNullOrWhiteSpace(text);
+        return !string.IsNullOrWhiteSpace(text) && !InterruptMarker().IsMatch(text.Trim());
     }
 
     private static AgentMessage UserMessage(Guid sessionScopedId, JsonElement root, string text)
@@ -327,8 +345,13 @@ public sealed partial class ClaudeTranscriptStore : ITranscriptStore
 
         var dir = Path.Combine(ProjectsRoot, SlugFor(cwd));
         var path = Path.Combine(dir, $"{sessionId}.jsonl");
-        var model = options.Model ?? session.Model ?? "claude-sonnet-4-5";
-        var version = options.CliVersion ?? session.CliVersion ?? "2.1.0";
+        // Only inherit the source's model/version when the transcript came from THIS store. A
+        // transcript converted from another CLI carries that CLI's model name, and stamping e.g.
+        // `claude-opus-5` into a Codex rollout makes the resumed session fail outright rather than
+        // quietly pick a default.
+        var sameStore = session.Tool == Tool;
+        var model = options.Model ?? (sameStore ? session.Model : null) ?? "claude-sonnet-4-5";
+        var version = options.CliVersion ?? (sameStore ? session.CliVersion : null) ?? "2.1.0";
 
         var lines = new List<JsonObject>();
         string? parentUuid = null;

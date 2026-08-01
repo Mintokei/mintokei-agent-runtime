@@ -9,6 +9,7 @@ one that is simply misconfigured, so it is worth knowing which you are looking a
 | Sample | Shows | Needs | One command |
 |---|---|---|---|
 | [`LocalAgentMinimal`](LocalAgentMinimal) | one agent CLI, one prompt | an installed, authenticated CLI | — |
+| [`FailoverAgentMinimal`](FailoverAgentMinimal) | switching CLI/model on a rate limit or API error | an installed, authenticated CLI | — |
 | [`ControlPlaneLocal`](ControlPlaneLocal) | several local sessions, tracked by key | an installed, authenticated CLI | — |
 | [`SandboxSessionMinimal`](SandboxSessionMinimal) | the sandbox session lifecycle | **nothing** (fakes the runtime + backend) | — |
 | [`SandboxPoolMinimal`](SandboxPoolMinimal) | warm pool: top-up, recycle, reap | **nothing** (fakes the runtime) | — |

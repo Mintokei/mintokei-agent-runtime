@@ -73,6 +73,10 @@ await foreach (var evt in session.Output)          // completes when the CLI str
         case DeltaOutput d:                          // real-time token / block / usage delta
             break;
 
+        case ApiRetrying r:                          // provider error; the CLI is retrying itself
+            Console.WriteLine($"retrying after {r.Kind} (attempt {r.Attempt}) — turn is still alive");
+            break;
+
         case TurnEnded te:                           // the agent finished a turn
             if (te.Failure is { } f) Console.WriteLine($"turn failed: {f.StatusLabel}");
             break;
@@ -139,6 +143,11 @@ await session.AttachAsync();   // adopt: no re-handshake; the CLI keeps its stat
   token-usage snapshots.
 - **`TurnEnded(rawResult, isInterrupted, TurnFailure?)`** — a turn boundary; `TurnFailure` normalises
   rate-limit / auth / overload / max-tokens errors across backends.
+- **`ApiRetrying(kind, message, httpStatus, attempt, maxAttempts, retryAfter)`** — the CLI hit a
+  provider error and is retrying *by itself*; the turn has **not** ended and may still succeed.
+  Emitted on the first failed attempt, because every CLI retries before giving up — Claude Code
+  defaults to ten attempts honouring `retry-after`, so waiting for `TurnEnded` can mean minutes of
+  silence. Act on it to fail over or warn early; ignore it to let the CLI recover.
 - **`InteractionRequested(requestId, AgentMessage, cacheKey, notify…)`** — the CLI is blocked on a
   permission / question; answer with `RespondAsync`. (Or auto-handle inline via
   `AgentSessionOptions.InteractionMode = AutoApprove | Deny | Policy`.)

@@ -100,6 +100,19 @@ public sealed record TurnFailure(TurnFailureKind Kind, string? Message)
     }
 
     /// <summary>
+    /// Classifies an HTTP status. Preferred over <see cref="ClassifyFromText"/> when a backend
+    /// reports one: a status is unambiguous, where provider wording is not.
+    /// </summary>
+    public static TurnFailureKind ClassifyFromStatus(int status) => status switch
+    {
+        429 => TurnFailureKind.RateLimited,
+        529 => TurnFailureKind.Overloaded,
+        401 or 402 or 403 => TurnFailureKind.Auth,
+        408 or 500 or 502 or 503 or 504 => TurnFailureKind.ApiError,
+        _ => TurnFailureKind.Unknown,
+    };
+
+    /// <summary>
     /// Builds a failure from a free-text error message, classifying the kind and
     /// keeping the original text as the human-readable detail. Falls back to the
     /// supplied <paramref name="fallback"/> kind when classification finds nothing.

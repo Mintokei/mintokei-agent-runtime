@@ -224,6 +224,9 @@ internal sealed class ClaudeStreamParser : IAgentStreamParser
         if (subtype == "status")
             return HandleStatus(root);
 
+        if (subtype == "api_retry")
+            return HandleApiRetry(root);
+
         if (root.TryGetProperty("session_id", out var sessionIdProp)
             && sessionIdProp.GetString() is { Length: > 0 } sessionId)
             return [new SessionIdChanged(sessionId)];
@@ -405,6 +408,46 @@ internal sealed class ClaudeStreamParser : IAgentStreamParser
     }
 
     // ── rate_limit_event ──
+
+    /// <summary>
+    /// Claude Code narrates its own retries: an <c>api_retry</c> frame arrives on the FIRST failed
+    /// attempt, carrying the status, the classified error and how long it intends to wait — long
+    /// before the turn ends. Surfacing it is the difference between a caller reacting in seconds
+    /// and waiting out ten attempts that each honour <c>retry-after</c>.
+    /// </summary>
+    private IEnumerable<AgentStreamOutput> HandleApiRetry(JsonElement root)
+    {
+        var status = root.TryGetProperty("error_status", out var st) && st.ValueKind == JsonValueKind.Number
+            ? st.GetInt32()
+            : (int?)null;
+        var error = root.TryGetProperty("error", out var er) && er.ValueKind == JsonValueKind.String
+            ? er.GetString()
+            : null;
+
+        // The status is the reliable signal; the `error` slug ("rate_limit") is the fallback for
+        // failures that never carried one.
+        var kind = status is { } code ? TurnFailure.ClassifyFromStatus(code) : TurnFailureKind.Unknown;
+        if (kind == TurnFailureKind.Unknown)
+            kind = TurnFailure.ClassifyFromText(error);
+        if (kind == TurnFailureKind.Unknown)
+            kind = TurnFailureKind.ApiError;
+
+        var attempt = root.TryGetProperty("attempt", out var at) && at.ValueKind == JsonValueKind.Number
+            ? at.GetInt32()
+            : (int?)null;
+        var max = root.TryGetProperty("max_retries", out var mx) && mx.ValueKind == JsonValueKind.Number
+            ? mx.GetInt32()
+            : (int?)null;
+        var delay = root.TryGetProperty("retry_delay_ms", out var dl) && dl.ValueKind == JsonValueKind.Number
+            ? TimeSpan.FromMilliseconds(dl.GetDouble())
+            : (TimeSpan?)null;
+
+        _logger.LogWarning(
+            "Claude is retrying after {Status} ({Kind}) for AgentTask {TaskId}: attempt {Attempt}/{Max}, waiting {Delay}",
+            status, kind, _agentTaskId, attempt, max, delay);
+
+        yield return new ApiRetrying(kind, error, status, attempt, max, delay);
+    }
 
     private IEnumerable<AgentStreamOutput> HandleRateLimit(JsonElement root)
     {

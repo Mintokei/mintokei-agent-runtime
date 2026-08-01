@@ -50,6 +50,33 @@ public sealed record ExternalMessageIdAssigned(MessageRole Role, string External
 /// The host resumes a Processed task.</summary>
 public sealed record TurnStarted : AgentStreamOutput;
 
+/// <summary>
+/// The CLI hit a provider error and is retrying by itself. The turn has NOT ended — it may still
+/// succeed, and if it does no failure is ever reported.
+///
+/// Emitted because the alternative is silence. Every CLI retries internally before giving up, so a
+/// caller that only watches <see cref="TurnEnded"/> learns about a rate limit once the CLI has
+/// exhausted its budget: Claude Code defaults to ten attempts and honours <c>retry-after</c>, which
+/// is minutes. A caller that wants to fail over to another provider, warn a user, or simply stop
+/// waiting needs to know on the first attempt, not the last.
+///
+/// Acting on this means racing the CLI's own recovery. That is the caller's decision to make —
+/// <see cref="Attempt"/> and <see cref="RetryAfter"/> are here so it can be made on evidence.
+/// </summary>
+/// <param name="Kind">Classified failure, so callers need not re-parse provider vocabulary.</param>
+/// <param name="Message">The provider's own text, where there is any.</param>
+/// <param name="HttpStatus">HTTP status, when the backend reports one.</param>
+/// <param name="Attempt">1-based attempt that just failed, when known.</param>
+/// <param name="MaxAttempts">The CLI's own retry budget, when known.</param>
+/// <param name="RetryAfter">How long the CLI intends to wait, when known.</param>
+public sealed record ApiRetrying(
+    TurnFailureKind Kind,
+    string? Message = null,
+    int? HttpStatus = null,
+    int? Attempt = null,
+    int? MaxAttempts = null,
+    TimeSpan? RetryAfter = null) : AgentStreamOutput;
+
 /// <summary>Drop the accumulated streaming-delta snapshot now that its fragments have
 /// been consolidated into persisted messages (Claude, after each assistant event).</summary>
 public sealed record ClearDeltaSnapshot : AgentStreamOutput;

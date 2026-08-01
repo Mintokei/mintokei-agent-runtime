@@ -270,6 +270,22 @@ static async Task<TurnFailure?> ConsumeTurnAsync(IAgentSession session, string l
                 PrintMessage(label, message.Message);
                 break;
 
+            case ApiRetrying retry when ShouldFailOver(retry.Kind):
+                // The CLI would keep retrying on its own — Claude ten times, honouring retry-after,
+                // which is minutes of silence. With another provider available, waiting that out is
+                // the wrong trade, so the turn is abandoned here and the chain moves on.
+                Console.WriteLine();
+                Console.WriteLine($"  [{label}] {retry.Kind} on attempt {retry.Attempt}"
+                    + (retry.MaxAttempts is { } max ? $"/{max}" : "")
+                    + (retry.RetryAfter is { } wait ? $", would wait {wait.TotalSeconds:0}s" : "")
+                    + " — not waiting for it to give up");
+                return new TurnFailure(retry.Kind, retry.Message);
+
+            case ApiRetrying retry:
+                Console.WriteLine();
+                Console.WriteLine($"  [{label}] retrying after {retry.Kind} — letting the CLI recover");
+                break;
+
             case TurnEnded turn:
                 return turn.Failure;
         }

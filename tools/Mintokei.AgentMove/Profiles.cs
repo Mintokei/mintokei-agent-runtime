@@ -49,21 +49,9 @@ public sealed record Profile
     /// shows before launching. A hop should never widen the agent's reach without someone seeing it.
     /// </summary>
     public IEnumerable<string> PermissionSettings() => Config
-        .Where(kv => PermissionKeys.Contains(kv.Key))
+        .Where(kv => Backends.IsPermissionKey(kv.Key))
         .OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
         .Select(kv => $"{kv.Key}={kv.Value}");
-
-    private static readonly HashSet<string> PermissionKeys = new(StringComparer.OrdinalIgnoreCase)
-    {
-        // Claude
-        "permissionMode", "allowedTools", "allowDangerouslySkipPermissions",
-        // Codex
-        "approvalPolicy", "access",
-        // Copilot
-        "autopilot", "allowAllPaths", "disableAskUser",
-        // OpenCode
-        "dangerouslySkipPermissions",
-    };
 }
 
 /// <summary>Everything agentmove reads from disk.</summary>
@@ -149,7 +137,8 @@ public sealed record MoveConfig
             {
                 Tool = "copilot",
                 Description = "GitHub Copilot CLI, asks before acting",
-                Config = new(StringComparer.OrdinalIgnoreCase) { ["autopilot"] = "interactive" },
+                // Copilot's setting is `mode`; "autopilot" is one of its values, not the key.
+                Config = new(StringComparer.OrdinalIgnoreCase) { ["mode"] = "interactive" },
             },
         },
     };

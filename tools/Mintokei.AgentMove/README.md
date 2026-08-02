@@ -45,6 +45,109 @@ Resume it with:  codex resume 019fbd5b-6d54-7ccf-adea-cc8dd9dcf1bc
 It prints a handoff message to paste as your first turn; the history is already there, so it says
 where the conversation came from rather than repeating it.
 
+## Or go straight into the CLI: `--attach`
+
+`--attach` runs the resume command for you, handing this terminal to the target CLI's own
+interface — the real TUI, with its colours, keybindings and slash commands:
+
+```
+Paste this as your first turn (the history already holds the rest):
+
+    [handoff] This conversation was moved here from Claude Code.
+    …
+
+  starting claude…
+╭──────────────────────────────────────────────────────────────────╮
+│ ✻ Welcome to Claude Code                                         │
+╰──────────────────────────────────────────────────────────────────╯
+>
+```
+
+The handoff is printed *before* the handover, because once the CLI owns the screen there is no way
+to send it a turn — paste it as your first message. (`--launch` sends it for you.)
+
+**`--attach` refuses rather than start an agent with the wrong permissions.** It goes through the
+same command line as the printed form, so it can only apply what that CLI's resume invocation
+accepts. For Codex that is nothing:
+
+```
+  permissions: approvalPolicy=on-request  sandbox=read-only
+               ^ NOT applied (approvalPolicy, sandbox) — a command line cannot carry these; --launch can
+
+--attach cannot apply approvalPolicy, sandbox: codex takes those over its protocol, not on the
+command line, so the agent would run with its own defaults instead of what this profile says.
+  --launch applies them, or set them in the CLI's own settings and drop them from the profile.
+```
+
+It stops before writing anything, so no half-moved session is left behind. Claude is the happy
+case — `--model` and `--permission-mode` are real flags, so a Claude profile attaches intact.
+
+## Or carry on here: `--launch`
+
+`--launch` starts the target CLI itself, sends the handoff turn, and leaves you at a prompt:
+
+```
+$ agentmove --launch
+
+  ...
+  Claude Code  ->  codex (codex/gpt-5.5)
+  start:       agentmove launches it here
+  permissions: approvalPolicy=on-request  sandbox=read-only
+
+Proceed? [y/N]: y
+
+  moved 4 message(s) as 019fc18d-c10b-779d-9fb8-a59c10e17676
+
+── codex/gpt-5.5 — resumed 019fc18d-c10b…, sending the handoff turn
+   (blank line or /quit to leave; the session stays on disk either way)
+
+I'll check the workspace rather than trusting the handoff history.
+  · /bin/bash -lc 'sed -n 1,120p notes.txt'
+notes.txt still has `vault: HARRIER-71`. Nothing was left half-done.
+
+> what's on line 2?
+
+  · /bin/bash -lc "sed -n '2p' notes.txt"
+`port: 8080`.
+
+>
+
+Session 019fc18d-c10b-779d-9fb8-a59c10e17676
+Pick it up again with:  codex resume 019fc18d-c10b-779d-9fb8-a59c10e17676
+```
+
+**This is the only path on which the profile's settings are fully in force.** The other two go
+through a command line, which carries what that CLI's own resume invocation accepts and nothing
+more — for Codex nothing at all, because the engine drives it over `codex app-server` rather than
+by flags. So agentmove says which of the three you are getting, and marks what would be dropped:
+
+```
+  permissions: approvalPolicy=on-request  sandbox=read-only
+               ^ NOT applied by the command below (approvalPolicy, sandbox) — use --launch,
+                 or set them in the CLI's own settings
+```
+
+`extraArgs` is the other way round: it reaches the command line — printed or attached — and *not*
+`--launch`, because `AgentSessionSpec` has no verbatim-arguments field and the engine builds the
+command from `config` alone. agentmove says so rather than dropping them quietly.
+
+Leaving the prompt does not end anything. The session is a normal session in the target CLI's own
+store, so `codex resume <id>` picks it up in the real TUI whenever you want.
+
+### Which one
+
+|  | default | `--attach` | `--launch` |
+|---|---|---|---|
+| the CLI's real TUI | you run it | **yes** | no |
+| applies the whole profile | no | only what flags carry | **yes** |
+| sends the handoff turn | you paste it | you paste it | **yes** |
+| can intercept a permission | — | no | **yes** |
+| works with Codex settings | no | refuses | **yes** |
+
+`--attach` is the one you want for "I moved it, now let me actually work". `--launch` is the one
+that can still see what happens — which is what makes intercepting a permission, or noticing a
+rate limit, possible at all.
+
 ## Configuration
 
 ```bash
@@ -52,7 +155,7 @@ agentmove --init          # writes ./agentmove.json
 ```
 
 Read from `--config`, then `./agentmove.json`, then `$XDG_CONFIG_HOME/agentmove/config.json`.
-Without one, two conservative built-in profiles are used.
+Without one, a conservative built-in profile per supported CLI is used.
 
 ```json
 {
@@ -72,32 +175,63 @@ Without one, two conservative built-in profiles are used.
 }
 ```
 
-`config` goes straight to `AgentSessionSpec.Config`, which each backend's config mapper already
-turns into that CLI's arguments — so a profile can express anything the engine can launch, and
-picks up new keys as the mappers grow:
+Under `--launch`, `config` goes straight to `AgentSessionSpec.Config`, which each backend's config
+mapper turns into how that CLI is run — so a profile can express anything the engine can launch,
+and picks up new keys as the mappers grow:
 
 | Backend | Keys |
 |---|---|
-| claude | `model` `effort` `permissionMode` `allowedTools` `allowDangerouslySkipPermissions` |
-| codex | `model` `effort` `approvalPolicy` `access` `collaborationMode` |
-| copilot | `model` `effort` `autopilot` `allowAllPaths` `disableAskUser` `disableBuiltinMcps` |
+| claude | `model` `effort` `maxTurns` `permissionMode` `allowedTools` `systemPromptFile` `allowDangerouslySkipPermissions` `verbose` |
+| codex | `model` `modelProvider` `modelVerbosity` `effort` `summary` `personality` `collaborationMode` `approvalPolicy` `sandbox` `webSearch` `ephemeral` `noProjectDoc` |
+| copilot | `model` `effort` `mode` `allowAllPaths` `disableAskUser` `disableBuiltinMcps` `enableAllGithubMcpTools` `maxAutopilotContinues` |
 | opencode | `model` `agent` `dangerouslySkipPermissions` |
 
-`extraArgs` is the escape hatch for whatever the mappers do not cover.
+A key outside its backend's list is an **error**, not a shrug:
+
+```
+profile 'codex' sets keys codex does not understand:
+  access  — did you mean 'sandbox'?
+  understood: approvalPolicy, collaborationMode, effort, ephemeral, model, …
+```
+
+The engine would drop an unrecognised key silently. For `model` that costs you a model; for a
+sandbox setting it means the profile reads as a restriction the CLI never receives — so the run
+stops instead.
+
+`extraArgs` is the escape hatch for whatever the mappers do not cover. It applies to the command
+line — printed or `--attach` — and not to `--launch`; see above.
 
 ### Permissions are not translated
 
-`permissionMode` is Claude's; `approvalPolicy` and `access` are Codex's. There is no honest mapping
-between them, so each profile states its own target's — and agentmove prints them before it does
-anything:
+`permissionMode` is Claude's; `approvalPolicy` and `sandbox` are Codex's; `mode` is Copilot's.
+There is no honest mapping between them, so each profile states its own target's — and agentmove
+prints them, marked with whether the start method you chose actually applies them:
 
 ```
-  permissions: approvalPolicy=on-request
+  permissions: approvalPolicy=on-request  sandbox=read-only
 ```
 
 That is the point of profiles rather than interactive flag entry: switching agents must not be how
 an agent quietly gains more reach than it had, and a file you wrote last week is easier to review
 than flags typed while something is broken.
+
+Under `--launch` there is a second answer to the same problem: the CLI's permission questions are
+asked *here*, in its own vocabulary, as they come up.
+
+```
+  ! wants to use: Write
+    allow? [y]es / [n]o / [a]lways: n
+
+declined
+```
+
+`[a]lways` applies for the rest of the session. With stdin not a terminal there is nobody to ask,
+so requests are denied — the only answer that cannot widen what the agent may do.
+
+One gap: a CLI question with structured options (Claude's AskUserQuestion, Codex's
+`requestUserInput`) is shown and answered as free text. Claude's reply builder accepts that; Codex
+wants a structured `answers` object, receives an empty one, and its agent generally re-asks in
+prose.
 
 ## Non-interactive
 
@@ -116,6 +250,8 @@ you which flag was missing.
 | `--to <profile>` | profile name |
 | `--limit <n>` | how many sessions to list (default 15) |
 | `--config <path>` | config file |
+| `--attach`, `-a` | hand this terminal to the target CLI's own interface |
+| `--launch`, `-l` | drive the target CLI from here instead |
 | `--yes` | skip the confirmation |
 | `--init` | write a starter config |
 

@@ -192,17 +192,38 @@ if (target is null)
     return 1;
 }
 
+// A key the target does not understand is dropped by the engine without a word. For a permission
+// setting that is the failure that matters: the profile reads as a restriction, the CLI never sees
+// one. Refuse rather than move and hope.
+var unknown = Backends.Unknown(targetKey, profile.Config);
+if (unknown.Count > 0)
+{
+    Console.Error.WriteLine($"profile '{profileName}' sets keys {profile.Tool} does not understand:");
+    foreach (var (key, suggestion) in unknown)
+        Console.Error.WriteLine($"  {key}{(suggestion is null ? "" : $"  — did you mean '{suggestion}'?")}");
+    Console.Error.WriteLine($"  understood: {string.Join(", ", Backends.AcceptedKeys(targetKey).OrderBy(k => k, StringComparer.OrdinalIgnoreCase))}");
+    return 1;
+}
+
 // ── 4. say what it will do, then do it ───────────────────────────────────
 
 Console.WriteLine();
 Console.WriteLine($"  {source.Name}  ->  {profileName} ({profile.Tool}{(profile.Model is { Length: > 0 } ? "/" + profile.Model : "")})");
+Console.WriteLine(options.Launch
+    ? "  start:       agentmove launches it here"
+    : "  start:       a command to run yourself");
 
-var permissions = profile.PermissionSettings().ToList();
-Console.WriteLine(permissions.Count > 0
-    ? $"  permissions: {string.Join("  ", permissions)}"
-    : "  permissions: (profile sets none — the CLI's own defaults apply)");
+// Which of the profile's settings are actually in force depends on that choice, so it is reported
+// against it rather than stated once and hoped for.
+Reporting.PrintPermissions(targetKey, profile, options.Launch);
+
 if (profile.ExtraArgs.Count > 0)
-    Console.WriteLine($"  extra args:  {string.Join(' ', profile.ExtraArgs)}");
+    Console.WriteLine(options.Launch
+        // AgentSessionSpec has no verbatim-arguments field: the engine builds the command line
+        // from the config alone, so there is nowhere for these to go.
+        ? $"  extra args:  {string.Join(' ', profile.ExtraArgs)}  (NOT applied when launching — "
+          + "the engine builds the command line from `config`)"
+        : $"  extra args:  {string.Join(' ', profile.ExtraArgs)}");
 
 if (!options.Yes && !Confirm("Proceed?"))
 {
@@ -281,8 +302,40 @@ var handoff = HandoffPrompt.Render(template, new HandoffContext
 
 Console.WriteLine();
 Console.WriteLine($"  moved {transcript.Messages.Count} message(s) as {newId}");
+
+// ── 5. hand it over ──────────────────────────────────────────────────────
+
+if (options.Launch)
+{
+    using var shutdown = new CancellationTokenSource();
+    Console.CancelKeyPress += (_, e) =>
+    {
+        e.Cancel = true;
+        shutdown.Cancel();
+    };
+
+    try
+    {
+        return await Launcher.RunAsync(profile, targetKey, cwd, newId, handoff, shutdown.Token);
+    }
+    catch (OperationCanceledException)
+    {
+        // The move already happened; only the conversation that followed it is lost.
+        Console.WriteLine();
+        Console.WriteLine($"Stopped. The session is still there: {Reporting.ResumeCommand(targetKey, newId, profile)}");
+        return 130;
+    }
+}
+
 Console.WriteLine();
-Console.WriteLine($"Resume it with:  {ResumeCommand(targetKey, newId, profile)}");
+Console.WriteLine($"Resume it with:  {Reporting.ResumeCommand(targetKey, newId, profile)}");
+
+var dropped = Reporting.CommandLine(targetKey, profile).Dropped;
+if (dropped.Count > 0)
+    Console.WriteLine(
+        $"  (that command does not carry {string.Join(", ", dropped)} — "
+        + "`--launch` starts the session with the whole profile applied)");
+
 Console.WriteLine();
 Console.WriteLine("First thing to say (the history already holds the rest):");
 Console.WriteLine();
@@ -298,19 +351,6 @@ static ITranscriptStore? StoreFor(AgentToolKey tool) => tool switch
     AgentToolKey.GithubCopilotCli => new CopilotTranscriptStore(),
     _ => null,
 };
-
-static string ResumeCommand(AgentToolKey tool, string id, Profile p)
-{
-    var model = p.Model is { Length: > 0 } ? $" --model {p.Model}" : "";
-    var extra = p.ExtraArgs.Count > 0 ? " " + string.Join(' ', p.ExtraArgs) : "";
-    return tool switch
-    {
-        AgentToolKey.ClaudeCodeCli => $"claude --resume {id}{model}{extra}",
-        AgentToolKey.CodexCli => $"codex resume {id}{extra}",
-        AgentToolKey.GithubCopilotCli => $"copilot --resume {id}{model}{extra}",
-        _ => $"<{tool}> resume {id}",
-    };
-}
 
 static string Describe(StoredTranscriptInfo s)
 {
@@ -404,13 +444,16 @@ static void PrintUsage() => Console.WriteLine("""
     Run it in the directory the work happened in; it lists the sessions each CLI
     recorded there, by description rather than by id.
 
-      agentmove                       pick interactively
+      agentmove                       pick interactively, print a command to run
+      agentmove --launch              pick interactively, then carry on here
       agentmove --init                write a starter agentmove.json
 
       --dir <path>       directory to look in (default: current)
       --from <cli>       skip the source prompt: claude | codex | copilot
       --session <id>     skip the session prompt (a unique prefix is enough)
       --to <profile>     skip the target prompt
+      --launch, -l       start the target CLI here and keep talking to it,
+                         instead of printing a command to run yourself
       --limit <n>        how many sessions to list (default 15)
       --config <path>    config file (default: ./agentmove.json, then
                          $XDG_CONFIG_HOME/agentmove/config.json)
@@ -422,9 +465,15 @@ static void PrintUsage() => Console.WriteLine("""
     anything the engine can launch — `model`, `effort`, `permissionMode`
     (Claude), `approvalPolicy` and `access` (Codex), and so on.
 
+    Those settings apply in full only under --launch, because that is the path
+    that starts the CLI. A printed command carries what its own resume
+    invocation accepts and no more — for Codex that is nothing, since the
+    engine drives it over `codex app-server` rather than by flags. agentmove
+    says which of the two you are getting before it moves anything.
+
     Permissions are NOT translated between CLIs, because there is no honest
-    mapping. Each profile states its own target's, and agentmove prints them
-    before it does anything.
+    mapping. Each profile states its own target's; under --launch the CLI's own
+    permission questions are asked here, as they arise.
     """);
 
 internal sealed record MoveOptions(
@@ -436,6 +485,7 @@ internal sealed record MoveOptions(
     int Limit,
     bool Yes,
     bool Init,
+    bool Launch,
     bool ShowHelp)
 {
     public static MoveOptions Parse(string[] args)
@@ -443,7 +493,7 @@ internal sealed record MoveOptions(
         var dir = Environment.CurrentDirectory;
         string? from = null, session = null, to = null, config = null;
         var limit = 15;
-        bool yes = false, init = false, help = false;
+        bool yes = false, init = false, launch = false, help = false;
 
         for (var i = 0; i < args.Length; i++)
         {
@@ -452,12 +502,13 @@ internal sealed record MoveOptions(
                 case "--help" or "-h": help = true; break;
                 case "--init": init = true; break;
                 case "--yes" or "-y": yes = true; break;
+                case "--launch" or "-l": launch = true; break;
                 case "--dir" when i + 1 < args.Length: dir = Path.GetFullPath(args[++i]); break;
                 case "--from" when i + 1 < args.Length: from = args[++i]; break;
                 case "--session" when i + 1 < args.Length: session = args[++i]; break;
                 case "--to" when i + 1 < args.Length: to = args[++i]; break;
                 case "--config" when i + 1 < args.Length: config = args[++i]; break;
-                case "--limit" when i + 1 < args.Length: limit = int.Parse(args[++i]); break;
+                case "--limit" when i + 1 < args.Length: limit = ParseCount(args[++i]); break;
                 default:
                     Console.Error.WriteLine($"unknown argument '{args[i]}' (try --help)");
                     Environment.Exit(1);
@@ -465,6 +516,16 @@ internal sealed record MoveOptions(
             }
         }
 
-        return new MoveOptions(dir, from, session, to, config, limit, yes, init, help);
+        return new MoveOptions(dir, from, session, to, config, limit, yes, init, launch, help);
+    }
+
+    // int.Parse would surface a bad --limit as an unhandled FormatException and a stack trace.
+    private static int ParseCount(string raw)
+    {
+        if (int.TryParse(raw, out var n) && n > 0)
+            return n;
+        Console.Error.WriteLine($"--limit needs a positive number, not '{raw}'");
+        Environment.Exit(1);
+        return 0;
     }
 }

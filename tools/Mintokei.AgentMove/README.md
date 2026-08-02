@@ -45,6 +45,43 @@ Resume it with:  codex resume 019fbd5b-6d54-7ccf-adea-cc8dd9dcf1bc
 It prints a handoff message to paste as your first turn; the history is already there, so it says
 where the conversation came from rather than repeating it.
 
+## Or go straight into the CLI: `--attach`
+
+`--attach` runs the resume command for you, handing this terminal to the target CLI's own
+interface — the real TUI, with its colours, keybindings and slash commands:
+
+```
+Paste this as your first turn (the history already holds the rest):
+
+    [handoff] This conversation was moved here from Claude Code.
+    …
+
+  starting claude…
+╭──────────────────────────────────────────────────────────────────╮
+│ ✻ Welcome to Claude Code                                         │
+╰──────────────────────────────────────────────────────────────────╯
+>
+```
+
+The handoff is printed *before* the handover, because once the CLI owns the screen there is no way
+to send it a turn — paste it as your first message. (`--launch` sends it for you.)
+
+**`--attach` refuses rather than start an agent with the wrong permissions.** It goes through the
+same command line as the printed form, so it can only apply what that CLI's resume invocation
+accepts. For Codex that is nothing:
+
+```
+  permissions: approvalPolicy=on-request  sandbox=read-only
+               ^ NOT applied (approvalPolicy, sandbox) — a command line cannot carry these; --launch can
+
+--attach cannot apply approvalPolicy, sandbox: codex takes those over its protocol, not on the
+command line, so the agent would run with its own defaults instead of what this profile says.
+  --launch applies them, or set them in the CLI's own settings and drop them from the profile.
+```
+
+It stops before writing anything, so no half-moved session is left behind. Claude is the happy
+case — `--model` and `--permission-mode` are real flags, so a Claude profile attaches intact.
+
 ## Or carry on here: `--launch`
 
 `--launch` starts the target CLI itself, sends the handoff turn, and leaves you at a prompt:
@@ -79,10 +116,10 @@ Session 019fc18d-c10b-779d-9fb8-a59c10e17676
 Pick it up again with:  codex resume 019fc18d-c10b-779d-9fb8-a59c10e17676
 ```
 
-**This is the only path on which the profile's settings are actually in force.** A printed command
-can carry what that CLI's own resume invocation accepts and nothing more — for Codex that is
-nothing at all, because the engine drives it over `codex app-server` rather than by flags. So
-agentmove says which of the two you are getting, and marks the settings the command would drop:
+**This is the only path on which the profile's settings are fully in force.** The other two go
+through a command line, which carries what that CLI's own resume invocation accepts and nothing
+more — for Codex nothing at all, because the engine drives it over `codex app-server` rather than
+by flags. So agentmove says which of the three you are getting, and marks what would be dropped:
 
 ```
   permissions: approvalPolicy=on-request  sandbox=read-only
@@ -90,12 +127,26 @@ agentmove says which of the two you are getting, and marks the settings the comm
                  or set them in the CLI's own settings
 ```
 
-`extraArgs` is the other way round: it reaches the printed command and *not* `--launch`, because
-`AgentSessionSpec` has no verbatim-arguments field — the engine builds the command line from
-`config` alone. agentmove says so rather than dropping them quietly.
+`extraArgs` is the other way round: it reaches the command line — printed or attached — and *not*
+`--launch`, because `AgentSessionSpec` has no verbatim-arguments field and the engine builds the
+command from `config` alone. agentmove says so rather than dropping them quietly.
 
 Leaving the prompt does not end anything. The session is a normal session in the target CLI's own
 store, so `codex resume <id>` picks it up in the real TUI whenever you want.
+
+### Which one
+
+|  | default | `--attach` | `--launch` |
+|---|---|---|---|
+| the CLI's real TUI | you run it | **yes** | no |
+| applies the whole profile | no | only what flags carry | **yes** |
+| sends the handoff turn | you paste it | you paste it | **yes** |
+| can intercept a permission | — | no | **yes** |
+| works with Codex settings | no | refuses | **yes** |
+
+`--attach` is the one you want for "I moved it, now let me actually work". `--launch` is the one
+that can still see what happens — which is what makes intercepting a permission, or noticing a
+rate limit, possible at all.
 
 ## Configuration
 
@@ -147,8 +198,8 @@ The engine would drop an unrecognised key silently. For `model` that costs you a
 sandbox setting it means the profile reads as a restriction the CLI never receives — so the run
 stops instead.
 
-`extraArgs` is the escape hatch for whatever the mappers do not cover. It applies to the printed
-resume command only; see `--launch` above.
+`extraArgs` is the escape hatch for whatever the mappers do not cover. It applies to the command
+line — printed or `--attach` — and not to `--launch`; see above.
 
 ### Permissions are not translated
 
@@ -199,7 +250,8 @@ you which flag was missing.
 | `--to <profile>` | profile name |
 | `--limit <n>` | how many sessions to list (default 15) |
 | `--config <path>` | config file |
-| `--launch`, `-l` | start the target here instead of printing a command |
+| `--attach`, `-a` | hand this terminal to the target CLI's own interface |
+| `--launch`, `-l` | drive the target CLI from here instead |
 | `--yes` | skip the confirmation |
 | `--init` | write a starter config |
 

@@ -209,16 +209,33 @@ if (unknown.Count > 0)
 
 Console.WriteLine();
 Console.WriteLine($"  {source.Name}  ->  {profileName} ({profile.Tool}{(profile.Model is { Length: > 0 } ? "/" + profile.Model : "")})");
-Console.WriteLine(options.Launch
-    ? "  start:       agentmove launches it here"
-    : "  start:       a command to run yourself");
+Console.WriteLine(options.Mode switch
+{
+    StartMode.Launch => "  start:       agentmove drives it here",
+    StartMode.Attach => $"  start:       {profile.Tool}'s own interface, in this terminal",
+    _ => "  start:       a command to run yourself",
+});
 
 // Which of the profile's settings are actually in force depends on that choice, so it is reported
 // against it rather than stated once and hoped for.
-Reporting.PrintPermissions(targetKey, profile, options.Launch);
+var unapplied = Reporting.PrintPermissions(targetKey, profile, options.Mode);
+
+// Printing a warning and then running it anyway is how the widening happens. --attach is the one
+// mode that both drops permission settings and starts the agent, so it is the one that must stop.
+if (options.Mode is StartMode.Attach && unapplied.Count > 0)
+{
+    Console.Error.WriteLine();
+    Console.Error.WriteLine(
+        $"--attach cannot apply {string.Join(", ", unapplied)}: {profile.Tool} takes those over its "
+        + "protocol, not on the command line, so the agent would run with its own defaults instead "
+        + "of what this profile says.");
+    Console.Error.WriteLine("  --launch applies them, or set them in the CLI's own settings and "
+        + "drop them from the profile.");
+    return 1;
+}
 
 if (profile.ExtraArgs.Count > 0)
-    Console.WriteLine(options.Launch
+    Console.WriteLine(options.Mode is StartMode.Launch
         // AgentSessionSpec has no verbatim-arguments field: the engine builds the command line
         // from the config alone, so there is nowhere for these to go.
         ? $"  extra args:  {string.Join(' ', profile.ExtraArgs)}  (NOT applied when launching — "
@@ -305,7 +322,7 @@ Console.WriteLine($"  moved {transcript.Messages.Count} message(s) as {newId}");
 
 // ── 5. hand it over ──────────────────────────────────────────────────────
 
-if (options.Launch)
+if (options.Mode is StartMode.Launch)
 {
     using var shutdown = new CancellationTokenSource();
     Console.CancelKeyPress += (_, e) =>
@@ -327,13 +344,26 @@ if (options.Launch)
     }
 }
 
+if (options.Mode is StartMode.Attach)
+{
+    // Printed before handing the terminal over, because after that the CLI owns the screen and
+    // there is no way to send a turn to it. Unlike --launch, which sends this itself.
+    Console.WriteLine();
+    Console.WriteLine("Paste this as your first turn (the history already holds the rest):");
+    Console.WriteLine();
+    Console.WriteLine(Indent(handoff));
+    Console.WriteLine();
+    Console.WriteLine($"  starting {profile.Tool}…");
+    return Attacher.Run(profile, targetKey, cwd, newId);
+}
+
 Console.WriteLine();
 Console.WriteLine($"Resume it with:  {Reporting.ResumeCommand(targetKey, newId, profile)}");
 
-var dropped = Reporting.CommandLine(targetKey, profile).Dropped;
-if (dropped.Count > 0)
+var droppedKeys = Reporting.Resume(targetKey, newId, profile).Dropped;
+if (droppedKeys.Count > 0)
     Console.WriteLine(
-        $"  (that command does not carry {string.Join(", ", dropped)} — "
+        $"  (that command does not carry {string.Join(", ", droppedKeys)} — "
         + "`--launch` starts the session with the whole profile applied)");
 
 Console.WriteLine();
@@ -445,15 +475,20 @@ static void PrintUsage() => Console.WriteLine("""
     recorded there, by description rather than by id.
 
       agentmove                       pick interactively, print a command to run
-      agentmove --launch              pick interactively, then carry on here
+      agentmove --attach              …and drop into that CLI's own interface
+      agentmove --launch              …and carry on in a prompt here
       agentmove --init                write a starter agentmove.json
 
       --dir <path>       directory to look in (default: current)
       --from <cli>       skip the source prompt: claude | codex | copilot
       --session <id>     skip the session prompt (a unique prefix is enough)
       --to <profile>     skip the target prompt
-      --launch, -l       start the target CLI here and keep talking to it,
-                         instead of printing a command to run yourself
+      --attach, -a       run the target CLI's real TUI in this terminal. Full
+                         interface; agentmove sees nothing once it starts, and
+                         cannot apply settings the command line will not carry
+      --launch, -l       drive the target CLI from here instead. No TUI, but
+                         the whole profile applies and its permission questions
+                         are asked here as they arise
       --limit <n>        how many sessions to list (default 15)
       --config <path>    config file (default: ./agentmove.json, then
                          $XDG_CONFIG_HOME/agentmove/config.json)
@@ -463,13 +498,16 @@ static void PrintUsage() => Console.WriteLine("""
     Profiles say which CLI to continue in and how to launch it. Their `config`
     keys go to the engine's per-backend mappers, so a profile can express
     anything the engine can launch — `model`, `effort`, `permissionMode`
-    (Claude), `approvalPolicy` and `access` (Codex), and so on.
+    (Claude), `approvalPolicy` and `sandbox` (Codex), and so on. A key its
+    backend does not understand is an error, not a shrug.
 
-    Those settings apply in full only under --launch, because that is the path
-    that starts the CLI. A printed command carries what its own resume
-    invocation accepts and no more — for Codex that is nothing, since the
-    engine drives it over `codex app-server` rather than by flags. agentmove
-    says which of the two you are getting before it moves anything.
+    Those settings apply in full only under --launch, because that is the only
+    path where agentmove starts the CLI itself. The other two go through a
+    command line, which carries what that CLI's resume invocation accepts and
+    no more — for Codex, nothing, since the engine drives it over
+    `codex app-server` rather than by flags. agentmove says which you are
+    getting before it moves anything, and --attach refuses outright rather than
+    start an agent with permissions the profile did not ask for.
 
     Permissions are NOT translated between CLIs, because there is no honest
     mapping. Each profile states its own target's; under --launch the CLI's own
@@ -485,7 +523,7 @@ internal sealed record MoveOptions(
     int Limit,
     bool Yes,
     bool Init,
-    bool Launch,
+    StartMode Mode,
     bool ShowHelp)
 {
     public static MoveOptions Parse(string[] args)
@@ -493,7 +531,8 @@ internal sealed record MoveOptions(
         var dir = Environment.CurrentDirectory;
         string? from = null, session = null, to = null, config = null;
         var limit = 15;
-        bool yes = false, init = false, launch = false, help = false;
+        bool yes = false, init = false, help = false;
+        var mode = StartMode.PrintCommand;
 
         for (var i = 0; i < args.Length; i++)
         {
@@ -502,7 +541,8 @@ internal sealed record MoveOptions(
                 case "--help" or "-h": help = true; break;
                 case "--init": init = true; break;
                 case "--yes" or "-y": yes = true; break;
-                case "--launch" or "-l": launch = true; break;
+                case "--launch" or "-l": mode = Pick(mode, StartMode.Launch); break;
+                case "--attach" or "-a": mode = Pick(mode, StartMode.Attach); break;
                 case "--dir" when i + 1 < args.Length: dir = Path.GetFullPath(args[++i]); break;
                 case "--from" when i + 1 < args.Length: from = args[++i]; break;
                 case "--session" when i + 1 < args.Length: session = args[++i]; break;
@@ -516,7 +556,23 @@ internal sealed record MoveOptions(
             }
         }
 
-        return new MoveOptions(dir, from, session, to, config, limit, yes, init, launch, help);
+        return new MoveOptions(dir, from, session, to, config, limit, yes, init, mode, help);
+    }
+
+    // --launch and --attach are opposite trades, not degrees of the same one. Silently letting the
+    // last flag win would hand someone the mode they did not ask for.
+    private static StartMode Pick(StartMode current, StartMode wanted)
+    {
+        if (current is not StartMode.PrintCommand && current != wanted)
+        {
+            Console.Error.WriteLine("--launch and --attach do different things; pick one.");
+            Console.Error.WriteLine("  --launch  agentmove drives the CLI: applies the whole profile, "
+                + "asks permissions here, no TUI");
+            Console.Error.WriteLine("  --attach  the CLI's own TUI: full interface, but agentmove "
+                + "sees nothing after it starts");
+            Environment.Exit(1);
+        }
+        return wanted;
     }
 
     // int.Parse would surface a bad --limit as an unhandled FormatException and a stack trace.

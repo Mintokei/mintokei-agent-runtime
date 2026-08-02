@@ -226,11 +226,10 @@ if (options.Mode is StartMode.Attach && unapplied.Count > 0)
 {
     Console.Error.WriteLine();
     Console.Error.WriteLine(
-        $"--attach cannot apply {string.Join(", ", unapplied)}: {profile.Tool} takes those over its "
-        + "protocol, not on the command line, so the agent would run with its own defaults instead "
-        + "of what this profile says.");
-    Console.Error.WriteLine("  --launch applies them, or set them in the CLI's own settings and "
-        + "drop them from the profile.");
+        $"--attach cannot apply {string.Join(", ", unapplied)}: {profile.Tool} has no flag for "
+        + "these, so the agent would run with its own defaults instead of what this profile says.");
+    Console.Error.WriteLine("  --launch sets them over the CLI's protocol, or set them in its own "
+        + "settings and drop them from the profile.");
     return 1;
 }
 
@@ -346,15 +345,8 @@ if (options.Mode is StartMode.Launch)
 
 if (options.Mode is StartMode.Attach)
 {
-    // Printed before handing the terminal over, because after that the CLI owns the screen and
-    // there is no way to send a turn to it. Unlike --launch, which sends this itself.
-    Console.WriteLine();
-    Console.WriteLine("Paste this as your first turn (the history already holds the rest):");
-    Console.WriteLine();
-    Console.WriteLine(Indent(handoff));
-    Console.WriteLine();
-    Console.WriteLine($"  starting {profile.Tool}…");
-    return Attacher.Run(profile, targetKey, cwd, newId);
+    Console.WriteLine($"  starting {profile.Tool} with the handoff as its first turn…");
+    return Attacher.Run(profile, targetKey, cwd, newId, handoff);
 }
 
 Console.WriteLine();
@@ -483,12 +475,12 @@ static void PrintUsage() => Console.WriteLine("""
       --from <cli>       skip the source prompt: claude | codex | copilot
       --session <id>     skip the session prompt (a unique prefix is enough)
       --to <profile>     skip the target prompt
-      --attach, -a       run the target CLI's real TUI in this terminal. Full
-                         interface; agentmove sees nothing once it starts, and
-                         cannot apply settings the command line will not carry
+      --attach, -a       run the target CLI's real TUI in this terminal, with
+                         the profile as flags and the handoff as its first turn.
+                         agentmove sees nothing once it starts
       --launch, -l       drive the target CLI from here instead. No TUI, but
-                         the whole profile applies and its permission questions
-                         are asked here as they arise
+                         agentmove can answer its permission questions and
+                         react to a rate limit rather than wait one out
       --limit <n>        how many sessions to list (default 15)
       --config <path>    config file (default: ./agentmove.json, then
                          $XDG_CONFIG_HOME/agentmove/config.json)
@@ -501,13 +493,12 @@ static void PrintUsage() => Console.WriteLine("""
     (Claude), `approvalPolicy` and `sandbox` (Codex), and so on. A key its
     backend does not understand is an error, not a shrug.
 
-    Those settings apply in full only under --launch, because that is the only
-    path where agentmove starts the CLI itself. The other two go through a
-    command line, which carries what that CLI's resume invocation accepts and
-    no more — for Codex, nothing, since the engine drives it over
-    `codex app-server` rather than by flags. agentmove says which you are
-    getting before it moves anything, and --attach refuses outright rather than
-    start an agent with permissions the profile did not ask for.
+    Nearly all of it reaches the CLI either way: --launch hands it to the
+    engine, and the other two turn it into that CLI's own flags. What only
+    --launch can set is the handful of fields with no flag form, all of them
+    Codex protocol-level. agentmove names anything a command line would drop,
+    and --attach refuses outright rather than start an agent with permissions
+    the profile did not ask for.
 
     Permissions are NOT translated between CLIs, because there is no honest
     mapping. Each profile states its own target's; under --launch the CLI's own

@@ -17,9 +17,11 @@ namespace Mintokei.AgentMove;
 /// </summary>
 internal static class Attacher
 {
-    public static int Run(Profile profile, AgentToolKey tool, string cwd, string sessionId)
+    public static int Run(Profile profile, AgentToolKey tool, string cwd, string sessionId, string? firstTurn)
     {
-        var (file, argv, _) = Reporting.Resume(tool, sessionId, profile);
+        // The handoff rides along as the session's opening turn, so attaching lands in the same
+        // place launching does rather than at an empty prompt with something to paste.
+        var (file, argv, _) = Reporting.Resume(tool, sessionId, profile, firstTurn);
 
         var start = new ProcessStartInfo
         {

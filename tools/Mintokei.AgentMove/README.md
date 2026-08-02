@@ -48,39 +48,44 @@ where the conversation came from rather than repeating it.
 ## Or go straight into the CLI: `--attach`
 
 `--attach` runs the resume command for you, handing this terminal to the target CLI's own
-interface — the real TUI, with its colours, keybindings and slash commands:
+interface — the real TUI, with its colours, keybindings and slash commands — and passes the handoff
+along as the session's opening turn, so you land where `--launch` would rather than at an empty
+prompt with something to paste:
 
 ```
-Paste this as your first turn (the history already holds the rest):
-
-    [handoff] This conversation was moved here from Claude Code.
-    …
-
-  starting claude…
-╭──────────────────────────────────────────────────────────────────╮
-│ ✻ Welcome to Claude Code                                         │
-╰──────────────────────────────────────────────────────────────────╯
->
-```
-
-The handoff is printed *before* the handover, because once the CLI owns the screen there is no way
-to send it a turn — paste it as your first message. (`--launch` sends it for you.)
-
-**`--attach` refuses rather than start an agent with the wrong permissions.** It goes through the
-same command line as the printed form, so it can only apply what that CLI's resume invocation
-accepts. For Codex that is nothing:
-
-```
+  Claude Code  ->  codex (codex/gpt-5.5)
+  start:       codex's own interface, in this terminal
   permissions: approvalPolicy=on-request  sandbox=read-only
-               ^ NOT applied (approvalPolicy, sandbox) — a command line cannot carry these; --launch can
 
---attach cannot apply approvalPolicy, sandbox: codex takes those over its protocol, not on the
-command line, so the agent would run with its own defaults instead of what this profile says.
-  --launch applies them, or set them in the CLI's own settings and drop them from the profile.
+  moved 4 message(s) as 019fc2a8-5d4e-7733-8540-bc0b6f375c21
+  starting codex with the handoff as its first turn…
 ```
 
-It stops before writing anything, so no half-moved session is left behind. Claude is the happy
-case — `--model` and `--permission-mode` are real flags, so a Claude profile attaches intact.
+which is this, spawned as a child of agentmove with your stdin, stdout and stderr:
+
+```
+codex resume 019fc2a8-… --ask-for-approval on-request --sandbox read-only \
+  --config model_reasoning_effort=low --model gpt-5.5 "[handoff] This conversation was moved…"
+```
+
+The profile survives the crossing. Every CLI turns out to have flags for what a profile can say —
+Claude `--permission-mode` / `--effort`, Codex `--sandbox` / `--ask-for-approval` plus `-c` for its
+`config.toml` fields, Copilot `--mode` / `--allow-all-paths` — so `--attach` is not the lossy
+option it looks like.
+
+What you give up is agentmove's sight. A TUI paints escape sequences meant for a human's eyes, so
+from the moment it starts there is no permission to intercept, no rate limit to notice on the first
+retry, no second move to make. `--attach` is an `exec` with a transcript conversion in front of it.
+
+It still refuses rather than start an agent with permissions the profile did not ask for — that
+just almost never fires now, because almost everything maps:
+
+```
+--attach cannot apply dangerouslySkipPermissions: opencode has no flag for it, so the agent would
+run with its own defaults instead of what this profile says.
+```
+
+It stops before writing anything, so no half-moved session is left behind.
 
 ## Or carry on here: `--launch`
 
@@ -116,15 +121,19 @@ Session 019fc18d-c10b-779d-9fb8-a59c10e17676
 Pick it up again with:  codex resume 019fc18d-c10b-779d-9fb8-a59c10e17676
 ```
 
-**This is the only path on which the profile's settings are fully in force.** The other two go
-through a command line, which carries what that CLI's own resume invocation accepts and nothing
-more — for Codex nothing at all, because the engine drives it over `codex app-server` rather than
-by flags. So agentmove says which of the three you are getting, and marks what would be dropped:
+What this buys is not the settings — `--attach` gets nearly all of those onto a command line too —
+but **sight**. Driving the CLI over its own protocol is what lets agentmove answer a permission
+request, react to a rate limit on the first retry rather than the tenth, and move the conversation
+on again. Watching a TUI cannot do any of that.
+
+The settings it uniquely applies are the few with no flag form at all: Codex's `collaborationMode`
+and `ephemeral`, which exist only in the app-server protocol. agentmove names whatever a command
+line would drop:
 
 ```
-  permissions: approvalPolicy=on-request  sandbox=read-only
-               ^ NOT applied by the command below (approvalPolicy, sandbox) — use --launch,
-                 or set them in the CLI's own settings
+  permissions: dangerouslySkipPermissions=false
+               ^ NOT applied (dangerouslySkipPermissions) — opencode has no flag for these;
+                 --launch sets them over its protocol
 ```
 
 `extraArgs` is the other way round: it reaches the command line — printed or attached — and *not*
@@ -139,14 +148,14 @@ store, so `codex resume <id>` picks it up in the real TUI whenever you want.
 |  | default | `--attach` | `--launch` |
 |---|---|---|---|
 | the CLI's real TUI | you run it | **yes** | no |
-| applies the whole profile | no | only what flags carry | **yes** |
-| sends the handoff turn | you paste it | you paste it | **yes** |
-| can intercept a permission | — | no | **yes** |
-| works with Codex settings | no | refuses | **yes** |
+| applies the profile | **yes**, minus protocol-only keys | same | **yes**, all of it |
+| sends the handoff turn | you paste it | **yes** | **yes** |
+| carries `extraArgs` | **yes** | **yes** | no |
+| can answer a permission for you | — | no | **yes** |
+| can react to a rate limit | — | no | **yes** |
 
-`--attach` is the one you want for "I moved it, now let me actually work". `--launch` is the one
-that can still see what happens — which is what makes intercepting a permission, or noticing a
-rate limit, possible at all.
+`--attach` is the one you want for "I moved it, now let me actually work" — it is the real
+interface and the profile comes with it. `--launch` is the one that can still see what happens.
 
 ## Configuration
 
@@ -175,14 +184,15 @@ Without one, a conservative built-in profile per supported CLI is used.
 }
 ```
 
-Under `--launch`, `config` goes straight to `AgentSessionSpec.Config`, which each backend's config
-mapper turns into how that CLI is run — so a profile can express anything the engine can launch,
-and picks up new keys as the mappers grow:
+`config` is the engine's own vocabulary. Under `--launch` it goes straight to
+`AgentSessionSpec.Config` and the backend's mapper turns it into how that CLI is run; otherwise
+`CliArgs` turns it into that CLI's flags. Either way a profile can express anything the engine can
+launch, and picks up new keys as the mappers grow:
 
 | Backend | Keys |
 |---|---|
 | claude | `model` `effort` `maxTurns` `permissionMode` `allowedTools` `systemPromptFile` `allowDangerouslySkipPermissions` `verbose` |
-| codex | `model` `modelProvider` `modelVerbosity` `effort` `summary` `personality` `collaborationMode` `approvalPolicy` `sandbox` `webSearch` `ephemeral` `noProjectDoc` |
+| codex | `model` `modelProvider` `modelVerbosity` `effort` `summary` `personality` `approvalPolicy` `sandbox` `webSearch` — plus `collaborationMode` `ephemeral` `noProjectDoc`, which only `--launch` can apply |
 | copilot | `model` `effort` `mode` `allowAllPaths` `disableAskUser` `disableBuiltinMcps` `enableAllGithubMcpTools` `maxAutopilotContinues` |
 | opencode | `model` `agent` `dangerouslySkipPermissions` |
 
@@ -200,6 +210,11 @@ stops instead.
 
 `extraArgs` is the escape hatch for whatever the mappers do not cover. It applies to the command
 line — printed or `--attach` — and not to `--launch`; see above.
+
+Codex's command-line form was checked against the installed CLI rather than assumed: `--sandbox`
+and `--ask-for-approval` take the same values the config keys do, and the rest go through
+`-c <config.toml field>=<value>`, whose names were verified with `codex exec --strict-config`,
+which rejects an unknown field instead of ignoring it.
 
 ### Permissions are not translated
 

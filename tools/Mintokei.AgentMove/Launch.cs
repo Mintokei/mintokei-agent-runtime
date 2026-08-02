@@ -13,11 +13,10 @@ namespace Mintokei.AgentMove;
 /// <summary>
 /// Continues the moved conversation in the target CLI, here, instead of printing a command to run.
 ///
-/// This is the only path on which a profile's <c>config</c> actually takes effect. The printed
-/// resume command can carry <c>--model</c> and <c>extraArgs</c> and nothing else — Codex's
-/// settings in particular have no command-line form at all, because the engine drives it over
-/// <c>codex app-server</c> — so a profile that says <c>approvalPolicy: on-request</c> means what it
-/// says only when agentmove launches the session itself.
+/// What this buys over <see cref="Attacher"/> is not the settings — <see cref="CliArgs"/> gets
+/// almost all of those onto a command line too — but sight. Driving the CLI over its protocol is
+/// what lets agentmove answer a permission request, notice a rate limit on the first retry, or
+/// move the conversation on again. A TUI can do none of that for a program watching it.
 /// </summary>
 internal static class Launcher
 {

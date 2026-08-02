@@ -49,8 +49,7 @@ where the conversation came from rather than repeating it.
 
 `--attach` runs the resume command for you, handing this terminal to the target CLI's own
 interface — the real TUI, with its colours, keybindings and slash commands — and passes the handoff
-along as the session's opening turn, so you land where `--launch` would rather than at an empty
-prompt with something to paste:
+along as the session's opening turn, shown first so nothing is sent on your behalf unseen:
 
 ```
   Claude Code  ->  codex (codex/gpt-5.5)
@@ -58,7 +57,20 @@ prompt with something to paste:
   permissions: approvalPolicy=on-request  sandbox=read-only
 
   moved 4 message(s) as 019fc2a8-5d4e-7733-8540-bc0b6f375c21
-  starting codex with the handoff as its first turn…
+
+  sending as the first turn (--no-handoff to skip):
+
+    [handoff] This conversation was moved here from Claude Code.
+    …
+
+  starting codex…
+```
+
+With `--no-handoff` the session simply opens, history and all, and you type the first message
+yourself:
+
+```
+  starting codex — no opening turn, the history is already there
 ```
 
 which is this, spawned as a child of agentmove with your stdin, stdout and stderr:
@@ -180,9 +192,19 @@ Without one, a conservative built-in profile per supported CLI is used.
       "extraArgs": ["--skip-git-repo-check"]
     }
   },
-  "summariseOver": 400
+  "summariseOver": 400,
+
+  // The opening turn. Omit for the built-in wording; "" to send nothing.
+  "handoff": "You were interrupted. Continue: {request}"
 }
 ```
+
+Placeholders: `{request}` `{reason}` `{failureKind}` `{sourceCli}` `{targetCli}` `{sourceSessionId}`
+`{sourcePath}` `{cwd}` `{unresolvedToolCall}`. A line whose placeholder has no value is dropped
+whole, so keep the label on the **same line** as its placeholder — `Outstanding request: {request}`
+— or a label survives when its value does not and you get a heading with nothing under it.
+
+`--no-handoff` does the same as `""` for one run.
 
 `config` is the engine's own vocabulary. Under `--launch` it goes straight to
 `AgentSessionSpec.Config` and the backend's mapper turns it into how that CLI is run; otherwise

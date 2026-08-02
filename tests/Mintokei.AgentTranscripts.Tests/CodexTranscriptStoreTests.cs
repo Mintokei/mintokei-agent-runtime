@@ -187,6 +187,68 @@ public sealed class CodexTranscriptStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Messages_are_written_to_the_presentation_channel_as_well()
+    {
+        // A rollout carries two parallel channels: `response_item` is what the model is given,
+        // `event_msg` is what the interface replays. Writing only the first produced a session the
+        // agent remembered perfectly and the TUI showed as empty — indistinguishable, to whoever
+        // resumed it, from the move having failed.
+        var store = Store();
+        var id = await store.WriteAsync(TranscriptWith(
+            User("what is the vault value?"),
+            new AgentMessage
+            {
+                Id = Guid.NewGuid(), Role = MessageRole.Assistant,
+                Type = MessageType.AgentMessage, Content = "HERON-88.",
+            }), ct: Ct);
+
+        var payloads = (await ReadRolloutAsync(id))
+            .Where(l => l.RootElement.GetProperty("type").GetString() == "event_msg")
+            .Select(l => l.RootElement.GetProperty("payload"))
+            .ToList();
+
+        Assert.Collection(payloads,
+            p =>
+            {
+                Assert.Equal("user_message", p.GetProperty("type").GetString());
+                Assert.Equal("what is the vault value?", p.GetProperty("message").GetString());
+            },
+            p =>
+            {
+                Assert.Equal("agent_message", p.GetProperty("type").GetString());
+                Assert.Equal("HERON-88.", p.GetProperty("message").GetString());
+            });
+    }
+
+    [Fact]
+    public async Task Reading_back_ignores_the_presentation_channel()
+    {
+        // Both channels describe the same turn, so counting both would double every message.
+        var store = Store();
+        var id = await store.WriteAsync(TranscriptWith(
+            User("one"),
+            new AgentMessage
+            {
+                Id = Guid.NewGuid(), Role = MessageRole.Assistant,
+                Type = MessageType.AgentMessage, Content = "two",
+            }), ct: Ct);
+
+        var read = await store.ReadAsync(id, Ct);
+
+        Assert.NotNull(read);
+        Assert.Equal(2, read.Messages.Count);
+    }
+
+    private async Task<IReadOnlyList<System.Text.Json.JsonDocument>> ReadRolloutAsync(string id)
+    {
+        var path = Directory
+            .GetFiles(Path.Combine(_home, "sessions"), $"rollout-*{id}.jsonl", SearchOption.AllDirectories)
+            .Single();
+        var lines = await File.ReadAllLinesAsync(path, Ct);
+        return [.. lines.Select(line => System.Text.Json.JsonDocument.Parse(line))];
+    }
+
+    [Fact]
     public async Task Command_executions_are_written_as_exec_command_calls()
     {
         var store = Store();

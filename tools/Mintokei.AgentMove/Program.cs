@@ -299,22 +299,28 @@ catch (TranscriptStoreException ex)
     return 1;
 }
 
+// --no-handoff, or `"handoff": ""` in the config, means send nothing: the session opens with its
+// history and whoever picked it up writes the first turn themselves.
+var wantsHandoff = !options.NoHandoff && config.Handoff is not "";
+
 // A configured template wins. Otherwise: the failure-shaped default only when the conversation
 // was actually cut off, and the neutral one when the move was somebody's choice.
 var template = config.Handoff ?? (trim.EndsMidTurn ? null : HandoffPrompt.MovedTemplate);
-var handoff = HandoffPrompt.Render(template, new HandoffContext
-{
-    SourceTool = read.Tool,
-    TargetTool = targetKey,
-    SourceSessionId = picked.SessionId,
-    SourcePath = read.SourcePath,
-    // Only a turn that was actually cut off leaves something outstanding. This move is
-    // deliberate, so there is no failure to report either — both lines drop from the template.
-    Request = trim.EndsMidTurn ? trim.OutstandingRequest : null,
-    Reason = null,
-    Cwd = cwd,
-    HasUnresolvedToolCall = trim.EndsMidTurn,
-});
+var handoff = wantsHandoff
+    ? HandoffPrompt.Render(template, new HandoffContext
+    {
+        SourceTool = read.Tool,
+        TargetTool = targetKey,
+        SourceSessionId = picked.SessionId,
+        SourcePath = read.SourcePath,
+        // Only a turn that was actually cut off leaves something outstanding. This move is
+        // deliberate, so there is no failure to report either — both lines drop from the template.
+        Request = trim.EndsMidTurn ? trim.OutstandingRequest : null,
+        Reason = null,
+        Cwd = cwd,
+        HasUnresolvedToolCall = trim.EndsMidTurn,
+    })
+    : null;
 
 Console.WriteLine();
 Console.WriteLine($"  moved {transcript.Messages.Count} message(s) as {newId}");
@@ -345,7 +351,22 @@ if (options.Mode is StartMode.Launch)
 
 if (options.Mode is StartMode.Attach)
 {
-    Console.WriteLine($"  starting {profile.Tool} with the handoff as its first turn…");
+    if (handoff is null)
+    {
+        Console.WriteLine($"  starting {profile.Tool} — no opening turn, the history is already there");
+    }
+    else
+    {
+        // Shown before the handover, not after: the agent begins working on this the moment the
+        // interface opens, and a turn nobody saw coming is a turn nobody agreed to.
+        Console.WriteLine();
+        Console.WriteLine("  sending as the first turn (--no-handoff to skip):");
+        Console.WriteLine();
+        Console.WriteLine(Indent(handoff));
+        Console.WriteLine();
+        Console.WriteLine($"  starting {profile.Tool}…");
+    }
+
     return Attacher.Run(profile, targetKey, cwd, newId, handoff);
 }
 
@@ -358,10 +379,14 @@ if (droppedKeys.Count > 0)
         $"  (that command does not carry {string.Join(", ", droppedKeys)} — "
         + "`--launch` starts the session with the whole profile applied)");
 
-Console.WriteLine();
-Console.WriteLine("First thing to say (the history already holds the rest):");
-Console.WriteLine();
-Console.WriteLine(Indent(handoff));
+if (handoff is not null)
+{
+    Console.WriteLine();
+    Console.WriteLine("First thing to say (the history already holds the rest):");
+    Console.WriteLine();
+    Console.WriteLine(Indent(handoff));
+}
+
 return 0;
 
 // ── helpers ──────────────────────────────────────────────────────────────
@@ -481,6 +506,8 @@ static void PrintUsage() => Console.WriteLine("""
       --launch, -l       drive the target CLI from here instead. No TUI, but
                          agentmove can answer its permission questions and
                          react to a rate limit rather than wait one out
+      --no-handoff       do not send an opening turn: the session opens with
+                         its history and you write the first message yourself
       --limit <n>        how many sessions to list (default 15)
       --config <path>    config file (default: ./agentmove.json, then
                          $XDG_CONFIG_HOME/agentmove/config.json)
@@ -515,6 +542,7 @@ internal sealed record MoveOptions(
     bool Yes,
     bool Init,
     StartMode Mode,
+    bool NoHandoff,
     bool ShowHelp)
 {
     public static MoveOptions Parse(string[] args)
@@ -522,7 +550,7 @@ internal sealed record MoveOptions(
         var dir = Environment.CurrentDirectory;
         string? from = null, session = null, to = null, config = null;
         var limit = 15;
-        bool yes = false, init = false, help = false;
+        bool yes = false, init = false, help = false, noHandoff = false;
         var mode = StartMode.PrintCommand;
 
         for (var i = 0; i < args.Length; i++)
@@ -534,6 +562,7 @@ internal sealed record MoveOptions(
                 case "--yes" or "-y": yes = true; break;
                 case "--launch" or "-l": mode = Pick(mode, StartMode.Launch); break;
                 case "--attach" or "-a": mode = Pick(mode, StartMode.Attach); break;
+                case "--no-handoff": noHandoff = true; break;
                 case "--dir" when i + 1 < args.Length: dir = Path.GetFullPath(args[++i]); break;
                 case "--from" when i + 1 < args.Length: from = args[++i]; break;
                 case "--session" when i + 1 < args.Length: session = args[++i]; break;
@@ -547,7 +576,7 @@ internal sealed record MoveOptions(
             }
         }
 
-        return new MoveOptions(dir, from, session, to, config, limit, yes, init, mode, help);
+        return new MoveOptions(dir, from, session, to, config, limit, yes, init, mode, noHandoff, help);
     }
 
     // --launch and --attach are opposite trades, not degrees of the same one. Silently letting the

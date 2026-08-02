@@ -62,7 +62,14 @@ public sealed record MoveConfig
     /// <summary>Compress a conversation longer than this into a briefing. Null never compresses.</summary>
     public int? SummariseOver { get; init; }
 
-    /// <summary>Handoff template; null uses <c>HandoffPrompt.DefaultTemplate</c>.</summary>
+    /// <summary>
+    /// Handoff template. Absent uses the built-in wording; <c>""</c> means send nothing and let
+    /// whoever picks the session up write their own first turn.
+    ///
+    /// The empty case is distinguished here rather than in <c>HandoffPrompt.Render</c>, which
+    /// treats a blank template as "use the default" — right for a caller that always needs
+    /// something to send, wrong for one whose user is about to type.
+    /// </summary>
     public string? Handoff { get; init; }
 
     private static readonly JsonSerializerOptions Json = new()

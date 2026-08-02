@@ -22,14 +22,16 @@ internal static class Launcher
 {
     /// <summary>
     /// Resumes <paramref name="sessionId"/> in <paramref name="tool"/>, sends
-    /// <paramref name="firstTurn"/>, and then keeps taking turns from the terminal.
+    /// <paramref name="firstTurn"/>, and then keeps taking turns from the terminal. A null
+    /// <paramref name="firstTurn"/> opens the session and waits, so the first thing the agent sees
+    /// is whatever the person who moved it decides to type.
     /// </summary>
     public static async Task<int> RunAsync(
         Profile profile,
         AgentToolKey tool,
         string cwd,
         string sessionId,
-        string firstTurn,
+        string? firstTurn,
         CancellationToken ct)
     {
         var spec = new AgentSessionSpec
@@ -69,7 +71,8 @@ internal static class Launcher
         await using (session)
         {
             Console.WriteLine();
-            Console.WriteLine($"── {Describe(tool, profile)} — resumed {Short(sessionId)}, sending the handoff turn");
+            Console.WriteLine($"── {Describe(tool, profile)} — resumed {Short(sessionId)}"
+                + (firstTurn is null ? ", waiting for your first turn" : ", sending the handoff turn"));
             Console.WriteLine("   (blank line or /quit to leave; the session stays on disk either way)");
 
             // One enumerator for the session's whole life. Each turn reads from it until TurnEnded
@@ -77,8 +80,8 @@ internal static class Launcher
             // stream that only has one.
             await using var stream = session.Output.GetAsyncEnumerator(ct);
 
-            var turn = firstTurn;
-            while (true)
+            var turn = firstTurn ?? NextTurn();
+            while (turn is not null)
             {
                 try
                 {
@@ -108,10 +111,7 @@ internal static class Launcher
                         + (string.IsNullOrWhiteSpace(failure.Message) ? "" : $" — {failure.Message}"));
                 }
 
-                var next = NextTurn();
-                if (next is null)
-                    break;
-                turn = next;
+                turn = NextTurn();
             }
 
             // The CLI's own id wins: resuming can mint a new one (Claude forks on resume), and the

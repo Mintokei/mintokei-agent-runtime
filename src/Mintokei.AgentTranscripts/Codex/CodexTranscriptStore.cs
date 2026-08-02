@@ -516,16 +516,46 @@ public sealed class CodexTranscriptStore : ITranscriptStore
 
         void Item(JsonObject payload) => lines.Add(Envelope(DateTimeOffset.UtcNow, "response_item", payload));
 
-        void Message(string role, string text) => Item(new JsonObject
+        void Event(JsonObject payload) => lines.Add(Envelope(DateTimeOffset.UtcNow, "event_msg", payload));
+
+        void Message(string role, string text)
         {
-            ["type"] = "message",
-            ["role"] = role,
-            ["content"] = new JsonArray(new JsonObject
+            Item(new JsonObject
             {
-                ["type"] = role == "user" ? "input_text" : "output_text",
-                ["text"] = text,
-            }),
-        });
+                ["type"] = "message",
+                ["role"] = role,
+                ["content"] = new JsonArray(new JsonObject
+                {
+                    ["type"] = role == "user" ? "input_text" : "output_text",
+                    ["text"] = text,
+                }),
+            });
+
+            // The same turn again, in Codex's presentation vocabulary. A rollout carries two
+            // parallel channels: `response_item` is what the model is given, `event_msg` is what
+            // the interface replays. Writing only the first produces a session the agent remembers
+            // perfectly and the TUI shows as empty — which reads, to whoever resumes it, exactly
+            // like the move having failed.
+            //
+            // Reading still skips event_msg (it mirrors response_item, so parsing both doubles
+            // every message), so a written transcript still round-trips.
+            Event(role == "user"
+                ? new JsonObject
+                {
+                    ["type"] = "user_message",
+                    ["message"] = text,
+                    ["images"] = new JsonArray(),
+                    ["local_images"] = new JsonArray(),
+                    ["text_elements"] = new JsonArray(),
+                }
+                : new JsonObject
+                {
+                    ["type"] = "agent_message",
+                    ["message"] = text,
+                    ["phase"] = "final_answer",
+                    ["memory_citation"] = null,
+                });
+        }
 
         void Call(string name, string? argumentsJson, string? output)
         {

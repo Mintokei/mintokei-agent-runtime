@@ -92,11 +92,16 @@ internal static class CliArgs
                     Override(args, "personality", value!);
                     break;
 
+                // There is no --no-project-doc; the CLI rejects it. Zeroing the budget is what
+                // actually keeps AGENTS.md out of the prompt.
+                case "noprojectdoc":
+                    if (IsTruthy(value))
+                        Override(args, "project_doc_max_bytes", "0");
+                    break;
+
                 default:
                     // collaborationMode is a turn-level app-server field with no config.toml
-                    // equivalent; ephemeral applies to creating a thread, not resuming one; and
-                    // `--no-project-doc` is not a flag the codex CLI accepts, whatever the
-                    // app-server launch does with it.
+                    // equivalent, so only --launch can set it.
                     dropped.Add(key);
                     break;
             }

@@ -192,6 +192,24 @@ if (target is null)
     return 1;
 }
 
+// A key that only applies to a thread being created is accepted by the engine, mapped, sent and
+// ignored — agentmove only ever resumes. Checked before the unknown-key pass so it gets the
+// accurate reason rather than a "did you mean" for a key that is spelled perfectly well.
+var inapplicable = profile.Config.Keys
+    .Where(k => Backends.NotApplicableWhenResuming(k, out _))
+    .OrderBy(k => k, StringComparer.OrdinalIgnoreCase)
+    .ToList();
+if (inapplicable.Count > 0)
+{
+    Console.Error.WriteLine($"profile '{profileName}' sets keys that cannot apply to a moved session:");
+    foreach (var key in inapplicable)
+    {
+        Backends.NotApplicableWhenResuming(key, out var why);
+        Console.Error.WriteLine($"  {key}  — {why}");
+    }
+    return 1;
+}
+
 // A key the target does not understand is dropped by the engine without a word. For a permission
 // setting that is the failure that matters: the profile reads as a restriction, the CLI never sees
 // one. Refuse rather than move and hope.

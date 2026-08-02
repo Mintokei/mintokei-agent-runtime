@@ -78,8 +78,22 @@ internal static class Backends
     private static readonly HashSet<string> Codex = new(StringComparer.OrdinalIgnoreCase)
     {
         "model", "modelProvider", "modelVerbosity", "effort", "summary", "personality",
-        "collaborationMode", "approvalPolicy", "sandbox", "webSearch", "ephemeral", "noProjectDoc",
+        "collaborationMode", "approvalPolicy", "sandbox", "webSearch", "noProjectDoc",
     };
+
+    /// <summary>
+    /// Keys the engine understands but which cannot take effect here, with the reason. agentmove
+    /// always <em>resumes</em> a thread, so a setting the backend only applies when creating one
+    /// will be accepted, mapped, sent, and quietly ignored — which is the same silence that let a
+    /// permission setting go missing.
+    /// </summary>
+    public static bool NotApplicableWhenResuming(string key, out string? why)
+    {
+        why = key.Equals("ephemeral", StringComparison.OrdinalIgnoreCase)
+            ? "it only affects creating a thread, and agentmove always resumes one"
+            : null;
+        return why is not null;
+    }
 
     private static readonly HashSet<string> Copilot = new(StringComparer.OrdinalIgnoreCase)
     {

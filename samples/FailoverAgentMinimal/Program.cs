@@ -10,6 +10,7 @@ using Mintokei.AgentEngine.Contracts;
 using Mintokei.AgentTranscripts;
 using Mintokei.AgentTranscripts.Claude;
 using Mintokei.AgentTranscripts.Codex;
+using Mintokei.AgentTranscripts.Copilot;
 
 // Runs one prompt against a chain of agent CLIs. When a turn fails for a reason another provider
 // could survive — a rate limit, an overloaded or unreachable API, an auth problem — the sample
@@ -241,7 +242,8 @@ static ITranscriptStore? StoreFor(AgentToolKey tool) => tool switch
 {
     AgentToolKey.ClaudeCodeCli => new ClaudeTranscriptStore(),
     AgentToolKey.CodexCli => new CodexTranscriptStore(),
-    _ => null,      // Copilot and OpenCode stores are not written yet
+    AgentToolKey.GithubCopilotCli => new CopilotTranscriptStore(),
+    _ => null,      // no OpenCode store yet
 };
 
 static IAgentBackend CreateBackend(AgentToolKey tool) => tool switch

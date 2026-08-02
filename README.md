@@ -39,7 +39,7 @@ in the ones below it, so you never reference a lower package directly.
   worker either `Mintokei.Runner` (ready-to-run executable) or `Mintokei.Runner.Client` (to embed in
   your own host). `Runner.Contracts` / `.Grpc` come along transitively.
 - **Move a conversation from one agent CLI to another, or read the transcripts they leave behind** →
-  add `Mintokei.AgentTranscripts`. Claude Code and Codex today; see
+  add `Mintokei.AgentTranscripts`. Claude Code, Codex and GitHub Copilot CLI; see
   [`src/Mintokei.AgentTranscripts/README.md`](src/Mintokei.AgentTranscripts/README.md).
 - **Reuse the runner's file-search or file-watch filtering rules in your own code** →
   `Mintokei.Filesystem` (advanced; most users do not need this directly).

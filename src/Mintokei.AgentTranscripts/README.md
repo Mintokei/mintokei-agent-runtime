@@ -38,7 +38,7 @@ value you pass to `claude --resume`.
 |---|---|---|---|
 | Claude Code | ✅ | ✅ | none needed — the file *is* the session |
 | Codex | ✅ | ✅ | `threads` row in `state_*.sqlite` |
-| GitHub Copilot CLI | — | — | — |
+| GitHub Copilot CLI | ✅ | ✅ | `sessions`+`turns` in `session-store.db` |
 
 Converting Codex → Claude Code (and back) works today:
 
@@ -47,7 +47,7 @@ var source = await new CodexTranscriptStore().ReadAsync(sessionId);
 var newId  = await new ClaudeTranscriptStore().WriteAsync(source, new TranscriptWriteOptions { Cwd = cwd });
 ```
 
-See **Adding a store** for what Copilot still needs.
+All three read and write, in any direction.
 
 ## Why `AgentMessage` and not a transfer DTO
 
@@ -96,9 +96,13 @@ scanning. The others are not the same shape, and the engine's parsers do **not**
   regenerates each launch, joining `function_call` to its later `function_call_output` by
   `call_id`, parsing the exit code out of the `exec_command` output header, and writing a
   `threads` row so the session appears in the interactive picker.
-- **GitHub Copilot CLI** — the engine parses ACP `session/update` notifications, while the store
-  speaks Copilot's own event vocabulary. It also validates envelopes strictly (`id` must be a
-  UUID, `turnId` is required) and needs rows in `session-store.db` alongside `events.jsonl`.
+- **GitHub Copilot CLI** (done) — the engine parses ACP `session/update` notifications, while the
+  store speaks Copilot's own event vocabulary, so again no reuse. The strictest to write, and it
+  fails **silently** — a bad session logs to `~/.copilot/logs/` and exits 1 with nothing on stderr.
+  Three things it rejects: an envelope `id` that is not a UUID; a `tool.execution_complete` whose
+  `result` is a JSON string rather than an object; and a `workspace.yaml` timestamp in round-trip
+  `"o"` format instead of `2026-08-01T14:51:32.508Z`. It also expects `checkpoints/`, `files/` and
+  `research/` beside the transcript.
 
 ## Long conversations: summarising
 

@@ -29,9 +29,9 @@ public class BackendLaunchTests
         });
 
         Assert.Equal("codex", opts.Executable);
-        Assert.True(opts.Arguments!.ContainsKey("app-server"));
+        Assert.Equal("app-server", opts.ArgumentList![0]);
 
-        var cflag = opts.Arguments["-c"]!;
+        var cflag = opts.ArgumentList[opts.ArgumentList.ToList().IndexOf("-c") + 1];
         Assert.Contains("mcp_servers.mintokei", cflag);
         Assert.Contains("http://host/mcp/agent-tasks/x", cflag);
         Assert.Equal("tok-9", opts.EnvironmentVariables!["MINTOKEI_TOKEN"]);
@@ -44,8 +44,38 @@ public class BackendLaunchTests
     public void Codex_disables_mcp_without_a_token()
     {
         var opts = new CodexBackend().BuildCommandLine(new AgentSessionSpec());
-        Assert.False(opts.Arguments!.ContainsKey("-c"));
+        Assert.DoesNotContain("-c", opts.ArgumentList!);
         Assert.Equal("true", opts.EnvironmentVariables!["MINTOKEI_MCP_DISABLED"]);
+    }
+
+    [Fact]
+    public void Codex_suppresses_project_docs_by_config_field_not_a_flag()
+    {
+        // `codex app-server --no-project-doc` is rejected outright — "unexpected argument" — which
+        // killed the session at launch rather than skipping AGENTS.md.
+        var opts = new CodexBackend().BuildCommandLine(new AgentSessionSpec
+        {
+            Config = new Dictionary<string, string?> { ["noProjectDoc"] = "true" },
+        });
+
+        Assert.DoesNotContain("--no-project-doc", opts.ArgumentList!);
+        Assert.Contains("project_doc_max_bytes=0", opts.ArgumentList!);
+    }
+
+    [Fact]
+    public void Codex_can_carry_two_config_overrides_at_once()
+    {
+        // The dictionary form held one value per flag, so MCP and the project-doc override could
+        // not both be expressed.
+        var opts = new CodexBackend().BuildCommandLine(new AgentSessionSpec
+        {
+            EnableMcp = true,
+            McpUrl = "http://host/mcp",
+            McpToken = "t",
+            Config = new Dictionary<string, string?> { ["noProjectDoc"] = "true" },
+        });
+
+        Assert.Equal(2, opts.ArgumentList!.Count(a => a == "-c"));
     }
 
     // ── Copilot (ACP) ──

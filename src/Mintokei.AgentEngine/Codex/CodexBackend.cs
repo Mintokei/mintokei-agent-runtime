@@ -25,9 +25,20 @@ public sealed class CodexBackend : IAgentBackend
     {
         var mapped = CodexConfigMapper.Map(spec.Config ?? new Dictionary<string, string?>());
 
-        var arguments = new Dictionary<string, string?> { ["app-server"] = null };
+        // Tokenised rather than the dictionary form because `-c` may need to appear more than once
+        // — a dictionary can hold one value per flag, and both the project-doc override and the MCP
+        // server want that flag.
+        var arguments = new List<string> { "app-server" };
+
         if (mapped.Cli.NoProjectDoc)
-            arguments["--no-project-doc"] = null;
+        {
+            // NOT `--no-project-doc`: `codex app-server` rejects it outright ("unexpected
+            // argument"), taking the whole session down at launch. The config field is the form it
+            // does accept, and setting the budget to zero is what suppresses AGENTS.md — verified
+            // by the project doc no longer reaching the prompt.
+            arguments.Add("-c");
+            arguments.Add("project_doc_max_bytes=0");
+        }
 
         var envVars = new Dictionary<string, string>();
         if (spec.EnvironmentVariables is { } extra)
@@ -38,7 +49,8 @@ public sealed class CodexBackend : IAgentBackend
 
         if (spec.EnableMcp)
         {
-            arguments["-c"] = $"mcp_servers.mintokei={{url=\"{spec.McpUrl}\",bearer_token_env_var=\"MINTOKEI_TOKEN\"}}";
+            arguments.Add("-c");
+            arguments.Add($"mcp_servers.mintokei={{url=\"{spec.McpUrl}\",bearer_token_env_var=\"MINTOKEI_TOKEN\"}}");
             envVars["MINTOKEI_TOKEN"] = spec.McpToken ?? "";
         }
         else
@@ -49,7 +61,7 @@ public sealed class CodexBackend : IAgentBackend
         return new CommandLineOptions
         {
             Executable = "codex",
-            Arguments = arguments,
+            ArgumentList = arguments,
             WorkingDirectory = spec.WorkingDirectory,
             RedirectStdIn = true,
             CaptureStdErr = true,

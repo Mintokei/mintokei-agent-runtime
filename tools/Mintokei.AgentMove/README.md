@@ -138,9 +138,8 @@ but **sight**. Driving the CLI over its own protocol is what lets agentmove answ
 request, react to a rate limit on the first retry rather than the tenth, and move the conversation
 on again. Watching a TUI cannot do any of that.
 
-The settings it uniquely applies are the few with no flag form at all: Codex's `collaborationMode`
-and `ephemeral`, which exist only in the app-server protocol. agentmove names whatever a command
-line would drop:
+The one setting it uniquely applies is Codex's `collaborationMode`, a turn-level app-server field
+with no command-line form. agentmove names whatever a command line would drop:
 
 ```
   permissions: dangerouslySkipPermissions=false
@@ -214,9 +213,13 @@ launch, and picks up new keys as the mappers grow:
 | Backend | Keys |
 |---|---|
 | claude | `model` `effort` `maxTurns` `permissionMode` `allowedTools` `systemPromptFile` `allowDangerouslySkipPermissions` `verbose` |
-| codex | `model` `modelProvider` `modelVerbosity` `effort` `summary` `personality` `approvalPolicy` `sandbox` `webSearch` — plus `collaborationMode` `ephemeral` `noProjectDoc`, which only `--launch` can apply |
+| codex | `model` `modelProvider` `modelVerbosity` `effort` `summary` `personality` `approvalPolicy` `sandbox` `webSearch` `noProjectDoc` — plus `collaborationMode`, which only `--launch` can apply |
 | copilot | `model` `effort` `mode` `allowAllPaths` `disableAskUser` `disableBuiltinMcps` `enableAllGithubMcpTools` `maxAutopilotContinues` |
 | opencode | `model` `agent` `dangerouslySkipPermissions` |
+
+`ephemeral` is deliberately absent: it only affects *creating* a thread, and agentmove always
+resumes one, so the engine would accept it, map it, send it and ignore it. It is refused with the
+reason rather than accepted into silence.
 
 A key outside its backend's list is an **error**, not a shrug:
 

@@ -12,8 +12,19 @@
 # So: run this after a CLI updates, not on every commit. It spends real tokens.
 #
 #   scripts/live-check.sh              every case, every installed target
-#   scripts/live-check.sh t1 t2        just those
+#   scripts/live-check.sh t6           just that one
 #   KEEP=1 scripts/live-check.sh       leave the scratch directories for inspection
+#
+#   t0  a move into the CLI it came from
+#   t1  a file edit, which crosses as prose rather than a tool result
+#   t2  a failed command, whose exit status no format has a field for
+#   t4  an MCP call moved into a CLI with no such server
+#   t5  a finding a sub-agent produced
+#   t6  a run interrupted part-way, finished on another CLI
+#   t8  unicode, code fences and a 600 KB tool result
+#
+# Not covered here: --attach, which needs a terminal to answer the CLI's startup handshake, and a
+# conversation long enough to trigger auto-compaction.
 #
 # Each case plants a value that exists nowhere the target can read, moves the session, then asks
 # for it back with "without reading any files". A correct answer can only come from carried history.
@@ -109,6 +120,35 @@ check() {
     done
 }
 
+# ── t0: a move into the CLI it came from ────────────────────────────────────────────────────────
+#
+# The cheap path — same store, no conversion — and the one where a mistake would be quietest: a new
+# session that overwrote the old one, or reused its id, would look like success until the original
+# was wanted again.
+t0() {
+    say "t0  same-CLI moves"
+    local dir="$WORK/t0"
+    mkdir -p "$dir" && profiles "$dir"
+    printf 'seal: HERON-88
+' > "$dir/data.txt"
+
+    (cd "$dir" && timeout 300 claude -p "Read data.txt and tell me the seal value." \
+        --allowed-tools Read --permission-mode acceptEdits </dev/null >/dev/null 2>&1)
+
+    local source; source=$(newest_claude_session "$dir") || { skip "t0 (claude recorded no session)"; return; }
+
+    local id; id=$(move "$dir" "$source" claude)
+    if [[ -z $id ]]; then
+        fail "same-CLI -> claude (the move produced no session)"
+    elif [[ $id == "$source" ]]; then
+        fail "same-CLI -> claude (reused the source id $id — the original may be overwritten)"
+    elif [[ ! -f "$HOME/.claude/projects/${dir//\//-}/$source.jsonl" ]]; then
+        fail "same-CLI -> claude (the source session is gone)"
+    else
+        pass "same-CLI -> claude (new id, original intact)"
+    fi
+}
+
 # ── t1: a file edit crosses as prose. Does the target know what changed? ─────────────────────────
 #
 # The case the narration fix was written for. An edit with no narration used to be dropped whole,
@@ -198,6 +238,94 @@ with open(sys.argv[1], 'w') as f:
         "line 19999"
 }
 
+# ── t5: work done by a sub-agent ────────────────────────────────────────────────────────────────
+#
+# A Claude Task runs its own nested conversation and reports back. SubAgentExecution has no wire
+# form anywhere, so it crosses as prose — the question is whether the finding survives that.
+t5() {
+    say "t5  a sub-agent's finding"
+    local dir="$WORK/t5"
+    mkdir -p "$dir" && profiles "$dir"
+    printf 'The archive token is MERLIN-4.\n' > "$dir/report.txt"
+
+    (cd "$dir" && timeout 300 claude -p \
+        "Use the Task tool to launch a sub-agent that reads report.txt and reports the archive token. Then state the token." \
+        --allowed-tools "Task,Read" --permission-mode acceptEdits </dev/null >/dev/null 2>&1)
+
+    local source; source=$(newest_claude_session "$dir") || { skip "t5 (claude recorded no session)"; return; }
+    check "$dir" "$source" "sub-agent finding" \
+        "Without reading any files: what archive token was found earlier in this conversation?" \
+        "MERLIN-4"
+}
+
+# ── t6: interrupted part-way, finished somewhere else ───────────────────────────────────────────
+#
+# The premise of the whole thing, and the case with the most moving parts: the trim has to keep the
+# work already done, EndsMidTurn has to notice the last step has no result, and the handoff has to
+# say so in a way that makes the next agent look before repeating.
+#
+# A marker is appended to the files that were finished. If the target redoes them rather than
+# checking, the marker goes with it — which is the difference between "continued the work" and
+# "started it again".
+t6() {
+    say "t6  interrupted mid-edit, finished elsewhere"
+    local dir="$WORK/t6"
+    mkdir -p "$dir" && profiles "$dir"
+    local n
+    for n in 1 2 3 4 5; do printf "value: $n\n" > "$dir/f$n.yaml"; done
+
+    (cd "$dir" && timeout 300 claude -p \
+        "Edit each of f1.yaml through f5.yaml in order, one Edit call each, setting value to 99. Work slowly and deliberately." \
+        --permission-mode acceptEdits </dev/null >/dev/null 2>&1) &
+    local pid=$!
+
+    # Cut it off once some but not all of the work is done.
+    local waited=0
+    while [[ $(grep -lc 'value: 99' "$dir"/f*.yaml 2>/dev/null | wc -l) -lt 3 && $waited -lt 240 ]]; do
+        sleep 2; waited=$((waited + 2))
+    done
+    sleep 1; kill -TERM $pid 2>/dev/null; wait $pid 2>/dev/null
+
+    local done_count; done_count=$(grep -l 'value: 99' "$dir"/f*.yaml 2>/dev/null | wc -l)
+    if [[ $done_count -eq 0 || $done_count -eq 5 ]]; then
+        skip "t6 (wanted a partial edit, got $done_count of 5 — timing)"
+        return
+    fi
+    # Anything the target overwrites rather than checks loses this.
+    grep -l 'value: 99' "$dir"/f*.yaml | xargs -r sed -i 's/$/  # checked/'
+
+    local source; source=$(newest_claude_session "$dir") || { skip "t6 (claude recorded no session)"; return; }
+    printf '  interrupted after %s of 5 files\n' "$done_count"
+
+    for target in "${TARGETS[@]}"; do
+        local id reply
+        id=$(move "$dir" "$source" "$target")
+        [[ -n $id ]] || { fail "finish the job -> $target (the move produced no session)"; continue; }
+
+        reply=$(ask "$dir" "$target" "$id" \
+            "Check the current state of the workspace before repeating anything — earlier steps may already have taken effect. Then finish the outstanding request and say what you found and what you changed.")
+
+        local finished markers
+        finished=$(grep -lc 'value: 99' "$dir"/f*.yaml 2>/dev/null | wc -l)
+        markers=$(grep -lc '# checked' "$dir"/f*.yaml 2>/dev/null | wc -l)
+
+        if [[ $finished -ne 5 ]]; then
+            fail "finish the job -> $target (only $finished of 5 files done)"
+            sed 's/^/          /' <<<"$(tail -4 <<<"$reply")"
+        elif [[ $markers -lt $done_count ]]; then
+            fail "finish the job -> $target (redid $((done_count - markers)) file(s) instead of checking)"
+        else
+            pass "finish the job -> $target (finished $((5 - done_count)), left $done_count alone)"
+        fi
+
+        # Put it back for the next target.
+        for n in 1 2 3 4 5; do
+            if [[ $n -le $done_count ]]; then printf "value: 99  # checked\n" > "$dir/f$n.yaml"
+            else printf "value: $n\n" > "$dir/f$n.yaml"; fi
+        done
+    done
+}
+
 # ── run ─────────────────────────────────────────────────────────────────────────────────────────
 
 have claude || { echo "claude is not installed; every case starts from a Claude session." >&2; exit 1; }
@@ -210,13 +338,16 @@ echo "targets:   ${TARGETS[*]}"
 echo "scratch:   $WORK"
 echo "note:      this spends real tokens and takes several minutes."
 
-for case_name in "${@:-t1 t2 t4 t8}"; do
+for case_name in "${@:-t0 t1 t2 t4 t5 t6 t8}"; do
     case $case_name in
+        t0) t0 ;;
         t1) t1 ;;
         t2) t2 ;;
         t4) t4 ;;
+        t5) t5 ;;
+        t6) t6 ;;
         t8 | t9) t8 ;;
-        *) echo "unknown case '$case_name' (t1, t2, t4, t8)" >&2; exit 2 ;;
+        *) echo "unknown case '$case_name' (t0, t1, t2, t4, t5, t6, t8)" >&2; exit 2 ;;
     esac
 done
 

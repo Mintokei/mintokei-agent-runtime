@@ -85,89 +85,33 @@ Claude `--permission-mode` / `--effort`, Codex `--sandbox` / `--ask-for-approval
 `config.toml` fields, Copilot `--mode` / `--allow-all-paths` — so `--attach` is not the lossy
 option it looks like.
 
-What you give up is agentmove's sight. A TUI paints escape sequences meant for a human's eyes, so
-from the moment it starts there is no permission to intercept, no rate limit to notice on the first
-retry, no second move to make. `--attach` is an `exec` with a transcript conversion in front of it.
+agentmove sees nothing from the moment the TUI starts — it paints escape sequences meant for a
+human's eyes, not events for a program. `--attach` is an `exec` with a transcript conversion in
+front of it, which is the whole job. Driving a CLI over its protocol and reacting to what it says
+is a different tool; `samples/FailoverAgentMinimal` is that one.
 
-It still refuses rather than start an agent with permissions the profile did not ask for — that
-just almost never fires now, because almost everything maps:
+It refuses rather than start an agent with permissions the profile did not ask for — before writing
+anything, so no half-moved session is left behind:
 
 ```
 --attach cannot apply dangerouslySkipPermissions: opencode has no flag for it, so the agent would
 run with its own defaults instead of what this profile says.
 ```
 
-It stops before writing anything, so no half-moved session is left behind.
+### Which of the two
 
-## Or carry on here: `--launch`
+|  | default | `--attach` |
+|---|---|---|
+| who starts the CLI | you | agentmove |
+| what you see | a command to copy | the real TUI |
+| profile applied | yes, if you run it as printed | yes |
+| opening turn | printed to paste | sent, shown first |
 
-`--launch` starts the target CLI itself, sends the handoff turn, and leaves you at a prompt:
+The default is for when you want to see the command before running it, or run it somewhere else.
+`--attach` is for "I moved it, now let me work".
 
-```
-$ agentmove --launch
-
-  ...
-  Claude Code  ->  codex (codex/gpt-5.5)
-  start:       agentmove launches it here
-  permissions: approvalPolicy=on-request  sandbox=read-only
-
-Proceed? [y/N]: y
-
-  moved 4 message(s) as 019fc18d-c10b-779d-9fb8-a59c10e17676
-
-── codex/gpt-5.5 — resumed 019fc18d-c10b…, sending the handoff turn
-   (blank line or /quit to leave; the session stays on disk either way)
-
-I'll check the workspace rather than trusting the handoff history.
-  · /bin/bash -lc 'sed -n 1,120p notes.txt'
-notes.txt still has `vault: HARRIER-71`. Nothing was left half-done.
-
-> what's on line 2?
-
-  · /bin/bash -lc "sed -n '2p' notes.txt"
-`port: 8080`.
-
->
-
-Session 019fc18d-c10b-779d-9fb8-a59c10e17676
-Pick it up again with:  codex resume 019fc18d-c10b-779d-9fb8-a59c10e17676
-```
-
-What this buys is not the settings — `--attach` gets nearly all of those onto a command line too —
-but **sight**. Driving the CLI over its own protocol is what lets agentmove answer a permission
-request, react to a rate limit on the first retry rather than the tenth, and move the conversation
-on again. Watching a TUI cannot do any of that.
-
-The one setting it uniquely applies is Codex's `collaborationMode`, a turn-level app-server field
-with no command-line form. agentmove names whatever a command line would drop:
-
-```
-  permissions: dangerouslySkipPermissions=false
-               ^ NOT applied (dangerouslySkipPermissions) — opencode has no flag for these;
-                 --launch sets them over its protocol
-```
-
-`extraArgs` reaches all three modes now — `AgentSessionSpec.ExtraArgs` carries it to the engine —
-but it is verbatim and unvalidated, and the two paths run *different* Codex subcommands. A TUI flag
-like `--no-alt-screen` works under `--attach` and kills `--launch`, because `codex app-server` does
-not take it. Whatever you put there, the CLI is the one that judges it.
-
-Leaving the prompt does not end anything. The session is a normal session in the target CLI's own
-store, so `codex resume <id>` picks it up in the real TUI whenever you want.
-
-### Which one
-
-|  | default | `--attach` | `--launch` |
-|---|---|---|---|
-| the CLI's real TUI | you run it | **yes** | no |
-| applies the profile | **yes**, minus protocol-only keys | same | **yes**, all of it |
-| sends the handoff turn | you paste it | **yes** | **yes** |
-| carries `extraArgs` | **yes** | **yes** | **yes** |
-| can answer a permission for you | — | no | **yes** |
-| can react to a rate limit | — | no | **yes** |
-
-`--attach` is the one you want for "I moved it, now let me actually work" — it is the real
-interface and the profile comes with it. `--launch` is the one that can still see what happens.
+Leaving the CLI does not end anything. The session is a normal session in the target's own store, so
+`codex resume <id>` picks it up again whenever you want.
 
 ## Configuration
 
@@ -207,21 +151,20 @@ whole, so keep the label on the **same line** as its placeholder — `Outstandin
 For one run: `--handoff <text>` (also `default` or `minimal`), `--handoff-file <path>`, or
 `--no-handoff`. The flag beats the config file; `--no-handoff` beats both.
 
-`config` is the engine's own vocabulary. Under `--launch` it goes straight to
-`AgentSessionSpec.Config` and the backend's mapper turns it into how that CLI is run; otherwise
-`CliArgs` turns it into that CLI's flags. Either way a profile can express anything the engine can
-launch, and picks up new keys as the mappers grow:
+`config` is the engine's own vocabulary; `CliArgs` turns it into that CLI's own flags, so a profile
+means the same thing whether the command is printed or run:
 
 | Backend | Keys |
 |---|---|
 | claude | `model` `effort` `maxTurns` `permissionMode` `allowedTools` `systemPromptFile` `allowDangerouslySkipPermissions` `verbose` |
-| codex | `model` `modelProvider` `modelVerbosity` `effort` `summary` `personality` `approvalPolicy` `sandbox` `webSearch` `noProjectDoc` — plus `collaborationMode`, which only `--launch` can apply |
+| codex | `model` `modelProvider` `modelVerbosity` `effort` `summary` `personality` `approvalPolicy` `sandbox` `webSearch` `noProjectDoc` |
 | copilot | `model` `effort` `mode` `allowAllPaths` `disableAskUser` `disableBuiltinMcps` `enableAllGithubMcpTools` `maxAutopilotContinues` |
 | opencode | `model` `agent` `dangerouslySkipPermissions` |
 
-`ephemeral` is deliberately absent: it only affects *creating* a thread, and agentmove always
-resumes one, so the engine would accept it, map it, send it and ignore it. It is refused with the
-reason rather than accepted into silence.
+`ephemeral` and `collaborationMode` are deliberately absent. The first only affects *creating* a
+thread and agentmove always resumes one; the second Codex takes only over its app-server protocol,
+which agentmove does not speak — it starts the CLI's own interface instead. Both are refused with
+the reason rather than accepted, mapped, sent nowhere and never mentioned.
 
 A key outside its backend's list is an **error**, not a shrug:
 
@@ -235,8 +178,9 @@ The engine would drop an unrecognised key silently. For `model` that costs you a
 sandbox setting it means the profile reads as a restriction the CLI never receives — so the run
 stops instead.
 
-`extraArgs` is the escape hatch for whatever the mappers do not cover. It applies to the command
-line — printed or `--attach` — and not to `--launch`; see above.
+`extraArgs` is the escape hatch for whatever the mappers do not cover. Verbatim and unvalidated —
+the CLI is the one that judges it. Prefer a `config` key when one exists: those are checked against
+the backend before anything is written.
 
 Codex's command-line form was checked against the installed CLI rather than assumed: `--sandbox`
 and `--ask-for-approval` take the same values the config keys do, and the rest go through
@@ -257,23 +201,9 @@ That is the point of profiles rather than interactive flag entry: switching agen
 an agent quietly gains more reach than it had, and a file you wrote last week is easier to review
 than flags typed while something is broken.
 
-Under `--launch` there is a second answer to the same problem: the CLI's permission questions are
-asked *here*, in its own vocabulary, as they come up.
-
-```
-  ! wants to use: Write
-    allow? [y]es / [n]o / [a]lways: n
-
-declined
-```
-
-`[a]lways` applies for the rest of the session. With stdin not a terminal there is nobody to ask,
-so requests are denied — the only answer that cannot widen what the agent may do.
-
-One gap: a CLI question with structured options (Claude's AskUserQuestion, Codex's
-`requestUserInput`) is shown and answered as free text. Claude's reply builder accepts that; Codex
-wants a structured `answers` object, receives an empty one, and its agent generally re-asks in
-prose.
+Once the CLI is running it asks its own permission questions, in its own interface. agentmove is
+not in the middle of that and does not try to be — the profile decides what the session starts
+with, and the CLI decides everything after.
 
 ## Non-interactive
 
@@ -296,7 +226,6 @@ you which flag was missing.
 | `--handoff <text>` | opening turn: `default`, `minimal`, or a literal template |
 | `--handoff-file <p>` | read that template from a file |
 | `--no-handoff` | send no opening turn at all |
-| `--launch`, `-l` | drive the target CLI from here instead |
 | `--yes` | skip the confirmation |
 | `--init` | write a starter config |
 

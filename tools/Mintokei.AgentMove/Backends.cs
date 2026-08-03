@@ -78,20 +78,26 @@ internal static class Backends
     private static readonly HashSet<string> Codex = new(StringComparer.OrdinalIgnoreCase)
     {
         "model", "modelProvider", "modelVerbosity", "effort", "summary", "personality",
-        "collaborationMode", "approvalPolicy", "sandbox", "webSearch", "noProjectDoc",
+        "approvalPolicy", "sandbox", "webSearch", "noProjectDoc",
     };
 
     /// <summary>
-    /// Keys the engine understands but which cannot take effect here, with the reason. agentmove
-    /// always <em>resumes</em> a thread, so a setting the backend only applies when creating one
-    /// will be accepted, mapped, sent, and quietly ignored — which is the same silence that let a
+    /// Keys the engine understands but agentmove cannot deliver, with the reason. Accepting one
+    /// would mean mapping it, sending nothing, and saying nothing — the same silence that let a
     /// permission setting go missing.
     /// </summary>
-    public static bool NotApplicableWhenResuming(string key, out string? why)
+    public static bool Unsupported(string key, out string? why)
     {
-        why = key.Equals("ephemeral", StringComparison.OrdinalIgnoreCase)
-            ? "it only affects creating a thread, and agentmove always resumes one"
-            : null;
+        why = key.ToLowerInvariant() switch
+        {
+            // ThreadStart config. agentmove only ever resumes an existing thread.
+            "ephemeral" => "it only affects creating a thread, and agentmove always resumes one",
+            // TurnStart config with no command-line form, so only something driving Codex over
+            // `codex app-server` could set it — which agentmove no longer does.
+            "collaborationmode" => "codex takes it only over its app-server protocol, and agentmove "
+                + "starts the CLI's own interface rather than driving it",
+            _ => null,
+        };
         return why is not null;
     }
 

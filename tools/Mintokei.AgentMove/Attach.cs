@@ -11,10 +11,9 @@ namespace Mintokei.AgentMove;
 /// inheriting stdin, stdout and stderr, so the real TUI appears — colours, keybindings, slash
 /// commands, all of it.
 ///
-/// The trade against <see cref="Launcher"/> is total. A TUI paints with escape sequences meant for
-/// a human's eyes, so from here agentmove can see nothing: no permission to intercept, no rate
-/// limit to notice, no second move to make. It is an <c>exec</c> with a transcript conversion in
-/// front of it — which, most of the time, is exactly what you want.
+/// agentmove sees nothing from here on: a TUI paints escape sequences meant for a human's eyes, not
+/// events for a program watching. This is an <c>exec</c> with a transcript conversion in front of
+/// it, which is the whole job.
 /// </summary>
 internal static class Attacher
 {

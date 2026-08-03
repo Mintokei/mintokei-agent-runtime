@@ -126,6 +126,22 @@ briefing that was just built.
 This is lossy and is **the wrong default**. Move the real transcript when it fits; reach for this
 when the alternative is not fitting at all.
 
+## Checking it against the real CLIs
+
+`FidelityMatrixTests` proves the data survives a crossing. It cannot prove an agent *reads* it
+correctly — a file edit crosses as assistant prose rather than a tool result, and whether that
+stops the next agent redoing the work is a question only a real agent answers. Nor can a unit test
+see the CLIs themselves change, which is where several of these bugs came from.
+
+```bash
+scripts/live-check.sh            # every case, every installed CLI
+scripts/live-check.sh t1 t2      # just those
+```
+
+Each case plants a value that exists nowhere the target can read, moves the session, then asks for
+it back with "without reading any files" — so a correct answer can only come from carried history.
+It spends real tokens; run it after a CLI updates, not on every commit.
+
 ## What survives, measured
 
 `FidelityMatrixTests` writes one message of each kind into every store and reads it back, so the

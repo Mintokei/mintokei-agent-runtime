@@ -192,11 +192,11 @@ if (target is null)
     return 1;
 }
 
-// A key that only applies to a thread being created is accepted by the engine, mapped, sent and
-// ignored — agentmove only ever resumes. Checked before the unknown-key pass so it gets the
-// accurate reason rather than a "did you mean" for a key that is spelled perfectly well.
+// A key the engine accepts but agentmove cannot deliver would be mapped, sent nowhere, and never
+// mentioned. Checked before the unknown-key pass so it gets the accurate reason rather than a
+// "did you mean" for a key that is spelled perfectly well.
 var inapplicable = profile.Config.Keys
-    .Where(k => Backends.NotApplicableWhenResuming(k, out _))
+    .Where(k => Backends.Unsupported(k, out _))
     .OrderBy(k => k, StringComparer.OrdinalIgnoreCase)
     .ToList();
 if (inapplicable.Count > 0)
@@ -204,7 +204,7 @@ if (inapplicable.Count > 0)
     Console.Error.WriteLine($"profile '{profileName}' sets keys that cannot apply to a moved session:");
     foreach (var key in inapplicable)
     {
-        Backends.NotApplicableWhenResuming(key, out var why);
+        Backends.Unsupported(key, out var why);
         Console.Error.WriteLine($"  {key}  — {why}");
     }
     return 1;
@@ -227,27 +227,21 @@ if (unknown.Count > 0)
 
 Console.WriteLine();
 Console.WriteLine($"  {source.Name}  ->  {profileName} ({profile.Tool}{(profile.Model is { Length: > 0 } ? "/" + profile.Model : "")})");
-Console.WriteLine(options.Mode switch
-{
-    StartMode.Launch => "  start:       agentmove drives it here",
-    StartMode.Attach => $"  start:       {profile.Tool}'s own interface, in this terminal",
-    _ => "  start:       a command to run yourself",
-});
+Console.WriteLine(options.Attach
+    ? $"  start:       {profile.Tool}'s own interface, in this terminal"
+    : "  start:       a command to run yourself");
 
-// Which of the profile's settings are actually in force depends on that choice, so it is reported
-// against it rather than stated once and hoped for.
-var unapplied = Reporting.PrintPermissions(targetKey, profile, options.Mode);
+var unapplied = Reporting.PrintPermissions(targetKey, profile);
 
-// Printing a warning and then running it anyway is how the widening happens. --attach is the one
-// mode that both drops permission settings and starts the agent, so it is the one that must stop.
-if (options.Mode is StartMode.Attach && unapplied.Count > 0)
+// Printing a warning and then starting the agent anyway is how the widening happens. Only --attach
+// starts anything, so it is the one that must stop.
+if (options.Attach && unapplied.Count > 0)
 {
     Console.Error.WriteLine();
     Console.Error.WriteLine(
         $"--attach cannot apply {string.Join(", ", unapplied)}: {profile.Tool} has no flag for "
         + "these, so the agent would run with its own defaults instead of what this profile says.");
-    Console.Error.WriteLine("  --launch sets them over the CLI's protocol, or set them in its own "
-        + "settings and drop them from the profile.");
+    Console.Error.WriteLine("  Set them in the CLI's own settings and drop them from the profile.");
     return 1;
 }
 
@@ -342,29 +336,7 @@ Console.WriteLine($"  moved {transcript.Messages.Count} message(s) as {newId}");
 
 // ── 5. hand it over ──────────────────────────────────────────────────────
 
-if (options.Mode is StartMode.Launch)
-{
-    using var shutdown = new CancellationTokenSource();
-    Console.CancelKeyPress += (_, e) =>
-    {
-        e.Cancel = true;
-        shutdown.Cancel();
-    };
-
-    try
-    {
-        return await Launcher.RunAsync(profile, targetKey, cwd, newId, handoff, shutdown.Token);
-    }
-    catch (OperationCanceledException)
-    {
-        // The move already happened; only the conversation that followed it is lost.
-        Console.WriteLine();
-        Console.WriteLine($"Stopped. The session is still there: {Reporting.ResumeCommand(targetKey, newId, profile)}");
-        return 130;
-    }
-}
-
-if (options.Mode is StartMode.Attach)
+if (options.Attach)
 {
     if (handoff is null)
     {
@@ -387,12 +359,6 @@ if (options.Mode is StartMode.Attach)
 
 Console.WriteLine();
 Console.WriteLine($"Resume it with:  {Reporting.ResumeCommand(targetKey, newId, profile)}");
-
-var droppedKeys = Reporting.Resume(targetKey, newId, profile).Dropped;
-if (droppedKeys.Count > 0)
-    Console.WriteLine(
-        $"  (that command does not carry {string.Join(", ", droppedKeys)} — "
-        + "`--launch` starts the session with the whole profile applied)");
 
 if (handoff is not null)
 {
@@ -508,7 +474,6 @@ static void PrintUsage() => Console.WriteLine("""
 
       agentmove                       pick interactively, print a command to run
       agentmove --attach              …and drop into that CLI's own interface
-      agentmove --launch              …and carry on in a prompt here
       agentmove --init                write a starter agentmove.json
 
       --dir <path>       directory to look in (default: current)
@@ -516,11 +481,7 @@ static void PrintUsage() => Console.WriteLine("""
       --session <id>     skip the session prompt (a unique prefix is enough)
       --to <profile>     skip the target prompt
       --attach, -a       run the target CLI's real TUI in this terminal, with
-                         the profile as flags and the handoff as its first turn.
-                         agentmove sees nothing once it starts
-      --launch, -l       drive the target CLI from here instead. No TUI, but
-                         agentmove can answer its permission questions and
-                         react to a rate limit rather than wait one out
+                         the profile as flags and the handoff as its first turn
       --handoff <text>   the opening turn: `default`, `minimal`, or any literal
                          template. Beats the config file's "handoff"
       --handoff-file <p> read that template from a file
@@ -538,16 +499,14 @@ static void PrintUsage() => Console.WriteLine("""
     (Claude), `approvalPolicy` and `sandbox` (Codex), and so on. A key its
     backend does not understand is an error, not a shrug.
 
-    Nearly all of it reaches the CLI either way: --launch hands it to the
-    engine, and the other two turn it into that CLI's own flags. What only
-    --launch can set is the handful of fields with no flag form, all of them
-    Codex protocol-level. agentmove names anything a command line would drop,
-    and --attach refuses outright rather than start an agent with permissions
-    the profile did not ask for.
+    A profile becomes arguments to that CLI's own resume invocation, whether
+    agentmove prints the command or runs it. A key with no flag form is refused
+    up front rather than accepted and dropped, and --attach refuses outright
+    rather than start an agent with permissions the profile did not ask for.
 
     Permissions are NOT translated between CLIs, because there is no honest
-    mapping. Each profile states its own target's; under --launch the CLI's own
-    permission questions are asked here, as they arise.
+    mapping. Each profile states its own target's, and the target asks its own
+    questions once it is running.
     """);
 
 internal sealed record MoveOptions(
@@ -559,7 +518,7 @@ internal sealed record MoveOptions(
     int Limit,
     bool Yes,
     bool Init,
-    StartMode Mode,
+    bool Attach,
     bool NoHandoff,
     string? Handoff,
     bool ShowHelp)
@@ -569,8 +528,7 @@ internal sealed record MoveOptions(
         var dir = Environment.CurrentDirectory;
         string? from = null, session = null, to = null, config = null;
         var limit = 15;
-        bool yes = false, init = false, help = false, noHandoff = false;
-        var mode = StartMode.PrintCommand;
+        bool yes = false, init = false, help = false, noHandoff = false, attach = false;
         string? handoff = null;
 
         for (var i = 0; i < args.Length; i++)
@@ -580,8 +538,7 @@ internal sealed record MoveOptions(
                 case "--help" or "-h": help = true; break;
                 case "--init": init = true; break;
                 case "--yes" or "-y": yes = true; break;
-                case "--launch" or "-l": mode = Pick(mode, StartMode.Launch); break;
-                case "--attach" or "-a": mode = Pick(mode, StartMode.Attach); break;
+                case "--attach" or "-a": attach = true; break;
                 case "--no-handoff": noHandoff = true; break;
                 case "--handoff" when i + 1 < args.Length:
                     handoff = args[++i] switch
@@ -607,23 +564,7 @@ internal sealed record MoveOptions(
             }
         }
 
-        return new MoveOptions(dir, from, session, to, config, limit, yes, init, mode, noHandoff, handoff, help);
-    }
-
-    // --launch and --attach are opposite trades, not degrees of the same one. Silently letting the
-    // last flag win would hand someone the mode they did not ask for.
-    private static StartMode Pick(StartMode current, StartMode wanted)
-    {
-        if (current is not StartMode.PrintCommand && current != wanted)
-        {
-            Console.Error.WriteLine("--launch and --attach do different things; pick one.");
-            Console.Error.WriteLine("  --launch  agentmove drives the CLI: applies the whole profile, "
-                + "asks permissions here, no TUI");
-            Console.Error.WriteLine("  --attach  the CLI's own TUI: full interface, but agentmove "
-                + "sees nothing after it starts");
-            Environment.Exit(1);
-        }
-        return wanted;
+        return new MoveOptions(dir, from, session, to, config, limit, yes, init, attach, noHandoff, handoff, help);
     }
 
     private static string ReadTemplate(string path)

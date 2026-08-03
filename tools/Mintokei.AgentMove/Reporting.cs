@@ -2,28 +2,13 @@ using Mintokei.AgentEngine.AgentTools;
 
 namespace Mintokei.AgentMove;
 
-/// <summary>How the conversation is picked up once it has been moved.</summary>
-internal enum StartMode
-{
-    /// <summary>Print a command for the user to run. The default.</summary>
-    PrintCommand,
-
-    /// <summary>Run that same command here, handing this terminal to the CLI's own interface.</summary>
-    Attach,
-
-    /// <summary>Drive the CLI through the engine, in this process.</summary>
-    Launch,
-}
-
 /// <summary>
-/// Says truthfully which of a profile's settings will be in force, because the answer depends on
-/// how the session is started.
+/// Says truthfully which of a profile's settings will be in force.
 ///
-/// Under <see cref="StartMode.Launch"/> the whole <c>config</c> goes to
-/// <c>AgentSessionSpec.Config</c> and the backend's mapper turns it into how the CLI is run, so all
-/// of it applies. The other two modes go through a command line, and <see cref="CliArgs"/> gets
-/// nearly all of it there too — what is left over is a handful of protocol-only fields, none of
-/// them permissions.
+/// Everything reaches the CLI as an argument to its own resume invocation — agentmove either prints
+/// that command or runs it. A key <see cref="CliArgs"/> cannot express is refused up front rather
+/// than reported here, so in practice this prints the profile and nothing else; the unapplied path
+/// remains because a backend can gain a key before it gains a flag for it.
 ///
 /// Printing <c>approvalPolicy=on-request</c> beside a command that does not carry it is worse than
 /// printing nothing: it reads as a statement about what the agent is allowed to do.
@@ -90,10 +75,10 @@ internal static class Reporting
         $"{resume.File} {string.Join(' ', resume.Argv.Select(Quote))}";
 
     /// <summary>
-    /// The permission settings the profile asks for, marked with whether <paramref name="mode"/>
-    /// actually delivers them. Returns the ones it does not.
+    /// The permission settings the profile asks for, marked with any the command line cannot
+    /// deliver. Returns the ones it cannot.
     /// </summary>
-    public static IReadOnlyList<string> PrintPermissions(AgentToolKey tool, Profile profile, StartMode mode)
+    public static IReadOnlyList<string> PrintPermissions(AgentToolKey tool, Profile profile)
     {
         var permissions = profile.PermissionSettings().ToList();
         if (permissions.Count == 0)
@@ -103,8 +88,6 @@ internal static class Reporting
         }
 
         Console.WriteLine($"  permissions: {string.Join("  ", permissions)}");
-        if (mode is StartMode.Launch)
-            return [];
 
         var dropped = CliArgs.For(tool, profile).Dropped;
         var unapplied = permissions
@@ -115,7 +98,7 @@ internal static class Reporting
         if (unapplied.Count > 0)
             Console.WriteLine(
                 $"               ^ NOT applied ({string.Join(", ", unapplied)}) — {tool} has no "
-                + "flag for these; --launch sets them over its protocol");
+                + "flag for these; set them in its own settings instead");
         return unapplied;
     }
 

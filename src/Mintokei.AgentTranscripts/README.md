@@ -126,6 +126,37 @@ briefing that was just built.
 This is lossy and is **the wrong default**. Move the real transcript when it fits; reach for this
 when the alternative is not fitting at all.
 
+## What survives, measured
+
+`FidelityMatrixTests` writes one message of each kind into every store and reads it back, so the
+table below is checked rather than claimed. A writer that starts carrying more fails those tests
+with the row that moved.
+
+| | Claude Code | Codex | Copilot |
+|---|---|---|---|
+| user / assistant text | ✅ | ✅ | ✅ |
+| unicode, code fences, quotes | ✅ | ✅ | ✅ |
+| command + output | ✅ | ✅ | ✅ |
+| command **exit code** | ❌ boolean only | ~ parsed from output | ✅ |
+| tool name, arguments, result | ✅ | ✅ | ✅ |
+| tool error text | ✅ | ✅ | ✅ |
+| **MCP server name** | ❌ | ❌ | ❌ |
+| file edit **with** prose | ✅ as prose | ✅ as prose | ✅ as prose |
+| file edit **without** prose | ❌ dropped | ❌ dropped | ❌ dropped |
+| reasoning | ❌ becomes assistant speech | ❌ | ❌ |
+| large tool result (500 KB) | ✅ | ✅ | ✅ |
+
+Three of those are worth knowing before you rely on a moved conversation:
+
+- **A file edit with no prose leaves no trace.** Every writer falls back on `Content` for a kind it
+  has no wire form for, and a `FileChange` straight from a parser often has none — the path and
+  diff *are* the message. It is then dropped entirely: not the path, not the diff, not a line
+  saying a file was touched.
+- **Two hops lose an edit even when one does not.** Claude's parser turns an `Edit` tool call into
+  a `FileChange` with no prose. That survives the first crossing and vanishes on the second.
+- **Reasoning comes back as speech.** Thinking has no wire form anywhere, so it is written as
+  assistant prose and reads as something the agent said out loud rather than considered privately.
+
 ## What does not survive a write
 
 - **Opaque reasoning** — Codex `encrypted_content`, Copilot `reasoningOpaque`, Claude thinking

@@ -252,12 +252,7 @@ if (options.Mode is StartMode.Attach && unapplied.Count > 0)
 }
 
 if (profile.ExtraArgs.Count > 0)
-    Console.WriteLine(options.Mode is StartMode.Launch
-        // AgentSessionSpec has no verbatim-arguments field: the engine builds the command line
-        // from the config alone, so there is nowhere for these to go.
-        ? $"  extra args:  {string.Join(' ', profile.ExtraArgs)}  (NOT applied when launching — "
-          + "the engine builds the command line from `config`)"
-        : $"  extra args:  {string.Join(' ', profile.ExtraArgs)}");
+    Console.WriteLine($"  extra args:  {string.Join(' ', profile.ExtraArgs)}");
 
 if (!options.Yes && !Confirm("Proceed?"))
 {
@@ -319,11 +314,13 @@ catch (TranscriptStoreException ex)
 
 // --no-handoff, or `"handoff": ""` in the config, means send nothing: the session opens with its
 // history and whoever picked it up writes the first turn themselves.
-var wantsHandoff = !options.NoHandoff && config.Handoff is not "";
+// --handoff beats the config file, which beats the built-in wording; --no-handoff beats all three.
+var configured = options.Handoff ?? config.Handoff;
+var wantsHandoff = !options.NoHandoff && configured is not "";
 
 // A configured template wins. Otherwise: the failure-shaped default only when the conversation
 // was actually cut off, and the neutral one when the move was somebody's choice.
-var template = config.Handoff ?? (trim.EndsMidTurn ? null : HandoffPrompt.MovedTemplate);
+var template = configured ?? (trim.EndsMidTurn ? null : HandoffPrompt.MovedTemplate);
 var handoff = wantsHandoff
     ? HandoffPrompt.Render(template, new HandoffContext
     {
@@ -524,6 +521,9 @@ static void PrintUsage() => Console.WriteLine("""
       --launch, -l       drive the target CLI from here instead. No TUI, but
                          agentmove can answer its permission questions and
                          react to a rate limit rather than wait one out
+      --handoff <text>   the opening turn: `default`, `minimal`, or any literal
+                         template. Beats the config file's "handoff"
+      --handoff-file <p> read that template from a file
       --no-handoff       do not send an opening turn: the session opens with
                          its history and you write the first message yourself
       --limit <n>        how many sessions to list (default 15)
@@ -561,6 +561,7 @@ internal sealed record MoveOptions(
     bool Init,
     StartMode Mode,
     bool NoHandoff,
+    string? Handoff,
     bool ShowHelp)
 {
     public static MoveOptions Parse(string[] args)
@@ -570,6 +571,7 @@ internal sealed record MoveOptions(
         var limit = 15;
         bool yes = false, init = false, help = false, noHandoff = false;
         var mode = StartMode.PrintCommand;
+        string? handoff = null;
 
         for (var i = 0; i < args.Length; i++)
         {
@@ -581,6 +583,17 @@ internal sealed record MoveOptions(
                 case "--launch" or "-l": mode = Pick(mode, StartMode.Launch); break;
                 case "--attach" or "-a": mode = Pick(mode, StartMode.Attach); break;
                 case "--no-handoff": noHandoff = true; break;
+                case "--handoff" when i + 1 < args.Length:
+                    handoff = args[++i] switch
+                    {
+                        "default" => null,                        // null => the built-in wording
+                        "minimal" => HandoffPrompt.MinimalTemplate,
+                        var literal => literal,
+                    };
+                    break;
+                case "--handoff-file" when i + 1 < args.Length:
+                    handoff = ReadTemplate(args[++i]);
+                    break;
                 case "--dir" when i + 1 < args.Length: dir = Path.GetFullPath(args[++i]); break;
                 case "--from" when i + 1 < args.Length: from = args[++i]; break;
                 case "--session" when i + 1 < args.Length: session = args[++i]; break;
@@ -594,7 +607,7 @@ internal sealed record MoveOptions(
             }
         }
 
-        return new MoveOptions(dir, from, session, to, config, limit, yes, init, mode, noHandoff, help);
+        return new MoveOptions(dir, from, session, to, config, limit, yes, init, mode, noHandoff, handoff, help);
     }
 
     // --launch and --attach are opposite trades, not degrees of the same one. Silently letting the
@@ -611,6 +624,20 @@ internal sealed record MoveOptions(
             Environment.Exit(1);
         }
         return wanted;
+    }
+
+    private static string ReadTemplate(string path)
+    {
+        try
+        {
+            return File.ReadAllText(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Console.Error.WriteLine($"--handoff-file {path}: {ex.Message}");
+            Environment.Exit(1);
+            return "";
+        }
     }
 
     // int.Parse would surface a bad --limit as an unhandled FormatException and a stack trace.

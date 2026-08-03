@@ -93,10 +93,28 @@ public sealed class CommandLineRunner : ICommandLineRunner
             StandardErrorEncoding = Encoding.UTF8
         };
 
+        var extra = options.ExtraArgs ?? [];
+
         if (options.ArgumentList is { Count: > 0 })
         {
             // Per-argument escaping — values may contain whitespace, newlines, or quotes.
             foreach (var arg in options.ArgumentList)
+                startInfo.ArgumentList.Add(arg);
+            foreach (var arg in extra)
+                startInfo.ArgumentList.Add(arg);
+        }
+        else if (extra.Count > 0)
+        {
+            // ArgumentList and Arguments cannot both be set, so the dictionary is tokenised here
+            // rather than concatenated — which also gives the extras per-argument escaping instead
+            // of whatever the string form would have done to a value containing a space.
+            foreach (var (key, value) in options.Arguments ?? new Dictionary<string, string?>())
+            {
+                startInfo.ArgumentList.Add(key);
+                if (value is not null)
+                    startInfo.ArgumentList.Add(value);
+            }
+            foreach (var arg in extra)
                 startInfo.ArgumentList.Add(arg);
         }
         else

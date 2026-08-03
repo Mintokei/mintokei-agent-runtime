@@ -147,9 +147,10 @@ with no command-line form. agentmove names whatever a command line would drop:
                  --launch sets them over its protocol
 ```
 
-`extraArgs` is the other way round: it reaches the command line — printed or attached — and *not*
-`--launch`, because `AgentSessionSpec` has no verbatim-arguments field and the engine builds the
-command from `config` alone. agentmove says so rather than dropping them quietly.
+`extraArgs` reaches all three modes now — `AgentSessionSpec.ExtraArgs` carries it to the engine —
+but it is verbatim and unvalidated, and the two paths run *different* Codex subcommands. A TUI flag
+like `--no-alt-screen` works under `--attach` and kills `--launch`, because `codex app-server` does
+not take it. Whatever you put there, the CLI is the one that judges it.
 
 Leaving the prompt does not end anything. The session is a normal session in the target CLI's own
 store, so `codex resume <id>` picks it up in the real TUI whenever you want.
@@ -161,7 +162,7 @@ store, so `codex resume <id>` picks it up in the real TUI whenever you want.
 | the CLI's real TUI | you run it | **yes** | no |
 | applies the profile | **yes**, minus protocol-only keys | same | **yes**, all of it |
 | sends the handoff turn | you paste it | **yes** | **yes** |
-| carries `extraArgs` | **yes** | **yes** | no |
+| carries `extraArgs` | **yes** | **yes** | **yes** |
 | can answer a permission for you | — | no | **yes** |
 | can react to a rate limit | — | no | **yes** |
 
@@ -203,7 +204,8 @@ Placeholders: `{request}` `{reason}` `{failureKind}` `{sourceCli}` `{targetCli}`
 whole, so keep the label on the **same line** as its placeholder — `Outstanding request: {request}`
 — or a label survives when its value does not and you get a heading with nothing under it.
 
-`--no-handoff` does the same as `""` for one run.
+For one run: `--handoff <text>` (also `default` or `minimal`), `--handoff-file <path>`, or
+`--no-handoff`. The flag beats the config file; `--no-handoff` beats both.
 
 `config` is the engine's own vocabulary. Under `--launch` it goes straight to
 `AgentSessionSpec.Config` and the backend's mapper turns it into how that CLI is run; otherwise
@@ -291,6 +293,9 @@ you which flag was missing.
 | `--limit <n>` | how many sessions to list (default 15) |
 | `--config <path>` | config file |
 | `--attach`, `-a` | hand this terminal to the target CLI's own interface |
+| `--handoff <text>` | opening turn: `default`, `minimal`, or a literal template |
+| `--handoff-file <p>` | read that template from a file |
+| `--no-handoff` | send no opening turn at all |
 | `--launch`, `-l` | drive the target CLI from here instead |
 | `--yes` | skip the confirmation |
 | `--init` | write a starter config |

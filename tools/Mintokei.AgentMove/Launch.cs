@@ -45,6 +45,9 @@ internal static class Launcher
                 ? null
                 : new Dictionary<string, string?>(profile.Config, StringComparer.OrdinalIgnoreCase),
             ResumeSessionId = sessionId,
+            // Verbatim arguments reach the launch here too now, so a profile means the same thing
+            // whichever way the session is started.
+            ExtraArgs = profile.ExtraArgs.Count == 0 ? null : profile.ExtraArgs,
             EnableMcp = false,
         };
 

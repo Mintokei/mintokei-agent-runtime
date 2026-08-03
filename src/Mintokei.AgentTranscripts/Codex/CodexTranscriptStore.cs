@@ -588,19 +588,20 @@ public sealed class CodexTranscriptStore : ITranscriptStore
                     var execArgs = new JsonObject { ["cmd"] = cmd.Command };
                     if (!string.IsNullOrEmpty(cmd.Cwd))
                         execArgs["workdir"] = cmd.Cwd;
-                    Call(ExecCommandTool, execArgs.ToJsonString(), cmd.Output);
+                    Call(ExecCommandTool, execArgs.ToJsonString(), TranscriptNarration.WithExitStatus(cmd));
                     break;
 
                 case MessageType.ToolCall when m.ToolCall is { } tool:
-                    Call(tool.ToolName, tool.Arguments, tool.Result ?? tool.Error);
+                    Call(TranscriptNarration.QualifiedToolName(tool), tool.Arguments,
+                        tool.Result ?? tool.Error);
                     break;
 
                 default:
-                    // Reasoning, Plan, FileChange and friends have no faithful Codex wire form.
-                    // Writing them as assistant prose keeps the conversation readable rather than
-                    // dropping it; see the README's "What does not survive a write".
-                    if (!string.IsNullOrWhiteSpace(m.Content))
-                        Message("assistant", m.Content);
+                    // Plan, FileChange and friends have no faithful Codex wire form, so they cross
+                    // as assistant prose — built from the payload when there is no Content, or a
+                    // file edit carrying only a path and a diff went unrecorded entirely.
+                    if (TranscriptNarration.DescribeForProse(m) is { } narration)
+                        Message("assistant", narration);
                     break;
             }
         }

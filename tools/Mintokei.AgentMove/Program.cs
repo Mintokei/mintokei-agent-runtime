@@ -23,9 +23,21 @@ if (options.Init)
 
 MoveConfig config;
 string origin;
+SummarySettings summary;
 try
 {
     (config, origin) = MoveConfig.Load(options.ConfigPath);
+
+    // Resolved here, before a session is even listed, because a summariser naming a profile that
+    // does not exist should stop the run while stopping is still free.
+    summary = options.ApplyTo(config.EffectiveSummary());
+    if (!summary.IsMechanical && !config.Profiles.ContainsKey(summary.With))
+    {
+        throw new InvalidOperationException(
+            $"the summary is set to be written by '{summary.With}', which is not a profile. Use "
+            + $"\"{SummarySettings.Mechanical}\", or one of: "
+            + string.Join(", ", config.Profiles.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase)));
+    }
 }
 catch (InvalidOperationException ex)
 {
@@ -248,6 +260,33 @@ if (options.Attach && unapplied.Count > 0)
 if (profile.ExtraArgs.Count > 0)
     Console.WriteLine($"  extra args:  {string.Join(' ', profile.ExtraArgs)}");
 
+// Said before the confirmation rather than after it, because summarising throws the turn-by-turn
+// history away — and because naming a profile starts a second agent in this directory, which is
+// not something to discover from the output afterwards.
+if (summary.When.When != SummaryWhen.Never)
+{
+    var trigger = summary.When.When == SummaryWhen.Always
+        ? "every session"
+        : $"sessions over {summary.When.Threshold} messages";
+    Console.WriteLine(summary.IsMechanical
+        ? $"  summary:     {trigger}, extracted from the transcript"
+        : $"  summary:     {trigger}, written by '{summary.With}'");
+
+    if (!summary.IsMechanical)
+    {
+        var writer = config.Profiles[summary.With];
+        Console.WriteLine($"               {writer.Tool} runs here to read the transcript"
+            + $"{(writer.Model is { Length: > 0 } m ? $", as {m}" : "")}");
+        if (!Backends.IsReadOnly(writer.ToolKey, writer.Config))
+        {
+            // The engine refuses every permission request it makes — but a profile that already
+            // grants the reach is never asked, so this is the only place anyone sees it.
+            Console.WriteLine("               this profile does not pin it to read-only, so it "
+                + "may change files here");
+        }
+    }
+}
+
 if (!options.Yes && !Confirm("Proceed?"))
 {
     Console.WriteLine("Cancelled.");
@@ -278,11 +317,57 @@ if (trim.DroppedRequest is not null)
 else if (trim.EndsMidTurn)
     Console.WriteLine("  the last turn was cut off — keeping the work it produced");
 
-if (config.SummariseOver is { } limit && transcript.Messages.Count > limit)
+if (summary.When.Applies(transcript.Messages.Count))
 {
     var before = transcript.Messages.Count;
-    transcript = transcript.Summarise();
-    Console.WriteLine($"  summarised {before} messages into a briefing (over the {limit}-message limit)");
+    string? narrative = null;
+
+    if (!summary.IsMechanical)
+    {
+        // The path, not the text: pasting the conversation into the prompt would hit the same
+        // context limit that made a summary worth having.
+        if (string.IsNullOrWhiteSpace(read.SourcePath))
+        {
+            Console.WriteLine($"  '{summary.With}' has no transcript file to read — "
+                + "using the extracted briefing instead");
+        }
+        else
+        {
+            Console.WriteLine($"  asking '{summary.With}' to read the transcript…");
+            var attempt = await AgentSummariser.RunAsync(
+                config.Profiles[summary.With],
+                readable => HandoffPrompt.Render(
+                    summary.Prompt ?? SummarySettings.DefaultPrompt,
+                    new HandoffContext
+                    {
+                        SourceTool = read.Tool,
+                        TargetTool = targetKey,
+                        SourceSessionId = picked.SessionId,
+                        // The copy it can actually read, not where the transcript lives.
+                        SourcePath = readable,
+                        Cwd = cwd,
+                    }),
+                read.SourcePath,
+                cwd,
+                TimeSpan.FromSeconds(summary.TimeoutSeconds));
+
+            if (attempt.Briefing is { } written)
+                narrative = written;
+            else
+                Console.WriteLine($"  '{summary.With}' produced nothing ({attempt.Failure}) — "
+                    + "using the extracted briefing instead");
+        }
+    }
+
+    transcript = transcript.Summarise(new SummaryOptions
+    {
+        Narrative = narrative,
+        // Dropping the facts is only ever a choice about what to put under a briefing. With no
+        // briefing to put them under, it would leave a summary that says nothing at all.
+        IncludeFacts = summary.KeepFacts || narrative is null,
+    });
+    Console.WriteLine($"  summarised {before} messages into a briefing"
+        + (narrative is null ? "" : $", with a handover from '{summary.With}'"));
 }
 
 if (transcript.Messages.Count == 0)
@@ -487,6 +572,14 @@ static void PrintUsage() => Console.WriteLine("""
       --handoff-file <p> read that template from a file
       --no-handoff       do not send an opening turn: the session opens with
                          its history and you write the first message yourself
+      --summarise [n]    replace the conversation with a briefing — always, or
+                         only past n messages. Beats the config file's "summary"
+      --no-summarise     move the real transcript whatever the config says
+      --summarise-with   `mechanical` (extracted, free), or a profile name: that
+        <who>            agent reads the transcript and writes the handover
+      --summary-prompt   what to ask it for. {sourcePath} and {cwd} are filled in
+        <text>
+      --summary-prompt-file <p>       read that prompt from a file
       --limit <n>        how many sessions to list (default 15)
       --config <path>    config file (default: ./agentmove.json, then
                          $XDG_CONFIG_HOME/agentmove/config.json)
@@ -507,6 +600,12 @@ static void PrintUsage() => Console.WriteLine("""
     Permissions are NOT translated between CLIs, because there is no honest
     mapping. Each profile states its own target's, and the target asks its own
     questions once it is running.
+
+    Summarising is off by default: moving the real transcript is the point, and a
+    briefing is what you reach for when the conversation will not fit. When it is
+    a profile writing the briefing, that is a second agent started in this
+    directory — agentmove says so, with whether the profile pins it to read-only,
+    before it asks you to proceed.
     """);
 
 internal sealed record MoveOptions(
@@ -521,8 +620,22 @@ internal sealed record MoveOptions(
     bool Attach,
     bool NoHandoff,
     string? Handoff,
+    SummaryTrigger? SummaryWhen,
+    string? SummaryWith,
+    string? SummaryPrompt,
     bool ShowHelp)
 {
+    /// <summary>
+    /// The config's summary block with this run's flags laid over it. Same precedence as the
+    /// handoff flags — the flag beats the file — so there is one rule rather than two.
+    /// </summary>
+    public SummarySettings ApplyTo(SummarySettings configured) => configured with
+    {
+        When = SummaryWhen ?? configured.When,
+        With = SummaryWith ?? configured.With,
+        Prompt = SummaryPrompt ?? configured.Prompt,
+    };
+
     public static MoveOptions Parse(string[] args)
     {
         var dir = Environment.CurrentDirectory;
@@ -530,6 +643,8 @@ internal sealed record MoveOptions(
         var limit = 15;
         bool yes = false, init = false, help = false, noHandoff = false, attach = false;
         string? handoff = null;
+        SummaryTrigger? summaryWhen = null;
+        string? summaryWith = null, summaryPrompt = null;
 
         for (var i = 0; i < args.Length; i++)
         {
@@ -551,6 +666,23 @@ internal sealed record MoveOptions(
                 case "--handoff-file" when i + 1 < args.Length:
                     handoff = ReadTemplate(args[++i]);
                     break;
+                // Both spellings: the config key is `summariseOver` and the method is `Summarise`,
+                // but getting an exit code for a regional spelling is a poor way to learn that.
+                case "--summarise" or "--summarize":
+                    summaryWhen = TakeTrigger(args, ref i);
+                    break;
+                case "--no-summarise" or "--no-summarize":
+                    summaryWhen = SummaryTrigger.Never;
+                    break;
+                case "--summarise-with" or "--summarize-with" when i + 1 < args.Length:
+                    summaryWith = args[++i];
+                    break;
+                case "--summary-prompt" when i + 1 < args.Length:
+                    summaryPrompt = args[++i];
+                    break;
+                case "--summary-prompt-file" when i + 1 < args.Length:
+                    summaryPrompt = ReadTemplate(args[++i]);
+                    break;
                 case "--dir" when i + 1 < args.Length: dir = Path.GetFullPath(args[++i]); break;
                 case "--from" when i + 1 < args.Length: from = args[++i]; break;
                 case "--session" when i + 1 < args.Length: session = args[++i]; break;
@@ -564,7 +696,31 @@ internal sealed record MoveOptions(
             }
         }
 
-        return new MoveOptions(dir, from, session, to, config, limit, yes, init, attach, noHandoff, handoff, help);
+        return new MoveOptions(
+            dir, from, session, to, config, limit, yes, init, attach, noHandoff, handoff,
+            summaryWhen, summaryWith, summaryPrompt, help);
+    }
+
+    /// <summary>
+    /// The value after <c>--summarise</c>, when there is one. Bare means "always"; the next token is
+    /// only swallowed when it is actually a trigger, so <c>--summarise --yes</c> does not quietly
+    /// consume the flag after it and then fail on a word it never meant to parse.
+    /// </summary>
+    private static SummaryTrigger TakeTrigger(string[] args, ref int i)
+    {
+        if (i + 1 >= args.Length)
+            return SummaryTrigger.Always;
+
+        try
+        {
+            var parsed = SummaryTrigger.Parse(args[i + 1]);
+            i++;
+            return parsed;
+        }
+        catch (InvalidOperationException)
+        {
+            return SummaryTrigger.Always;
+        }
     }
 
     private static string ReadTemplate(string path)

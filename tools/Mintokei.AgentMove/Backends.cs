@@ -34,6 +34,41 @@ internal static class Backends
     public static bool IsPermissionKey(string key) => Permission.Contains(key);
 
     /// <summary>
+    /// Whether a profile pins its CLI to something that cannot modify the machine — the question
+    /// asked before running one as a summariser.
+    ///
+    /// Summarising starts a second agent nobody asked to start, in the working directory of the
+    /// session being moved. The engine denies every permission request it makes, but that only
+    /// covers what the CLI stops to ask about: a profile saying <c>acceptEdits</c> or
+    /// <c>sandbox: workspace-write</c> has already been granted the reach, and no request arrives.
+    ///
+    /// So the burden is inverted. A profile is quiet only when it says so; saying nothing means the
+    /// CLI's own default, which differs per tool and per version, and is not something to infer.
+    /// </summary>
+    public static bool IsReadOnly(AgentToolKey tool, IReadOnlyDictionary<string, string?> config)
+    {
+        string? Value(string key) => config.TryGetValue(key, out var v) ? v?.Trim() : null;
+        bool IsTrue(string key) => bool.TryParse(Value(key), out var b) && b;
+
+        return tool switch
+        {
+            // `default` and `plan` both stop and ask, and the engine answers no.
+            AgentToolKey.ClaudeCodeCli =>
+                Value("permissionMode") is "default" or "plan"
+                && !IsTrue("allowDangerouslySkipPermissions"),
+
+            // The sandbox is the binding one; approvalPolicy only decides who is asked.
+            AgentToolKey.CodexCli => Value("sandbox") == "read-only",
+
+            AgentToolKey.GithubCopilotCli =>
+                Value("mode") == "interactive" && !IsTrue("allowAllPaths"),
+
+            // OpenCode has no read-only mode to pin, so it never qualifies.
+            _ => false,
+        };
+    }
+
+    /// <summary>
     /// The keys in <paramref name="config"/> that <paramref name="tool"/> does not understand,
     /// each paired with the closest key it does — <c>access</c> is Codex's setting in every other
     /// tool's vocabulary but its own, where it is <c>sandbox</c>.

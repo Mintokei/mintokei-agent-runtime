@@ -23,6 +23,22 @@ public sealed record SummaryOptions
     /// <summary>Include the files-touched and commands-run sections.</summary>
     public bool IncludeToolActivity { get; init; } = true;
 
+    /// <summary>
+    /// A briefing written by something that read the conversation — a model, usually — placed where
+    /// the previous agent's closing message would otherwise go.
+    ///
+    /// It is additive rather than a replacement: the extracted sections stay unless
+    /// <see cref="IncludeFacts"/> says otherwise. Whoever wrote this can be wrong about what they
+    /// read; a list of the files the transcript records cannot be.
+    /// </summary>
+    public string? Narrative { get; init; }
+
+    /// <summary>
+    /// Include the extracted sections — volume, requests, files, commands. False leaves the
+    /// metadata and the narrative alone, for a caller who wants prose and nothing else.
+    /// </summary>
+    public bool IncludeFacts { get; init; } = true;
+
     /// <summary>Replaces the opening line. Null uses the default handover sentence.</summary>
     public string? Header { get; init; }
 
@@ -106,9 +122,10 @@ public static class TranscriptSummarising
             sb.AppendLine($"- Working directory: {t.Cwd}");
         if (!string.IsNullOrWhiteSpace(t.Model))
             sb.AppendLine($"- Model: {t.Model}");
-        sb.AppendLine($"- Volume: {requests.Count} request(s), {replies} reply(ies), {calls} tool call(s)");
+        if (o.IncludeFacts)
+            sb.AppendLine($"- Volume: {requests.Count} request(s), {replies} reply(ies), {calls} tool call(s)");
 
-        if (requests.Count > 0)
+        if (o.IncludeFacts && requests.Count > 0)
         {
             sb.AppendLine();
             sb.AppendLine("## What was asked, in order");
@@ -120,7 +137,7 @@ public static class TranscriptSummarising
                 sb.AppendLine($"{i + 1}. {OneLine(shown[i], 400)}");
         }
 
-        if (o.IncludeToolActivity)
+        if (o.IncludeFacts && o.IncludeToolActivity)
         {
             var files = TouchedFiles(t).Take(o.MaxFiles + 1).ToList();
             if (files.Count > 0)
@@ -149,14 +166,26 @@ public static class TranscriptSummarising
             }
         }
 
-        var closing = t.Messages.LastOrDefault(m =>
-            m.Type == MessageType.AgentMessage && !string.IsNullOrWhiteSpace(m.Content))?.Content;
-        if (!string.IsNullOrWhiteSpace(closing))
+        if (!string.IsNullOrWhiteSpace(o.Narrative))
         {
+            // Attributed, because a reader who cannot tell an extracted fact from a second agent's
+            // reading of the conversation will treat a mistaken summary as something that happened.
             sb.AppendLine();
-            sb.AppendLine("## Where the previous agent left off");
+            sb.AppendLine("## Handover briefing (written by an agent that read the transcript)");
             sb.AppendLine();
-            sb.AppendLine(Truncate(closing.Trim(), o.MaxClosingChars));
+            sb.AppendLine(o.Narrative.Trim());
+        }
+        else
+        {
+            var closing = t.Messages.LastOrDefault(m =>
+                m.Type == MessageType.AgentMessage && !string.IsNullOrWhiteSpace(m.Content))?.Content;
+            if (!string.IsNullOrWhiteSpace(closing))
+            {
+                sb.AppendLine();
+                sb.AppendLine("## Where the previous agent left off");
+                sb.AppendLine();
+                sb.AppendLine(Truncate(closing.Trim(), o.MaxClosingChars));
+            }
         }
 
         sb.AppendLine();

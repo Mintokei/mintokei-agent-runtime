@@ -183,4 +183,65 @@ public sealed class TranscriptSummarisingTests
         Assert.Contains("…", text);
         Assert.True(text.Length < 3_000, $"briefing was {text.Length} chars");
     }
+
+    // ── a briefing somebody else wrote ───────────────────────────────────
+
+    [Fact]
+    public void A_narrative_is_added_to_the_facts_rather_than_replacing_them()
+    {
+        // Whoever wrote it can be wrong about what they read; the file list cannot be. So the
+        // extraction stays underneath by default.
+        var text = Sample.Summarise(new SummaryOptions
+        {
+            Narrative = "The port bump is done in a.yaml only; b.yaml was opened and not saved.",
+        }).Messages[0].Content!;
+
+        Assert.Contains("b.yaml was opened and not saved", text, StringComparison.Ordinal);
+        Assert.Contains("/repo/a.yaml", text, StringComparison.Ordinal);
+        Assert.Contains("now bump the port everywhere", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_narrative_is_marked_as_somebody_elses_reading()
+    {
+        // Unattributed, a mistaken summary reads as something that happened.
+        var text = Sample.Summarise(new SummaryOptions { Narrative = "nothing was finished" })
+            .Messages[0].Content!;
+
+        Assert.Contains("written by an agent that read the transcript", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_narrative_stands_in_for_the_closing_message_rather_than_sitting_beside_it()
+    {
+        // Two accounts of where the work got to, disagreeing, is worse than either alone.
+        var text = Sample.Summarise(new SummaryOptions { Narrative = "one file left" })
+            .Messages[0].Content!;
+
+        Assert.DoesNotContain("all five files are at 9090", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Where the previous agent left off", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Dropping_the_facts_leaves_the_narrative_and_the_metadata()
+    {
+        var text = Sample.Summarise(new SummaryOptions
+        {
+            Narrative = "one file left",
+            IncludeFacts = false,
+        }).Messages[0].Content!;
+
+        Assert.Contains("one file left", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Files touched", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("What was asked", text, StringComparison.Ordinal);
+        // The pointer back to the original survives whatever else is dropped: conversion is lossy,
+        // and this is how anything missing can still be read.
+        Assert.Contains("/home/me/.claude/projects/-repo/sess-1.jsonl", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Without_a_narrative_nothing_changes()
+    {
+        Assert.Equal(Sample.Summarise().Messages[0].Content, Sample.Summarise(new SummaryOptions()).Messages[0].Content);
+    }
 }

@@ -22,6 +22,7 @@
     <Project Path="tests/Mintokei.AgentControlPlane.Tests/Mintokei.AgentControlPlane.Tests.csproj" />
     <Project Path="tests/Mintokei.Filesystem.Tests/Mintokei.Filesystem.Tests.csproj" />
     <Project Path="tests/Mintokei.AgentTranscripts.Tests/Mintokei.AgentTranscripts.Tests.csproj" />
+    <Project Path="tests/Mintokei.AgentMove.Tests/Mintokei.AgentMove.Tests.csproj" />
     <Project Path="tests/Mintokei.Sandbox.Tests/Mintokei.Sandbox.Tests.csproj" />
     <Project Path="tests/Mintokei.Sandbox.Hosting.Tests/Mintokei.Sandbox.Hosting.Tests.csproj" />
     <Project Path="tests/Mintokei.Runner.Host.Tests/Mintokei.Runner.Host.Tests.csproj" />

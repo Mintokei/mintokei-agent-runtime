@@ -13,6 +13,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Mintokei.AgentMove.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\Mintokei.AgentEngine\Mintokei.AgentEngine.csproj" />
     <ProjectReference Include="..\..\src\Mintokei.AgentTranscripts\Mintokei.AgentTranscripts.csproj" />
   </ItemGroup>

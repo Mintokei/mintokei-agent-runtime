@@ -86,6 +86,7 @@ public sealed class CopilotBackend : AcpBackendBase
         {
             Executable = "copilot",
             Arguments = arguments,
+            ExtraArgs = spec.ExtraArgs,
             WorkingDirectory = spec.WorkingDirectory,
             RedirectStdIn = true,
             CaptureStdErr = true,
@@ -108,6 +109,7 @@ public sealed class OpenCodeBackend : AcpBackendBase
         {
             Executable = "opencode",
             ArgumentList = argList,
+            ExtraArgs = spec.ExtraArgs,
             WorkingDirectory = spec.WorkingDirectory,
             RedirectStdIn = true,
             CaptureStdErr = true,

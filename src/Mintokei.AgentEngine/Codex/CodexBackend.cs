@@ -62,6 +62,7 @@ public sealed class CodexBackend : IAgentBackend
         {
             Executable = "codex",
             ArgumentList = arguments,
+            ExtraArgs = spec.ExtraArgs,
             WorkingDirectory = spec.WorkingDirectory,
             RedirectStdIn = true,
             CaptureStdErr = true,

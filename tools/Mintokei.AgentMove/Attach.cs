@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 
 using Mintokei.AgentEngine.AgentTools;
+using Mintokei.AgentEngine.CommandRunner;
 
 namespace Mintokei.AgentMove;
 
@@ -23,14 +24,29 @@ internal static class Attacher
         // place launching does rather than at an empty prompt with something to paste.
         var (file, argv, _) = Reporting.Resume(tool, sessionId, profile, firstTurn);
 
+        // On Windows these CLIs are usually npm shims — `codex.cmd`, not `codex.exe`. CreateProcess
+        // resolves a bare name against PATH but only ever appends `.exe`, so without this the
+        // spawn fails with "cannot find the file"; and a `.cmd` is not an executable image at all,
+        // so even the resolved path has to go through the command interpreter.
+        var resolved = ExecutableResolver.Resolve(file);
+        var isBatch = OperatingSystem.IsWindows()
+            && (resolved.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase)
+                || resolved.EndsWith(".bat", StringComparison.OrdinalIgnoreCase));
+
         var start = new ProcessStartInfo
         {
-            FileName = file,
+            FileName = isBatch ? Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe" : resolved,
             WorkingDirectory = cwd,
             // No redirection: the child gets this console, which is the entire point. Anything
             // redirected here would be a pipe, and the CLI would fall back to non-interactive mode.
             UseShellExecute = false,
         };
+
+        if (isBatch)
+        {
+            start.ArgumentList.Add("/c");
+            start.ArgumentList.Add(resolved);
+        }
         foreach (var arg in argv)
             start.ArgumentList.Add(arg);
 

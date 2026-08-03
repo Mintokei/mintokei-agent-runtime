@@ -106,6 +106,7 @@ public sealed class ClaudeBackend : IAgentBackend
         {
             Executable = "claude",
             Arguments = arguments,
+            ExtraArgs = spec.ExtraArgs,
             WorkingDirectory = spec.WorkingDirectory,
             RedirectStdIn = true,
             CaptureStdErr = true,

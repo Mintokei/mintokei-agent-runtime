@@ -22,6 +22,16 @@ public sealed record AgentSessionSpec
     /// to CLI args by the backend's config mapper. Null/empty for defaults.</summary>
     public Dictionary<string, string?>? Config { get; init; }
 
+    /// <summary>
+    /// Arguments appended verbatim to the launch, after everything the config mapper produced.
+    /// The escape hatch for a flag no mapper covers — a CLI's own new option, a local build's
+    /// debug switch — without waiting for the mapper to learn about it.
+    ///
+    /// Deliberately last and unvalidated: a caller reaching for this has already accepted that the
+    /// engine cannot reason about what they are passing.
+    /// </summary>
+    public IReadOnlyList<string>? ExtraArgs { get; init; }
+
     /// <summary>Appended/base system prompt — the snapshot assembled at task-creation time.</summary>
     public string? SystemPrompt { get; init; }
 

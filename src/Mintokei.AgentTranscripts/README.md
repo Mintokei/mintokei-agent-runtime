@@ -134,6 +134,21 @@ requests in order, files touched, recent commands, and where the previous agent 
 path to the full transcript, so anything omitted can still be looked up. `SummaryOptions` controls
 the limits, whether tool activity is included, and the wording of the header and acknowledgement.
 
+All of that is **extraction** — no model, no cost, and no understanding of what mattered. When
+something has read the conversation and can say what state the work is actually in, pass its
+briefing as `Narrative`:
+
+```csharp
+transcript.Summarise(new SummaryOptions { Narrative = whatTheReaderSaid });
+```
+
+It stands in for the closing message — two accounts of where the work got to, disagreeing, is worse
+than either alone — and is labelled as somebody else's reading rather than as something that
+happened. The extracted sections stay underneath, because whoever wrote it can be wrong about what
+they read and a file list cannot be; `IncludeFacts = false` if you want only the prose.
+
+`agentmove --summarise-with <profile>` is this, with an agent CLI as the reader.
+
 The briefing ends on an assistant turn on purpose. A transcript ending on a user turn reads as an
 unanswered question — to the next CLI, and to `TrimIncompleteTail`, which would otherwise strip the
 briefing that was just built.

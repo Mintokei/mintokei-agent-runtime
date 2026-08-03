@@ -59,8 +59,37 @@ public sealed record MoveConfig
 {
     public Dictionary<string, Profile> Profiles { get; init; } = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Compress a conversation longer than this into a briefing. Null never compresses.</summary>
+    /// <summary>
+    /// Compress a conversation longer than this into a briefing. Superseded by
+    /// <see cref="Summary"/>; still read so configs written against the old shape keep working.
+    /// </summary>
     public int? SummariseOver { get; init; }
+
+    /// <summary>When to summarise and who writes it. Absent means never.</summary>
+    public SummarySettings? Summary { get; init; }
+
+    /// <summary>
+    /// The summary settings after the old <c>summariseOver</c> is folded in.
+    ///
+    /// Both set is an <em>error</em> rather than a precedence rule. Picking one silently would
+    /// leave the user believing a threshold applied that did not — the same failure as an ignored
+    /// permission key, and worth stopping for on the same grounds.
+    /// </summary>
+    public SummarySettings EffectiveSummary()
+    {
+        if (Summary is not null && SummariseOver is not null)
+        {
+            throw new InvalidOperationException(
+                "both \"summary\" and the older \"summariseOver\" are set — keep one. "
+                + $"\"summariseOver\": {SummariseOver} is now {{ \"summary\": {{ \"when\": {SummariseOver} }} }}");
+        }
+
+        if (Summary is { } explicitSettings)
+            return explicitSettings;
+        if (SummariseOver is { } threshold)
+            return new SummarySettings { When = SummaryTrigger.Over(threshold) };
+        return new SummarySettings();
+    }
 
     /// <summary>
     /// Handoff template. Absent uses the built-in wording; <c>""</c> means send nothing and let
@@ -175,10 +204,18 @@ public sealed record MoveConfig
             }
           },
 
-          // Compress a conversation longer than this into a briefing before moving it. Lossy;
-          // omit to always move the real transcript.
-          "summariseOver": 400
+          // Summarising is off, because moving the real transcript is what this tool is for. A
+          // briefing is what you reach for when the conversation will not fit.
+          //
+          //   "when": "never" | "always" | <message count>
+          //   "with": "mechanical"  — extracted from the transcript. Free, instant, shallow.
+          //           a profile name — that agent reads the transcript and writes the handover.
+          //                            Costs a model call; understands what mattered.
+          //
+          // "summary": { "when": 400, "with": "mechanical" },
+          // "summary": { "when": "always", "with": "claude-fast" },
 
+          // The opening turn. Omit for the built-in wording; "" to send nothing.
           // "handoff": "You were interrupted. Continue: {request}"
         }
         """;

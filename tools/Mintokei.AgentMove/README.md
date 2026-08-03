@@ -144,7 +144,7 @@ Without one, a conservative built-in profile per supported CLI is used.
       "extraArgs": ["--skip-git-repo-check"]
     }
   },
-  "summariseOver": 400,
+  "summary": { "when": 400, "with": "mechanical" },
 
   // The opening turn. Omit for the built-in wording; "" to send nothing.
   "handoff": "You were interrupted. Continue: {request}"
@@ -158,6 +158,94 @@ whole, so keep the label on the **same line** as its placeholder — `Outstandin
 
 For one run: `--handoff <text>` (also `default` or `minimal`), `--handoff-file <path>`, or
 `--no-handoff`. The flag beats the config file; `--no-handoff` beats both.
+
+## Summarising
+
+Off by default. Moving the real transcript is the point of the tool; a briefing is what you reach
+for when the conversation will not fit — every move re-ingests the whole thing, and the cost is paid
+again on every hop.
+
+Two independent choices — **when** it happens, and **who writes it**:
+
+```json
+"summary": {
+  "when": "always",           // "always" | "never" | <message count>
+  "with": "claude-fast",      // "mechanical" | any profile name
+  "prompt": "Read {sourcePath}. …",
+  "keepFacts": true
+}
+```
+
+|  | `"when": "never"` | `"when": 400` | `"when": "always"` |
+|---|---|---|---|
+| `"with": "mechanical"` | move the transcript | summarise past 400 messages | summarise every session |
+| `"with": "<profile>"` | move the transcript | that agent writes it, past 400 | that agent writes it, always |
+
+`when` is one field rather than a mode plus a threshold, because `{"when": "always", "over": 400}`
+is expressible and meaningless — and then the parser has to have an opinion about it.
+
+For one run: `--summarise` (always), `--summarise 400`, `--no-summarise`, `--summarise-with <who>`,
+`--summary-prompt <text>`, `--summary-prompt-file <path>`. Flag beats the config file, the `--no-`
+form beats both — the same rule as `--handoff`, so there is one to learn rather than two.
+
+### `mechanical` — extracted
+
+Free, instant, deterministic, and about as insightful as `git log --stat`. It reads the transcript
+and lists what is in it: the requests in order, the files touched, the recent commands, and the
+previous agent's closing message verbatim.
+
+### A profile — an agent reads it and writes the handover
+
+```json
+"summary": { "when": "always", "with": "claude-reader" }
+```
+
+It is handed the **path**, never the text. Pasting a conversation into a prompt would hit the same
+context limit that made summarising worth doing; a path lets the agent read as much as it needs with
+its own tools. It reads the **source** transcript rather than the converted one, so the briefing can
+carry across what conversion drops — opaque reasoning, tool calls the target has no form for.
+
+The briefing is **added to** the extracted facts, not swapped for them. A model can be wrong about
+what it read; the file list cannot be. `"keepFacts": false` if you want only the prose.
+
+What it produces, on a real session, next to what extraction produced from the same file:
+
+```
+## Files touched                      ← mechanical: what the transcript records
+- /root/live/web.yaml
+- /root/live/client.yaml
+
+## Handover briefing (written by an agent that read the transcript)
+
+**No Edit tool call is recorded anywhere in the prior session.** The three lines reading
+"The file /root/live/web.yaml has been updated successfully" are recorded as assistant
+message content with an empty toolRequests list. They are text the model produced, not
+tool results. …File mtimes are all before the recorded session start.
+```
+
+That is the difference worth paying a model call for: the previous agent had claimed edits it never
+made, and only something that *read* the transcript could notice.
+
+**It is a second agent, started in your working directory.** agentmove says so before it asks you to
+proceed, along with whether the profile pins it to read-only:
+
+```
+  summary:     every session, written by 'claude-fast'
+               claude runs here to read the transcript, as claude-sonnet-4-5
+               this profile does not pin it to read-only, so it may change files here
+```
+
+Every permission request it makes is refused. That covers what a CLI stops to ask about — but a
+profile saying `acceptEdits` or `sandbox: workspace-write` has already been granted the reach and is
+never asked, which is why the line above exists. Silence in a profile is not read-only: it means the
+CLI's own default, which differs per tool and per version.
+
+Because the stores live outside the working directory (`~/.claude`, `~/.codex`, `~/.copilot`) and
+every CLI asks before reading there, the transcript is copied into the working directory for the run
+and deleted afterwards. Without that the summariser is denied its only source and produces nothing.
+
+If it fails — timeout, no such CLI, nothing said — the move continues with the extracted briefing
+and says why. You asked for a move; the summary is a means.
 
 `config` is the engine's own vocabulary; `CliArgs` turns it into that CLI's own flags, so a profile
 means the same thing whether the command is printed or run:
@@ -234,6 +322,11 @@ you which flag was missing.
 | `--handoff <text>` | opening turn: `default`, `minimal`, or a literal template |
 | `--handoff-file <p>` | read that template from a file |
 | `--no-handoff` | send no opening turn at all |
+| `--summarise [n]` | briefing instead of the transcript — always, or past n messages |
+| `--no-summarise` | move the real transcript whatever the config says |
+| `--summarise-with <who>` | `mechanical`, or a profile name to write it |
+| `--summary-prompt <text>` | what to ask that profile for |
+| `--summary-prompt-file <p>` | read that prompt from a file |
 | `--yes` | skip the confirmation |
 | `--init` | write a starter config |
 
@@ -243,8 +336,9 @@ you which flag was missing.
   otherwise reach the target twice, once as history and once as the thing to do.
 - **A turn cut off mid-way is kept.** Four files edited out of five is work worth carrying; the
   handoff says the last step's outcome is unknown instead of throwing it away.
-- **Long conversations can be summarised** (`summariseOver`) into a briefing, because every move
-  re-ingests the whole transcript and can overflow the target's context.
+- **Conversations can be summarised** into a briefing — see [Summarising](#summarising) — because
+  every move re-ingests the whole transcript and can overflow the target's context. Off unless you
+  ask for it.
 - **Claude Code, Codex and GitHub Copilot CLI** are supported as both source and target. OpenCode
   has no store yet.
 

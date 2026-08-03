@@ -100,8 +100,8 @@ internal static class CliArgs
                     break;
 
                 default:
-                    // collaborationMode is a turn-level app-server field with no config.toml
-                    // equivalent, so only --launch can set it.
+                    // collaborationMode lands here, but Backends refuses it before this runs —
+                    // it exists only in the app-server protocol agentmove no longer speaks.
                     dropped.Add(key);
                     break;
             }

@@ -40,7 +40,9 @@ in the ones below it, so you never reference a lower package directly.
   your own host). `Runner.Contracts` / `.Grpc` come along transitively.
 - **Move a conversation from one agent CLI to another, or read the transcripts they leave behind** →
   add `Mintokei.AgentTranscripts`. Claude Code, Codex and GitHub Copilot CLI; see
-  [`src/Mintokei.AgentTranscripts/README.md`](src/Mintokei.AgentTranscripts/README.md).
+  [`src/Mintokei.AgentTranscripts/README.md`](src/Mintokei.AgentTranscripts/README.md). To do it from
+  a terminal rather than from code, `dotnet tool install -g Mintokei.AgentMove` installs
+  [`agentmove`](tools/Mintokei.AgentMove) — the same library with a picker in front of it.
 - **Reuse the runner's file-search or file-watch filtering rules in your own code** →
   `Mintokei.Filesystem` (advanced; most users do not need this directly).
 - **Isolate each agent session in its own throwaway container** → add `Mintokei.Sandbox` on the

@@ -106,15 +106,10 @@ public sealed class FidelityMatrixTests : IDisposable
         var all = Flatten(read);
         Assert.Contains("Failed! - Failed: 3, Passed: 12", all);
 
-        // KNOWN LOSS. Only Copilot's format carries an exit status a reader can recover; Claude
-        // encodes "it failed" as a boolean and loses the number, Codex parses one back out of the
-        // output header when the command wrote one. So the failure is legible in the output text
-        // and nowhere else. Pinned rather than asserted away: if a store starts carrying it, this
-        // fails and the matrix gets updated.
+        // No format has a field for it: Claude records a boolean, and all three recover a number
+        // by matching what a shell tool prints. So the writers print it.
         var command = read.FirstOrDefault(m => m.CommandExecution is not null)?.CommandExecution;
-        var carriesExitCode = command?.ExitCode is 1;
-        Assert.False(carriesExitCode && store is "claude",
-            "Claude now carries the exit code — update the matrix, this is an improvement.");
+        Assert.Equal(1, command?.ExitCode);
     }
 
     [Theory]
@@ -177,11 +172,11 @@ public sealed class FidelityMatrixTests : IDisposable
         var all = Flatten(read);
         Assert.Contains("get_item_detail", all);
         Assert.Contains("Bug 4821: ledger rounding", all);
-        // KNOWN LOSS. No writer emits ServerName — it appears exactly once in the whole library,
-        // on Codex's read path. So an MCP call arrives looking like a native tool the target
-        // simply does not have, and the target cannot tell why it is missing.
-        Assert.False(all.Contains("targetprocess", StringComparison.OrdinalIgnoreCase),
-            $"{store} now carries the MCP server name — update the matrix, this is an improvement.");
+        // Written in Claude Code's own mcp__server__tool convention, which the Codex store's
+        // reader already understood — only the writers were dropping it.
+        var tool = read.FirstOrDefault(m => m.ToolCall is not null)?.ToolCall;
+        Assert.Equal("targetprocess", tool?.ServerName);
+        Assert.Contains("mcp__targetprocess__get_item_detail", all);
     }
 
     // ── the kinds with no wire form in any target ────────────────────────
@@ -234,11 +229,12 @@ public sealed class FidelityMatrixTests : IDisposable
             ],
         });
 
-        // KNOWN LOSS, and the sharpest one here. Every writer falls back on Content for a kind it
-        // has no form for, and a FileChange straight from a parser often has none — the diff is
-        // the message. The edit then leaves no trace at all: not the path, not the diff, not a
-        // line saying a file was touched.
-        Assert.DoesNotContain("ledger.cs", Flatten(read));
+        // Was the sharpest loss here: every writer fell back on Content, a FileChange from a
+        // parser has none, and the edit left no trace at all. TranscriptNarration builds the
+        // sentence the message never had.
+        var all = Flatten(read);
+        Assert.Contains("ledger.cs", all);
+        Assert.Contains("0.00m", all);
     }
 
     [Theory]
@@ -294,16 +290,16 @@ public sealed class FidelityMatrixTests : IDisposable
             },
             Assistant("The ledger rounds correctly."));
 
-        // KNOWN LOSS. Thinking has no wire form in any target, so it is written as assistant
-        // prose and comes back indistinguishable from something the agent said out loud. Here that
-        // turns a private doubt into an apparent statement that the rounding might be wrong,
-        // sitting next to the answer that it is fine.
+        // Thinking has no wire form in any target, so it still crosses as prose — but marked, so
+        // it cannot be read as a claim contradicting the answer beside it.
         var answers = read
             .Where(m => m.Role == MessageRole.Assistant && m.Type == MessageType.AgentMessage)
-            .Select(m => m.Content?.Trim())
+            .Select(m => m.Content?.Trim() ?? "")
             .ToList();
 
-        Assert.Contains("Maybe the rounding is wrong, I should check before saying so.", answers);
+        Assert.DoesNotContain("Maybe the rounding is wrong, I should check before saying so.", answers);
+        Assert.Contains(answers, a => a.StartsWith("(thinking)", StringComparison.Ordinal)
+            && a.Contains("Maybe the rounding is wrong"));
     }
 
     // ── shapes that break serialisers ────────────────────────────────────
@@ -380,7 +376,7 @@ public sealed class FidelityMatrixTests : IDisposable
     [Theory]
     [InlineData("codex")]
     [InlineData("copilot")]
-    public async Task An_edit_that_crosses_twice_disappears(string second)
+    public async Task An_edit_survives_crossing_twice(string second)
     {
         // The two findings above compose into a hole neither shows alone.
         //
@@ -388,7 +384,8 @@ public sealed class FidelityMatrixTests : IDisposable
         // path and diff are the message. Hop two, out again: every writer falls back on Content
         // for a kind it has no form for, and there is none — so the edit leaves no trace at all.
         //
-        // One hop keeps it. Two hops and the file was never touched, as far as the record shows.
+        // One hop kept it; two hops and the file had never been touched, as far as the record
+        // showed. Narration from the payload is what closes it.
         var afterClaude = await RoundTrip("claude", User("edit the file"), new AgentMessage
         {
             Id = Guid.NewGuid(), Role = MessageRole.Assistant, Type = MessageType.ToolCall,
@@ -402,7 +399,7 @@ public sealed class FidelityMatrixTests : IDisposable
         Assert.Contains("app.cs", Flatten(afterClaude));
 
         var afterSecond = await RoundTrip(second, [.. afterClaude]);
-        Assert.DoesNotContain("app.cs", Flatten(afterSecond));
+        Assert.Contains("app.cs", Flatten(afterSecond));
     }
 
     // ── helpers ──────────────────────────────────────────────────────────

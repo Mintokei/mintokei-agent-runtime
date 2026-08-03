@@ -378,6 +378,9 @@ public sealed class CopilotTranscriptStore : ITranscriptStore
             Id = TranscriptIds.Derive(callId, "tool"),
             ToolName = name,
             Arguments = argumentsJson,
+            // Same convention the Codex store reads: mcp__<server>__<tool>. Splitting the server
+            // out means a consumer can tell "an MCP server did this" from "the CLI did this".
+            ServerName = TranscriptNarration.SplitToolName(name).ServerName,
         };
         return message;
     }
@@ -610,19 +613,21 @@ public sealed class CopilotTranscriptStore : ITranscriptStore
                     EmitToolExchange(
                         "bash",
                         new JsonObject { ["command"] = cmd.Command, ["description"] = string.Empty }.ToJsonString(),
-                        cmd.Output,
+                        TranscriptNarration.WithExitStatus(cmd),
                         cmd.ExitCode is null or 0);
                     break;
 
                 case MessageType.ToolCall when m.ToolCall is { } tool:
                     EmitToolExchange(
-                        tool.ToolName, tool.Arguments, tool.Result ?? tool.Error,
-                        string.IsNullOrEmpty(tool.Error));
+                        TranscriptNarration.QualifiedToolName(tool), tool.Arguments,
+                        tool.Result ?? tool.Error, string.IsNullOrEmpty(tool.Error));
                     break;
 
                 default:
-                    if (!string.IsNullOrWhiteSpace(m.Content))
-                        EmitAssistantText(m.Content);
+                    // Built from the payload when there is no Content: a file edit carries its path
+                    // and diff and no prose, and was previously dropped without a word.
+                    if (TranscriptNarration.DescribeForProse(m) is { } narration)
+                        EmitAssistantText(narration);
                     break;
             }
         }

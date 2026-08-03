@@ -137,25 +137,29 @@ with the row that moved.
 | user / assistant text | ✅ | ✅ | ✅ |
 | unicode, code fences, quotes | ✅ | ✅ | ✅ |
 | command + output | ✅ | ✅ | ✅ |
-| command **exit code** | ❌ boolean only | ~ parsed from output | ✅ |
+| command **exit code** | ✅ | ✅ | ✅ |
 | tool name, arguments, result | ✅ | ✅ | ✅ |
 | tool error text | ✅ | ✅ | ✅ |
-| **MCP server name** | ❌ | ❌ | ❌ |
+| **MCP server name** | ✅ `mcp__server__tool` | ✅ | ✅ |
 | file edit **with** prose | ✅ as prose | ✅ as prose | ✅ as prose |
-| file edit **without** prose | ❌ dropped | ❌ dropped | ❌ dropped |
-| reasoning | ❌ becomes assistant speech | ❌ | ❌ |
+| file edit **without** prose | ✅ narrated | ✅ | ✅ |
+| reasoning | ~ prose, marked `(thinking)` | ~ | ~ |
 | large tool result (500 KB) | ✅ | ✅ | ✅ |
 
-Three of those are worth knowing before you rely on a moved conversation:
+What still degrades, and why:
 
-- **A file edit with no prose leaves no trace.** Every writer falls back on `Content` for a kind it
-  has no wire form for, and a `FileChange` straight from a parser often has none — the path and
-  diff *are* the message. It is then dropped entirely: not the path, not the diff, not a line
-  saying a file was touched.
-- **Two hops lose an edit even when one does not.** Claude's parser turns an `Edit` tool call into
-  a `FileChange` with no prose. That survives the first crossing and vanishes on the second.
-- **Reasoning comes back as speech.** Thinking has no wire form anywhere, so it is written as
-  assistant prose and reads as something the agent said out loud rather than considered privately.
+- **A file edit becomes prose.** `Edited /tmp/p/ledger.cs` followed by the diff, rather than an
+  edit tool call the target could replay. Deliberate: a diff does not contain the `old_string` /
+  `new_string` an edit tool wants, and a fabricated call is a patch the next agent believes it can
+  apply. Saying what changed is honest; guessing is not.
+- **Reasoning becomes prose, marked `(thinking)`.** It cannot cross as thinking — the signatures
+  are provider-issued — but marking it stops a private doubt reading as a claim beside the answer
+  that contradicts it.
+- **`Plan`, `SubAgentExecution`, `WebSearch` and a compaction boundary** likewise arrive as a
+  sentence describing what happened.
+
+Nothing is dropped for want of prose any more; `TranscriptNarration` builds the sentence from
+whatever the message carries when it has no `Content` of its own.
 
 ## What does not survive a write
 

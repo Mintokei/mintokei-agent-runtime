@@ -215,6 +215,25 @@ public sealed partial class ClaudeTranscriptStore : ITranscriptStore
         // which the live sink upserts into one row by ExternalId. Reading a file has no sink, so
         // collapse here or every tool call shows up twice.
         messages = CollapseByExternalId(messages);
+        // Claude records failure as a boolean, so a numeric exit status only exists if the tool
+        // printed one. Recovering it here matches what the Codex and Copilot stores do, and is
+        // what makes a failed command survive a crossing as something a consumer can check rather
+        // than a word buried in the output.
+        foreach (var m in messages)
+        {
+            // Likewise the MCP server. Claude names those tools mcp__<server>__<tool>, and the
+            // stream parser has no reason to split it — the live host already knows which server
+            // it wired up. A transcript reader does not.
+            if (m.ToolCall is { ServerName: null } tool)
+                tool.ServerName = TranscriptNarration.SplitToolName(tool.ToolName).ServerName;
+
+            if (m.CommandExecution is { ExitCode: null, Output: { } text } cmd
+                && System.Text.RegularExpressions.Regex.Match(text, @"exited with code (-?\d+)") is { Success: true } hit
+                && int.TryParse(hit.Groups[1].Value, out var code))
+            {
+                cmd.ExitCode = code;
+            }
+        }
 
         if (cwd is null)
             throw new TranscriptStoreException($"{file}: no cwd on any line — not a Claude Code transcript.");
@@ -453,24 +472,28 @@ public sealed partial class ClaudeTranscriptStore : ITranscriptStore
                     break;
 
                 case MessageType.ToolCall when m.ToolCall is { } tc:
-                    AddToolExchange(tc.ToolName, tc.Arguments, tc.Result ?? tc.Error,
-                        isError: !string.IsNullOrEmpty(tc.Error));
+                    AddToolExchange(TranscriptNarration.QualifiedToolName(tc), tc.Arguments,
+                        tc.Result ?? tc.Error, isError: !string.IsNullOrEmpty(tc.Error));
                     break;
 
                 case MessageType.CommandExecution when m.CommandExecution is { } cmd:
                     AddToolExchange(
                         "Bash",
                         new JsonObject { ["command"] = cmd.Command }.ToJsonString(),
-                        cmd.Output,
+                        // Claude's format has an is_error flag and no exit code, so the number
+                        // rides in the output the way a shell tool prints it — the same line the
+                        // Codex and Copilot readers already recover a status from.
+                        TranscriptNarration.WithExitStatus(cmd),
                         isError: cmd.ExitCode is not (null or 0));
                     break;
 
                 default:
                     // Reasoning, Plan, FileChange, CompactBoundary and friends have no faithful
-                    // Claude wire form. Emitting them as assistant prose keeps the conversation
-                    // readable instead of silently dropping it; see README "What does not survive".
-                    if (!string.IsNullOrWhiteSpace(m.Content))
-                        AddAssistant([new JsonObject { ["type"] = "text", ["text"] = m.Content }], "end_turn");
+                    // Claude wire form, so they cross as assistant prose. Built from the payload
+                    // when the message has no Content of its own — otherwise a file edit, whose
+                    // path and diff ARE the message, was dropped without a word.
+                    if (TranscriptNarration.DescribeForProse(m) is { } narration)
+                        AddAssistant([new JsonObject { ["type"] = "text", ["text"] = narration }], "end_turn");
                     break;
             }
         }

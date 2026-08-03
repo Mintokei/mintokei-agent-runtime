@@ -163,10 +163,26 @@ whatever the message carries when it has no `Content` of its own.
 
 ## What does not survive a write
 
-- **Opaque reasoning** — Codex `encrypted_content`, Copilot `reasoningOpaque`, Claude thinking
-  signatures are provider-signed and cannot be reconstructed.
-- **Message kinds with no wire form** in the target — `Reasoning`, `Plan`, `FileChange`,
-  `CompactBoundary` are written as assistant prose rather than dropped silently.
+- **Reasoning, as reasoning.** Not because the formats lack a field — Codex has
+  `response_item/reasoning` and Claude has thinking blocks — but because none of them replay one
+  into model context on resume. Written and checked, all three:
+
+  | injected | session loaded | model saw it |
+  |---|---|---|
+  | Codex `response_item/reasoning` with a plaintext `summary` | yes | **no** |
+  | Claude `thinking` block, empty signature | yes | **no** |
+  | Claude `thinking` block, fabricated signature | yes, no API error | **no** |
+
+  That last one is the proof: an invalid signature reaching the API would be rejected, and it was
+  not — so the block is never sent. Recorded reasoning is a record, not context. Writing into
+  those fields would be worse than prose, because the text would vanish with the session still
+  loading cleanly and every file-level test passing.
+
+  So reasoning crosses as an assistant message prefixed `(thinking)`, which is the only channel
+  all three replay. `Plan` gets `(plan)` for the same reason.
+- **Message kinds with no wire form** in the target — `FileChange` and `CompactBoundary` are
+  written as assistant prose rather than dropped. `TranscriptNarration` builds that prose from the
+  payload when the message has no `Content` of its own, which is the usual case for an edit.
 - **Side channels outside the transcript** — Claude's `file-history-snapshot` (so undo history is
   lost), Codex shell snapshots, Copilot checkpoints and per-session todo databases.
 

@@ -43,6 +43,37 @@ public sealed class ClaudeTranscriptStoreTests : IDisposable
     };
 
     [Fact]
+    public async Task An_asked_question_is_read_with_its_answer()
+    {
+        // ClaudeCodeOutputParser drops AskUserQuestion and ExitPlanMode on purpose: a live stream
+        // sends each twice, once as a tool_use and once as the control_request the host answers,
+        // and counting both duplicates them. A transcript has no control_request — it is a wire
+        // frame, never written to the file — so the tool_use is the only record, and skipping it
+        // deleted the question while its answer survived as a tool named "unknown".
+        var store = Store();
+        var id = await store.WriteAsync(SessionWith(
+            User("which database?"),
+            new AgentMessage
+            {
+                Id = Guid.NewGuid(), Role = MessageRole.Tool, Type = MessageType.UserQuestion,
+                ExternalId = "toolu_ask1",
+                ToolCall = new ToolCallData
+                {
+                    ToolName = "AskUserQuestion",
+                    Arguments = """{"questions":[{"question":"postgres or sqlite?"}]}""",
+                    Result = "Your questions have been answered: postgres",
+                },
+            }), ct: TestContext.Current.CancellationToken);
+
+        var read = await store.ReadAsync(id, TestContext.Current.CancellationToken);
+
+        Assert.NotNull(read);
+        var ask = Assert.Single(read.Messages.Where(m => m.ToolCall?.ToolName == "AskUserQuestion"));
+        Assert.Contains("postgres or sqlite?", ask.ToolCall!.Arguments);
+        Assert.Contains("postgres", ask.ToolCall.Result);
+    }
+
+    [Fact]
     public void SlugFor_replaces_every_non_alphanumeric_character()
     {
         // The store's whole layout hangs off this; Claude Code computes it the same way.

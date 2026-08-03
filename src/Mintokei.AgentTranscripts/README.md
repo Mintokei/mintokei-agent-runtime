@@ -81,6 +81,21 @@ That reuse is **partial**, and the boundary is worth knowing before assuming it 
   sink, so the store collapses them or every tool call appears twice.
 - **File-only line kinds** — `attachment`, `file-history-snapshot`, `ai-title`, `last-prompt`,
   `queue-operation` — never appear in the stream and are skipped.
+- **A compaction boundary.** `system` / `compact_boundary` is a line kind the stream has no reason
+  to carry, so the store reads it and hands it to the parser's own
+  `ParseCompactBoundaryEvent`. Without that, a moved conversation began with a summary and no sign
+  it was one.
+- **Questions and plans.** The parser drops `AskUserQuestion` and `ExitPlanMode`/`EnterPlanMode`
+  deliberately: a live stream sends each twice, once as a `tool_use` and once as the
+  `control_request` the host must answer, and counting both duplicates them. A transcript contains
+  no `control_request` — it is a wire frame, never written to the file — so there the `tool_use` is
+  the only record. Skipping it deleted the question outright while its answer survived as a tool
+  named `unknown`. Measured on a real session with four of them: `unknown=4` before,
+  `AskUserQuestion=4` after.
+
+The pattern in all four is the same, and worth naming: **the parser's rules are right for the
+stream and wrong for the file.** Anything the CLI sends twice, or sends on a channel that is never
+persisted, needs the store to read it instead.
 
 ## Adding a store
 

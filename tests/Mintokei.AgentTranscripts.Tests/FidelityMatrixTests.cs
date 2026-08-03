@@ -302,6 +302,28 @@ public sealed class FidelityMatrixTests : IDisposable
             && a.Contains("Maybe the rounding is wrong"));
     }
 
+    [Theory]
+    [MemberData(nameof(Stores))]
+    public async Task A_compaction_boundary_says_that_earlier_turns_are_gone(string store)
+    {
+        // After a compaction the summary IS the earlier conversation, and it crosses as an
+        // ordinary user turn needing no help. The boundary beside it is the only record that
+        // anything preceded it — Claude's store skipped that line as a file-only kind for a
+        // while, so a moved conversation began with a summary and no sign it was one.
+        var read = await RoundTrip(store,
+            User("carry on from the summary"),
+            new AgentMessage
+            {
+                Id = Guid.NewGuid(), Role = MessageRole.System, Type = MessageType.CompactBoundary,
+                CompactBoundary = new CompactBoundaryData
+                {
+                    Trigger = CompactTrigger.Auto, PreTokens = 180_000, PostTokens = 20_000,
+                },
+            });
+
+        Assert.Contains("compacted", Flatten(read), StringComparison.OrdinalIgnoreCase);
+    }
+
     // ── shapes that break serialisers ────────────────────────────────────
 
     [Theory]

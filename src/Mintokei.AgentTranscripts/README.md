@@ -135,12 +135,27 @@ see the CLIs themselves change, which is where several of these bugs came from.
 
 ```bash
 scripts/live-check.sh            # every case, every installed CLI
-scripts/live-check.sh t1 t2      # just those
+scripts/live-check.sh t6         # just that one
 ```
 
-Each case plants a value that exists nowhere the target can read, moves the session, then asks for
-it back with "without reading any files" — so a correct answer can only come from carried history.
-It spends real tokens; run it after a CLI updates, not on every commit.
+| | |
+|---|---|
+| `t0` | a move into the CLI it came from |
+| `t1` | a file edit, which crosses as prose rather than a tool result |
+| `t2` | a failed command, whose exit status no format has a field for |
+| `t4` | an MCP call moved into a CLI with no such server |
+| `t5` | a finding a sub-agent produced |
+| `t6` | a run interrupted part-way, finished on another CLI |
+| `t8` | unicode, code fences and a 600 KB tool result |
+
+Most plant a value that exists nowhere the target can read, so a correct answer can only come from
+carried history. `t6` is the exception and the one worth watching: it kills a five-file edit
+part-way, marks the files already done, and fails if the next CLI overwrites them instead of
+checking — the difference between continuing work and starting it again.
+
+It spends real tokens; run it after a CLI updates, not on every commit. Not covered: `--attach`,
+which needs a terminal to answer the CLI's startup handshake, and a conversation long enough to
+trigger auto-compaction.
 
 ## What survives, measured
 

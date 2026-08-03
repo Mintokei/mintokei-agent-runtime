@@ -21,10 +21,13 @@
 #   t4  an MCP call moved into a CLI with no such server
 #   t5  a finding a sub-agent produced
 #   t6  a run interrupted part-way, finished on another CLI
+#   t7  a real compacted session borrowed from your own history
 #   t8  unicode, code fences and a 600 KB tool result
 #
-# Not covered here: --attach, which needs a terminal to answer the CLI's startup handshake, and a
-# conversation long enough to trigger auto-compaction.
+# t7 reads your own conversations. It never prints a reply — only pass or fail — so nothing of
+# yours reaches a terminal or a CI log, and it says where it left its copy.
+#
+# Not covered here: --attach, which needs a terminal to answer the CLI's startup handshake.
 #
 # Each case plants a value that exists nowhere the target can read, moves the session, then asks
 # for it back with "without reading any files". A correct answer can only come from carried history.
@@ -34,6 +37,7 @@ set -uo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 AGENTMOVE=(dotnet run --project "$REPO/tools/Mintokei.AgentMove" --)
 WORK="${WORK:-$(mktemp -d /tmp/live-check.XXXXXX)}"
+mkdir -p "$WORK"
 PASS=0 FAIL=0 SKIP=0
 
 cleanup() { [[ -n "${KEEP:-}" ]] || rm -rf "$WORK"; }
@@ -326,6 +330,84 @@ t6() {
     done
 }
 
+# ── t7: a conversation that has already been compacted ──────────────────────────────────────────
+#
+# After a compaction the summary IS the earlier conversation — everything before it is gone from
+# the CLI's own context. If that summary does not cross, the moved session has a beginning nobody
+# can reconstruct.
+#
+# Generating one would mean burning a context window, so this finds a real compacted session in
+# your own history instead, and skips when there is none.
+#
+# It reads YOUR conversations. Two things follow. It never prints a reply, only whether the check
+# passed, so nothing of yours reaches a terminal or a CI log. And a copy of that conversation is
+# written into the target CLI's store — local, but it is a real copy of real work, so it is left
+# where you can find and delete it rather than in a scratch directory that disappears.
+t7() {
+    say "t7  a session that has already been compacted"
+
+    local found
+    found=$(python3 - <<'PYEOF'
+import glob, json, os
+best = None
+for f in glob.glob(os.path.expanduser('~/.claude/projects/**/*.jsonl'), recursive=True):
+    try:
+        cwd = None
+        compacted = False
+        with open(f, errors='replace') as fh:
+            for line in fh:
+                if '"compact_boundary"' in line:
+                    compacted = True
+                if cwd is None and '"cwd"' in line:
+                    try:
+                        cwd = json.loads(line).get("cwd")
+                    except Exception:
+                        pass
+                if compacted and cwd:
+                    break
+    except OSError:
+        continue
+    if not (compacted and cwd and os.path.isdir(cwd)):
+        continue
+    size = os.path.getsize(f)
+    # The smallest one that has a compaction: enough to be real, cheap to move.
+    if best is None or size < best[0]:
+        best = (size, f, cwd)
+if best:
+    print(best[2])                                  # the directory, read from the transcript
+    print(os.path.basename(best[1])[:-6])           # the session id
+PYEOF
+)
+    local cwd session
+    cwd=$(sed -n 1p <<<"$found")
+    session=$(sed -n 2p <<<"$found")
+    if [[ -z $session ]]; then
+        skip "t7 (no compacted session in ~/.claude to borrow)"
+        return
+    fi
+    printf '  borrowing a compacted session from %s\n' "$cwd"
+
+    for target in "${TARGETS[@]}"; do
+        local id reply
+        id=$(cd "$WORK" && "${AGENTMOVE[@]}" --dir "$cwd" --from claude --session "$session" \
+            --to "$target" --yes --no-handoff </dev/null 2>"$WORK/t7-$target.log" \
+            | grep -oE 'as [0-9a-f-]{36}' | cut -d' ' -f2)
+        if [[ -z $id ]]; then
+            skip "compaction summary -> $target (the move did not produce a session)"
+            continue
+        fi
+
+        # Deliberately not the reply itself: this is someone's real conversation.
+        reply=$(ask "$cwd" "$target" "$id" \
+            "Answer only YES or NO. Does this conversation contain a summary of an earlier portion that was compacted away?")
+        if grep -qiE '\byes\b' <<<"$reply"; then
+            pass "compaction summary -> $target  (copy left at $id)"
+        else
+            fail "compaction summary -> $target  (copy left at $id)"
+        fi
+    done
+}
+
 # ── run ─────────────────────────────────────────────────────────────────────────────────────────
 
 have claude || { echo "claude is not installed; every case starts from a Claude session." >&2; exit 1; }
@@ -338,7 +420,7 @@ echo "targets:   ${TARGETS[*]}"
 echo "scratch:   $WORK"
 echo "note:      this spends real tokens and takes several minutes."
 
-for case_name in "${@:-t0 t1 t2 t4 t5 t6 t8}"; do
+for case_name in "${@:-t0 t1 t2 t4 t5 t6 t7 t8}"; do
     case $case_name in
         t0) t0 ;;
         t1) t1 ;;
@@ -346,8 +428,9 @@ for case_name in "${@:-t0 t1 t2 t4 t5 t6 t8}"; do
         t4) t4 ;;
         t5) t5 ;;
         t6) t6 ;;
+        t7) t7 ;;
         t8 | t9) t8 ;;
-        *) echo "unknown case '$case_name' (t0, t1, t2, t4, t5, t6, t8)" >&2; exit 2 ;;
+        *) echo "unknown case '$case_name' (t0, t1, t2, t4, t5, t6, t7, t8)" >&2; exit 2 ;;
     esac
 done
 

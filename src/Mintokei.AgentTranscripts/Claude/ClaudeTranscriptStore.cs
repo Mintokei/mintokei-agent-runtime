@@ -172,6 +172,16 @@ public sealed partial class ClaudeTranscriptStore : ITranscriptStore
                 title ??= GetString(root, "aiTitle");
                 continue;
             }
+            // A compaction is where the conversation restarts from a summary. The summary itself
+            // arrives as an ordinary user turn and needs no help, but the boundary beside it — the
+            // trigger, and how many tokens went in and came out — is the only record that the
+            // earlier turns existed at all. Skipping it lost that silently.
+            if (type == "system" && GetString(root, "subtype") == "compact_boundary")
+            {
+                messages.Add(ClaudeCodeOutputParser.ParseCompactBoundaryEvent(sessionScopedId, root));
+                continue;
+            }
+
             if (type is not ("user" or "assistant"))
                 continue;                                  // file-only line kinds
             if (GetBool(root, "isSidechain"))
@@ -191,6 +201,19 @@ public sealed partial class ClaudeTranscriptStore : ITranscriptStore
             {
                 if (root.TryGetProperty("message", out var m) && GetString(m, "model") is { } mo)
                     model ??= mo;
+
+                // The parser drops AskUserQuestion and ExitPlanMode/EnterPlanMode, because a LIVE
+                // stream sends each of those twice — once as a tool_use and once as the
+                // control_request the host has to answer — and counting both duplicates them. A
+                // transcript contains no control_request; it is a wire frame, not something
+                // written to the file. So in a file the tool_use is the only record there is, and
+                // skipping it deleted the question outright: the answer survived as an orphaned
+                // tool_result with no name, and what was asked was gone.
+                //
+                // Same divergence as plain user turns below, and for the same reason: a rule that
+                // is right for the stream is wrong for the file.
+                messages.AddRange(ReadInteractionTools(sessionScopedId, root, registry));
+
                 messages.AddRange(
                     ClaudeCodeOutputParser.ParseAssistantEvent(sessionScopedId, root, registry, _logger));
             }
@@ -258,6 +281,65 @@ public sealed partial class ClaudeTranscriptStore : ITranscriptStore
     /// Claude writes plain turns as a bare string and, for attachments, as an array of
     /// <c>text</c> blocks; tool results are an array of <c>tool_result</c> blocks.
     /// </summary>
+    /// <summary>
+    /// The tool_use blocks <see cref="ClaudeCodeOutputParser"/> skips because a live stream
+    /// duplicates them on the control channel. Registered here as well as read, so the answer that
+    /// follows finds a question to attach to instead of arriving nameless.
+    /// </summary>
+    private static IEnumerable<AgentMessage> ReadInteractionTools(
+        Guid sessionScopedId, JsonElement root,
+        IDictionary<string, ClaudeCodeOutputParser.ToolUseInfo> registry)
+    {
+        if (!root.TryGetProperty("message", out var message)
+            || !message.TryGetProperty("content", out var content)
+            || content.ValueKind != JsonValueKind.Array)
+        {
+            yield break;
+        }
+
+        foreach (var block in content.EnumerateArray())
+        {
+            if (GetString(block, "type") != "tool_use")
+                continue;
+            var name = GetString(block, "name");
+            if (name is not ("AskUserQuestion" or "ExitPlanMode" or "EnterPlanMode"))
+                continue;
+            if (GetString(block, "id") is not { } toolUseId)
+                continue;
+
+            var arguments = block.TryGetProperty("input", out var input)
+                && input.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined)
+                    ? input.GetRawText()
+                    : null;
+
+            // Registered as well as read: the tool_result that follows looks the question up here,
+            // and without it the answer arrived as a tool named "unknown".
+            registry[toolUseId] = new ClaudeCodeOutputParser.ToolUseInfo(name, arguments);
+
+            yield return new AgentMessage
+            {
+                Id = TranscriptIds.Derive(sessionScopedId.ToString(), toolUseId),
+                AgentTaskId = sessionScopedId,
+                ExternalId = toolUseId,
+                Role = MessageRole.Tool,
+                // A question and a plan are not the same thing to whoever reads this next.
+                Type = name is "AskUserQuestion" ? MessageType.UserQuestion : MessageType.Plan,
+                Status = MessageStatus.InProgress,
+                ToolCall = new ToolCallData
+                {
+                    Id = TranscriptIds.Derive(toolUseId, "tool"),
+                    ToolName = name,
+                    Arguments = arguments,
+                },
+                CreatedAt = GetString(root, "timestamp") is { } at
+                    && DateTimeOffset.TryParse(at, CultureInfo.InvariantCulture,
+                        DateTimeStyles.RoundtripKind, out var parsed)
+                        ? parsed
+                        : DateTimeOffset.UtcNow,
+            };
+        }
+    }
+
     private static bool TryReadUserText(JsonElement root, out string text)
     {
         text = string.Empty;
@@ -471,7 +553,11 @@ public sealed partial class ClaudeTranscriptStore : ITranscriptStore
                         AddUserText(m.Content);
                     break;
 
-                case MessageType.ToolCall when m.ToolCall is { } tc:
+                // A question the user answered and a plan are recorded as tool calls too, so the
+                // payload decides rather than the kind. Switching on the kind alone sent them to
+                // the prose fallback and lost the question.
+                case MessageType.ToolCall or MessageType.UserQuestion or MessageType.Plan
+                    when m.ToolCall is { } tc:
                     AddToolExchange(TranscriptNarration.QualifiedToolName(tc), tc.Arguments,
                         tc.Result ?? tc.Error, isError: !string.IsNullOrEmpty(tc.Error));
                     break;

@@ -18,6 +18,7 @@
 #   t0  a move into the CLI it came from
 #   t1  a file edit, which crosses as prose rather than a tool result
 #   t2  a failed command, whose exit status no format has a field for
+#   t3  a plan, which has no wire form in any target
 #   t4  an MCP call moved into a CLI with no such server
 #   t5  a finding a sub-agent produced
 #   t6  a run interrupted part-way, finished on another CLI
@@ -330,6 +331,32 @@ t6() {
     done
 }
 
+# ── t3: a plan, and a question the user answered ─────────────────────────────────────────────────
+#
+# Both cross as prose, because neither has a wire form anywhere. Until now both were implemented on
+# the assumption that the prose is enough — this is the check.
+#
+# Plan mode is forced with --permission-mode plan, which makes Claude produce a plan rather than
+# act on it. The question half asks the model to put a decision to the user; whether it uses
+# AskUserQuestion or plain prose is its own choice, so this asserts on the decision surviving
+# rather than on the mechanism.
+t3() {
+    say "t3  a plan, and a decision that was made"
+    local dir="$WORK/t3"
+    mkdir -p "$dir" && profiles "$dir"
+    printf 'store: sqlite
+' > "$dir/config.yaml"
+
+    (cd "$dir" && timeout 300 claude -p \
+        "Plan how you would migrate config.yaml from sqlite to postgres. Do not make any changes." \
+        --permission-mode plan </dev/null >/dev/null 2>&1)
+
+    local source; source=$(newest_claude_session "$dir") || { skip "t3 (claude recorded no session)"; return; }
+    check "$dir" "$source" "the plan" \
+        "Without reading any files: what did you plan to migrate, and from what to what?" \
+        "postgres"
+}
+
 # ── t7: a conversation that has already been compacted ──────────────────────────────────────────
 #
 # After a compaction the summary IS the earlier conversation — everything before it is gone from
@@ -420,17 +447,18 @@ echo "targets:   ${TARGETS[*]}"
 echo "scratch:   $WORK"
 echo "note:      this spends real tokens and takes several minutes."
 
-for case_name in "${@:-t0 t1 t2 t4 t5 t6 t7 t8}"; do
+for case_name in "${@:-t0 t1 t2 t3 t4 t5 t6 t7 t8}"; do
     case $case_name in
         t0) t0 ;;
         t1) t1 ;;
         t2) t2 ;;
+        t3) t3 ;;
         t4) t4 ;;
         t5) t5 ;;
         t6) t6 ;;
         t7) t7 ;;
         t8 | t9) t8 ;;
-        *) echo "unknown case '$case_name' (t0, t1, t2, t4, t5, t6, t7, t8)" >&2; exit 2 ;;
+        *) echo "unknown case '$case_name' (t0, t1, t2, t3, t4, t5, t6, t7, t8)" >&2; exit 2 ;;
     esac
 done
 

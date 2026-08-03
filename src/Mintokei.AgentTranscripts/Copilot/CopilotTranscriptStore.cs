@@ -617,7 +617,11 @@ public sealed class CopilotTranscriptStore : ITranscriptStore
                         cmd.ExitCode is null or 0);
                     break;
 
-                case MessageType.ToolCall when m.ToolCall is { } tool:
+                // A question the user answered and a plan are recorded as tool calls too, so the
+                // payload decides rather than the kind. Switching on the kind alone sent them to
+                // the prose fallback and lost the question.
+                case MessageType.ToolCall or MessageType.UserQuestion or MessageType.Plan
+                    when m.ToolCall is { } tool:
                     EmitToolExchange(
                         TranscriptNarration.QualifiedToolName(tool), tool.Arguments,
                         tool.Result ?? tool.Error, string.IsNullOrEmpty(tool.Error));

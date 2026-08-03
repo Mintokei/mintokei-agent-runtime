@@ -7,9 +7,30 @@
     <Nullable>enable</Nullable>
     <AssemblyName>agentmove</AssemblyName>
     <RootNamespace>Mintokei.AgentMove</RootNamespace>
-    <!-- Not published today. Flipping PackAsTool would make this a `dotnet tool install -g`
-         command; left off until the CLI surface has settled. -->
-    <IsPackable>false</IsPackable>
+
+    <!-- Shipped as a global command: `dotnet tool install -g Mintokei.AgentMove` puts
+         `agentmove` on the PATH. It is a tool rather than a library because there is no API
+         here worth calling — the useful parts already live in Mintokei.AgentTranscripts. -->
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>agentmove</ToolCommandName>
+    <!-- The id would otherwise follow AssemblyName and ship as a bare `agentmove`: outside the
+         reserved Mintokei prefix, so unbadged on nuget.org, and squatting a generic name. The
+         package is Mintokei.AgentMove; the command it installs is still `agentmove`. -->
+    <PackageId>Mintokei.AgentMove</PackageId>
+
+    <!-- No symbol package. Nobody steps into a tool they installed to run, and a .snupkg whose
+         assemblies live under tools/ rather than lib/ is a validation failure waiting to
+         happen on push. The portable PDBs ship inside the package itself. -->
+    <IncludeSymbols>false</IncludeSymbols>
+
+    <!-- Run on whatever runtime the machine has, not only net10.0. A library gets to insist on
+         a target framework because its consumer chose one; a global command is installed by
+         someone who wants it to work, and failing with "not compatible" on a newer .NET than
+         we built against is the wrong answer. -->
+    <RollForward>latestMajor</RollForward>
+
+    <!-- Nobody references a tool package, so a documentation XML would only pad it. -->
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
 
   <ItemGroup>

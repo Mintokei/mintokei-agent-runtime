@@ -1,6 +1,8 @@
 name: Publish to NuGet
 
-# Manual release: pack the libraries and push them to nuget.org via Trusted Publishing
+# Manual release: pack the libraries — and Mintokei.AgentMove, which packs as a `dotnet tool`
+# rather than a library but ships on the same lockstep version — and push them to nuget.org
+# via Trusted Publishing
 # (OIDC — no long-lived API key stored in the repo). Separate from CI (which only packs to
 # upload artifacts) so ordinary merges never publish. Idempotent: --skip-duplicate.
 # Bump the lockstep VersionPrefix in Directory.Build.props to publish a new version.

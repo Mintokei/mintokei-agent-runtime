@@ -2,6 +2,14 @@
 
 Pick a session from one agent CLI and carry on with it in another.
 
+```bash
+dotnet tool install -g Mintokei.AgentMove
+```
+
+`Mintokei.AgentMove` is the package; `agentmove` is the command. It needs the .NET runtime and at
+least one agent CLI already installed — it reads and writes their own session stores rather than
+keeping any of its own.
+
 Run it in the directory the work happened in. It lists what each CLI recorded there — by
 description, not by id — and moves the one you choose into whichever agent you want to continue in.
 

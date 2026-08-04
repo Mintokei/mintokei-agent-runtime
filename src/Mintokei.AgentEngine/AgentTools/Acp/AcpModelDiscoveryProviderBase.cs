@@ -106,7 +106,7 @@ public abstract class AcpModelDiscoveryProviderBase : IModelDiscoveryProvider
                     return EmptyList();
                 }
 
-                _logger.LogInformation("Discovered {Count} models from {Binary} ACP", models.Count, ExecutableName);
+                AcpModelDiscoveryProviderBaseLog.DiscoveredModels(_logger, models.Count, ExecutableName);
 
                 return new AgentToolModelList
                 {
@@ -238,4 +238,10 @@ public abstract class AcpModelDiscoveryProviderBase : IModelDiscoveryProvider
         Source = "dynamic",
         FetchedAt = DateTimeOffset.UtcNow,
     };
+}
+
+internal static partial class AcpModelDiscoveryProviderBaseLog
+{
+    [LoggerMessage(Level = LogLevel.Information, Message = "Discovered {Count} models from {Binary} ACP")]
+    public static partial void DiscoveredModels(ILogger logger, int count, string binary);
 }

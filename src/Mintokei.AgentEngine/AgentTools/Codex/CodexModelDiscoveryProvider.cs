@@ -115,7 +115,7 @@ public sealed class CodexModelDiscoveryProvider : IModelDiscoveryProvider
                     }
                 } while (cursor is not null);
 
-                _logger.LogInformation("Discovered {Count} models from Codex app-server", allModels.Count);
+                CodexModelDiscoveryProviderLog.DiscoveredModels(_logger, allModels.Count);
 
                 return new AgentToolModelList
                 {
@@ -239,4 +239,10 @@ public sealed class CodexModelDiscoveryProvider : IModelDiscoveryProvider
         Source = "dynamic",
         FetchedAt = DateTimeOffset.UtcNow,
     };
+}
+
+internal static partial class CodexModelDiscoveryProviderLog
+{
+    [LoggerMessage(Level = LogLevel.Information, Message = "Discovered {Count} models from Codex app-server")]
+    public static partial void DiscoveredModels(ILogger logger, int count);
 }

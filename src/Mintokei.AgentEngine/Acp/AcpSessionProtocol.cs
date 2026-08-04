@@ -85,7 +85,7 @@ internal sealed class AcpSessionProtocol : IAgentSessionProtocol
                 ((AcpSessionUpdateParser)session.Parser).Reset();
             }
             await session.ReportSessionIdAsync(sessionId);
-            _logger.LogInformation("ACP session loaded: {SessionId}", sessionId);
+            AcpSessionProtocolLog.SessionLoaded(_logger, sessionId);
         }
         else
         {
@@ -93,7 +93,7 @@ internal sealed class AcpSessionProtocol : IAgentSessionProtocol
             var sessionId = AcpJsonRpcHelper.ExtractSessionId(newResponse)
                 ?? throw new InvalidOperationException("No sessionId in session/new response.");
             await session.ReportSessionIdAsync(sessionId);
-            _logger.LogInformation("ACP session created: {SessionId}", sessionId);
+            AcpSessionProtocolLog.SessionCreated(_logger, sessionId);
         }
     }
 
@@ -205,4 +205,13 @@ internal sealed class AcpSessionProtocol : IAgentSessionProtocol
             Status = MessageStatus.Failed,
             CreatedAt = DateTimeOffset.UtcNow,
         });
+}
+
+internal static partial class AcpSessionProtocolLog
+{
+    [LoggerMessage(Level = LogLevel.Information, Message = "ACP session loaded: {SessionId}")]
+    public static partial void SessionLoaded(ILogger logger, string sessionId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "ACP session created: {SessionId}")]
+    public static partial void SessionCreated(ILogger logger, string sessionId);
 }

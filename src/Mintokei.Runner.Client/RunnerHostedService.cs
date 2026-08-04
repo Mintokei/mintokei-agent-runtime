@@ -176,7 +176,7 @@ public sealed class RunnerHostedService : BackgroundService
         }
         catch (OperationCanceledException)
         {
-            _logger.LogDebug("Probe for {Binary} timed out", spec.BinaryName);
+            RunnerHostedServiceLog.ProbeTimedOut(_logger, spec.BinaryName);
             return null;
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or FileNotFoundException)
@@ -186,7 +186,7 @@ public sealed class RunnerHostedService : BackgroundService
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Probe for {Binary} failed", spec.BinaryName);
+            RunnerHostedServiceLog.ProbeFailed(_logger, ex, spec.BinaryName);
             return null;
         }
     }
@@ -199,7 +199,7 @@ public sealed class RunnerHostedService : BackgroundService
         var provider = _serviceProvider.GetKeyedService<IModelDiscoveryProvider>(key);
         if (provider is null)
         {
-            _logger.LogDebug("No model discovery provider registered for {Key}", key);
+            RunnerHostedServiceLog.NoModelDiscoveryProvider(_logger, key);
             return null;
         }
 
@@ -216,7 +216,7 @@ public sealed class RunnerHostedService : BackgroundService
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogDebug(ex, "Model discovery failed for {Key}", key);
+            RunnerHostedServiceLog.ModelDiscoveryFailed(_logger, ex, key);
             return null;
         }
     }
@@ -603,8 +603,7 @@ public sealed class RunnerHostedService : BackgroundService
         var (handle, output) = _commandLineRunner.Start(options);
         _handles[msg.CorrelationId] = handle;
 
-        _logger.LogInformation("Started process for correlation {CorrelationId}: {Executable}",
-            msg.CorrelationId, msg.Executable);
+        RunnerHostedServiceLog.ProcessStarted(_logger, msg.CorrelationId, msg.Executable);
 
         // Stream output in background, feeding each line to the outbox
         _ = StreamProcessOutputAsync(msg.CorrelationId, handle, output);
@@ -628,8 +627,7 @@ public sealed class RunnerHostedService : BackgroundService
             await handle.WaitForExitAsync();
             var exitCode = handle.ExitCode ?? -1;
 
-            _logger.LogInformation("Process exited with code {ExitCode} for correlation {CorrelationId}",
-                exitCode, correlationId);
+            RunnerHostedServiceLog.ProcessExited(_logger, exitCode, correlationId);
 
             var completedReport = new ProcessCompletedReport(correlationId, exitCode, DateTimeOffset.UtcNow);
             var completedJson = JsonSerializer.Serialize(completedReport, JsonOptions);
@@ -730,9 +728,7 @@ public sealed class RunnerHostedService : BackgroundService
         });
         if (sentViaGrpc) return;
 
-        _logger.LogDebug(
-            "FileSystemChanged for workspace {WorkspaceId} dropped — OpenWatcher stream not registered",
-            workspaceId);
+        RunnerHostedServiceLog.FileSystemChangedDropped(_logger, workspaceId);
     }
 
     // =====================================================================
@@ -741,7 +737,7 @@ public sealed class RunnerHostedService : BackgroundService
 
     private async Task OnBrowseFilesystemAsync(string requestId, string? path)
     {
-        _logger.LogDebug("BrowseFilesystem query: requestId={RequestId}, path={Path}", requestId, path);
+        RunnerHostedServiceLog.BrowseFilesystemQuery(_logger, requestId, path);
 
         BrowseFilesystemResponse response;
         try
@@ -791,7 +787,7 @@ public sealed class RunnerHostedService : BackgroundService
 
     private async Task OnDiscoverGitRepositoriesAsync(string requestId, string path)
     {
-        _logger.LogDebug("DiscoverGitRepositories query: requestId={RequestId}, path={Path}", requestId, path);
+        RunnerHostedServiceLog.DiscoverGitRepositoriesQuery(_logger, requestId, path);
 
         DiscoverGitRepositoriesResponse response;
         try
@@ -914,8 +910,7 @@ public sealed class RunnerHostedService : BackgroundService
 
     private async Task OnRunCommandAsync(string requestId, string workingDirectory, string executable, string arguments, int timeoutMs)
     {
-        _logger.LogDebug("RunCommand query: requestId={RequestId}, exe={Exe}, args={Args}, dir={Dir}",
-            requestId, executable, arguments, workingDirectory);
+        RunnerHostedServiceLog.RunCommandQuery(_logger, requestId, executable, arguments, workingDirectory);
 
         RunCommandResponse response;
         try
@@ -972,8 +967,7 @@ public sealed class RunnerHostedService : BackgroundService
 
     private async Task OnGetDirectoryTreeAsync(string requestId, string basePath, string? subPath, int maxDepth, bool useGitIgnore)
     {
-        _logger.LogDebug("GetDirectoryTree query: requestId={RequestId}, basePath={BasePath}, subPath={SubPath}",
-            requestId, basePath, subPath);
+        RunnerHostedServiceLog.GetDirectoryTreeQuery(_logger, requestId, basePath, subPath);
 
         GetDirectoryTreeResponse response;
         try
@@ -1025,8 +1019,7 @@ public sealed class RunnerHostedService : BackgroundService
 
     private async Task OnFindFileAsync(string requestId, string basePath, string suffix, int limit)
     {
-        _logger.LogDebug("FindFile query: requestId={RequestId}, basePath={BasePath}, suffix={Suffix}",
-            requestId, basePath, suffix);
+        RunnerHostedServiceLog.FindFileQuery(_logger, requestId, basePath, suffix);
 
         FindFileResponse response;
         try
@@ -1059,8 +1052,7 @@ public sealed class RunnerHostedService : BackgroundService
 
     private async Task OnGetFileContentAsync(string requestId, string basePath, string filePath)
     {
-        _logger.LogDebug("GetFileContent query: requestId={RequestId}, basePath={BasePath}, filePath={FilePath}",
-            requestId, basePath, filePath);
+        RunnerHostedServiceLog.GetFileContentQuery(_logger, requestId, basePath, filePath);
 
         const int maxSizeBytes = 512 * 1024;
         const int binaryCheckBytes = 8 * 1024;
@@ -1142,8 +1134,7 @@ public sealed class RunnerHostedService : BackgroundService
 
     private async Task OnGetImageFileAsync(string requestId, string basePath, string filePath)
     {
-        _logger.LogDebug("GetImageFile query: requestId={RequestId}, basePath={BasePath}, filePath={FilePath}",
-            requestId, basePath, filePath);
+        RunnerHostedServiceLog.GetImageFileQuery(_logger, requestId, basePath, filePath);
 
         GetImageFileResponse response;
         try
@@ -1193,7 +1184,7 @@ public sealed class RunnerHostedService : BackgroundService
 
     private async Task OnGetFileSizeAsync(string requestId, string path)
     {
-        _logger.LogDebug("GetFileSize query: requestId={RequestId}, path={Path}", requestId, path);
+        RunnerHostedServiceLog.GetFileSizeQuery(_logger, requestId, path);
 
         GetFileSizeResponse response;
         try
@@ -1221,8 +1212,8 @@ public sealed class RunnerHostedService : BackgroundService
 
     private async Task OnPathOperationAsync(string requestId, string operation, string[] args)
     {
-        _logger.LogDebug("PathOperation query: requestId={RequestId}, operation={Operation}, args={Args}",
-            requestId, operation, string.Join(" + ", args));
+        var joinedArgs = string.Join(" + ", args);
+        RunnerHostedServiceLog.PathOperationQuery(_logger, requestId, operation, joinedArgs);
 
         ResolvePathResponse response;
         try
@@ -1399,4 +1390,55 @@ public sealed class RunnerHostedService : BackgroundService
         await base.StopAsync(cancellationToken);
     }
 
+}
+
+internal static partial class RunnerHostedServiceLog
+{
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Probe for {Binary} timed out")]
+    public static partial void ProbeTimedOut(ILogger logger, string binary);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Probe for {Binary} failed")]
+    public static partial void ProbeFailed(ILogger logger, Exception ex, string binary);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "No model discovery provider registered for {Key}")]
+    public static partial void NoModelDiscoveryProvider(ILogger logger, AgentToolKey key);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Model discovery failed for {Key}")]
+    public static partial void ModelDiscoveryFailed(ILogger logger, Exception ex, AgentToolKey key);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Started process for correlation {CorrelationId}: {Executable}")]
+    public static partial void ProcessStarted(ILogger logger, Guid correlationId, string executable);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Process exited with code {ExitCode} for correlation {CorrelationId}")]
+    public static partial void ProcessExited(ILogger logger, int exitCode, Guid correlationId);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "FileSystemChanged for workspace {WorkspaceId} dropped — OpenWatcher stream not registered")]
+    public static partial void FileSystemChangedDropped(ILogger logger, string workspaceId);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "BrowseFilesystem query: requestId={RequestId}, path={Path}")]
+    public static partial void BrowseFilesystemQuery(ILogger logger, string requestId, string? path);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "DiscoverGitRepositories query: requestId={RequestId}, path={Path}")]
+    public static partial void DiscoverGitRepositoriesQuery(ILogger logger, string requestId, string path);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "RunCommand query: requestId={RequestId}, exe={Exe}, args={Args}, dir={Dir}")]
+    public static partial void RunCommandQuery(ILogger logger, string requestId, string exe, string args, string dir);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "GetDirectoryTree query: requestId={RequestId}, basePath={BasePath}, subPath={SubPath}")]
+    public static partial void GetDirectoryTreeQuery(ILogger logger, string requestId, string basePath, string? subPath);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "FindFile query: requestId={RequestId}, basePath={BasePath}, suffix={Suffix}")]
+    public static partial void FindFileQuery(ILogger logger, string requestId, string basePath, string suffix);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "GetFileContent query: requestId={RequestId}, basePath={BasePath}, filePath={FilePath}")]
+    public static partial void GetFileContentQuery(ILogger logger, string requestId, string basePath, string filePath);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "GetImageFile query: requestId={RequestId}, basePath={BasePath}, filePath={FilePath}")]
+    public static partial void GetImageFileQuery(ILogger logger, string requestId, string basePath, string filePath);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "GetFileSize query: requestId={RequestId}, path={Path}")]
+    public static partial void GetFileSizeQuery(ILogger logger, string requestId, string path);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "PathOperation query: requestId={RequestId}, operation={Operation}, args={Args}")]
+    public static partial void PathOperationQuery(ILogger logger, string requestId, string operation, string args);
 }

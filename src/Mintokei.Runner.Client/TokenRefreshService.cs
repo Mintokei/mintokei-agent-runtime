@@ -112,7 +112,7 @@ public sealed class TokenRefreshService : IDisposable
         _currentToken = result.AccessToken;
         _expiresAt = result.ExpiresAt;
 
-        _logger.LogDebug("Token refreshed, expires at {ExpiresAt}", _expiresAt);
+        TokenRefreshServiceLog.TokenRefreshed(_logger, _expiresAt);
 
         return _currentToken;
     }
@@ -138,4 +138,10 @@ public sealed class TokenRefreshService : IDisposable
     }
 
     private sealed record TokenResponse(string AccessToken, DateTimeOffset ExpiresAt);
+}
+
+internal static partial class TokenRefreshServiceLog
+{
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Token refreshed, expires at {ExpiresAt}")]
+    public static partial void TokenRefreshed(ILogger logger, DateTimeOffset expiresAt);
 }

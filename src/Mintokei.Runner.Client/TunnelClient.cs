@@ -94,7 +94,7 @@ public sealed class TunnelClient : BackgroundService
         var uri = new Uri($"{wsScheme}://{httpStripped}/ws/tunnel?access_token={token}");
 
         using var ws = new ClientWebSocket();
-        _logger.LogInformation("Connecting tunnel WebSocket to {Url}...", $"{wsScheme}://{httpStripped}/ws/tunnel");
+        TunnelClientLog.TunnelConnecting(_logger, wsScheme, httpStripped);
         await ws.ConnectAsync(uri, ct);
         _logger.LogInformation("Tunnel WebSocket connected");
 
@@ -216,4 +216,10 @@ public sealed class TunnelClient : BackgroundService
         _writeLock.Dispose();
         base.Dispose();
     }
+}
+
+internal static partial class TunnelClientLog
+{
+    [LoggerMessage(Level = LogLevel.Information, Message = "Connecting tunnel WebSocket to {WsScheme}://{HttpStripped}/ws/tunnel...")]
+    public static partial void TunnelConnecting(ILogger logger, string wsScheme, string httpStripped);
 }

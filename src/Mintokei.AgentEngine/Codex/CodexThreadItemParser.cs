@@ -43,7 +43,8 @@ internal static class CodexThreadItemParser
 
     private static AgentMessage? LogAndSkip(ILogger? logger, string? type)
     {
-        logger?.LogDebug("Skipping unsupported ThreadItem type: {Type}", type);
+        if (logger is not null)
+            CodexThreadItemParserLog.SkippingUnsupportedItem(logger, type);
         return null;
     }
 
@@ -359,4 +360,10 @@ internal static class CodexThreadItemParser
             }
         }
     }
+}
+
+internal static partial class CodexThreadItemParserLog
+{
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping unsupported ThreadItem type: {Type}")]
+    public static partial void SkippingUnsupportedItem(ILogger logger, string? type);
 }

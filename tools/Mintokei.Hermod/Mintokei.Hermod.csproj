@@ -5,18 +5,18 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <AssemblyName>agentmove</AssemblyName>
-    <RootNamespace>Mintokei.AgentMove</RootNamespace>
+    <AssemblyName>hermod</AssemblyName>
+    <RootNamespace>Mintokei.Hermod</RootNamespace>
 
-    <!-- Shipped as a global command: `dotnet tool install -g Mintokei.AgentMove` puts
-         `agentmove` on the PATH. It is a tool rather than a library because there is no API
+    <!-- Shipped as a global command: `dotnet tool install -g Mintokei.Hermod` puts
+         `hermod` on the PATH. It is a tool rather than a library because there is no API
          here worth calling — the useful parts already live in Mintokei.AgentTranscripts. -->
     <PackAsTool>true</PackAsTool>
-    <ToolCommandName>agentmove</ToolCommandName>
-    <!-- The id would otherwise follow AssemblyName and ship as a bare `agentmove`: outside the
+    <ToolCommandName>hermod</ToolCommandName>
+    <!-- The id would otherwise follow AssemblyName and ship as a bare `hermod`: outside the
          reserved Mintokei prefix, so unbadged on nuget.org, and squatting a generic name. The
-         package is Mintokei.AgentMove; the command it installs is still `agentmove`. -->
-    <PackageId>Mintokei.AgentMove</PackageId>
+         package is Mintokei.Hermod; the command it installs is still `hermod`. -->
+    <PackageId>Mintokei.Hermod</PackageId>
 
     <!-- No symbol package. Nobody steps into a tool they installed to run, and a .snupkg whose
          assemblies live under tools/ rather than lib/ is a validation failure waiting to
@@ -34,7 +34,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="Mintokei.AgentMove.Tests" />
+    <InternalsVisibleTo Include="Mintokei.Hermod.Tests" />
   </ItemGroup>
 
   <ItemGroup>

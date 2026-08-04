@@ -2,7 +2,7 @@ using Mintokei.AgentEngine.AgentTools;
 using Mintokei.AgentEngine.Claude;
 using Mintokei.AgentEngine.Copilot;
 
-namespace Mintokei.AgentMove;
+namespace Mintokei.Hermod;
 
 /// <summary>
 /// Turns a profile's <c>config</c> into arguments for the CLI's own resume invocation — the form
@@ -101,7 +101,7 @@ internal static class CliArgs
 
                 default:
                     // collaborationMode lands here, but Backends refuses it before this runs —
-                    // it exists only in the app-server protocol agentmove no longer speaks.
+                    // it exists only in the app-server protocol hermod no longer speaks.
                     dropped.Add(key);
                     break;
             }
@@ -158,7 +158,7 @@ internal static class CliArgs
         return (args, dropped);
     }
 
-    /// <summary>Claude's mapper covers every key agentmove accepts for it.</summary>
+    /// <summary>Claude's mapper covers every key hermod accepts for it.</summary>
     private static readonly HashSet<string> ClaudeUnmappable = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Copilot's likewise.</summary>

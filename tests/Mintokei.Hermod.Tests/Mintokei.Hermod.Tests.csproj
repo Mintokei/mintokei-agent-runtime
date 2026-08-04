@@ -19,7 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\tools\Mintokei.AgentMove\Mintokei.AgentMove.csproj" />
+    <ProjectReference Include="..\..\tools\Mintokei.Hermod\Mintokei.Hermod.csproj" />
   </ItemGroup>
 
 </Project>

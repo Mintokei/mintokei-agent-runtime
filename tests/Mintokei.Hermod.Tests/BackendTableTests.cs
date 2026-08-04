@@ -5,11 +5,11 @@ using Mintokei.AgentEngine.Claude;
 using Mintokei.AgentEngine.Codex;
 using Mintokei.AgentEngine.Copilot;
 using Mintokei.AgentEngine.OpenCode;
-using Mintokei.AgentMove;
+using Mintokei.Hermod;
 
 using Xunit;
 
-namespace Mintokei.AgentMove.Tests;
+namespace Mintokei.Hermod.Tests;
 
 /// <summary>
 /// <see cref="Backends"/> mirrors, by hand, which config keys each engine mapper consumes. Every
@@ -51,14 +51,14 @@ public class BackendTableTests
     [MemberData(nameof(Tools))]
     public void Every_key_the_engine_offers_is_either_accepted_or_refused_with_a_reason(AgentToolKey tool)
     {
-        // The other direction: the engine gains a key and agentmove keeps quiet about it. Silence
+        // The other direction: the engine gains a key and hermod keeps quiet about it. Silence
         // is the wrong answer either way — accept it, or say why it cannot be delivered.
         foreach (var field in ConfigFields(tool))
         {
             var known = Backends.AcceptedKeys(tool).Contains(field)
                 || Backends.Unsupported(field, out _);
             Assert.True(known,
-                $"{tool} offers config key '{field}' and agentmove neither accepts nor refuses it. "
+                $"{tool} offers config key '{field}' and hermod neither accepts nor refuses it. "
                 + "Add it to Backends.AcceptedKeys, or to Unsupported with the reason.");
         }
     }
@@ -98,7 +98,7 @@ public class BackendTableTests
     [Fact]
     public void A_permission_key_is_recognised_for_every_backend_that_has_one()
     {
-        // Not a union check for its own sake: PermissionSettings() drives what agentmove prints
+        // Not a union check for its own sake: PermissionSettings() drives what hermod prints
         // before it acts, and a permission key missing from it is one that goes unannounced.
         Assert.True(Backends.IsPermissionKey("permissionMode"));   // Claude
         Assert.True(Backends.IsPermissionKey("sandbox"));          // Codex

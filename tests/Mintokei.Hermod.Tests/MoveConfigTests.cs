@@ -1,18 +1,18 @@
-using Mintokei.AgentMove;
+using Mintokei.Hermod;
 
 using Xunit;
 
-namespace Mintokei.AgentMove.Tests;
+namespace Mintokei.Hermod.Tests;
 
 public class MoveConfigTests : IDisposable
 {
-    private readonly string _dir = Directory.CreateTempSubdirectory("agentmove-tests").FullName;
+    private readonly string _dir = Directory.CreateTempSubdirectory("hermod-tests").FullName;
 
     public void Dispose() => Directory.Delete(_dir, recursive: true);
 
     private string Write(string json)
     {
-        var path = Path.Combine(_dir, "agentmove.json");
+        var path = Path.Combine(_dir, "hermod.json");
         File.WriteAllText(path, json);
         return path;
     }
@@ -54,7 +54,7 @@ public class MoveConfigTests : IDisposable
     [Fact]
     public void An_absent_handoff_is_null_and_an_empty_one_is_empty()
     {
-        // agentmove distinguishes them: absent means "use the built-in wording", "" means send
+        // hermod distinguishes them: absent means "use the built-in wording", "" means send
         // nothing. HandoffPrompt.Render treats blank as the default, so the difference has to
         // survive deserialisation to be actionable.
         var absent = MoveConfig.Load(Write("""{ "profiles": {} }""")).Config;
@@ -82,12 +82,12 @@ public class MoveConfigTests : IDisposable
                 + $"which {profile.Tool} does not understand.");
             foreach (var key in profile.Config.Keys)
                 Assert.False(Backends.Unsupported(key, out _),
-                    $"the starter config's '{name}' profile sets '{key}', which agentmove refuses.");
+                    $"the starter config's '{name}' profile sets '{key}', which hermod refuses.");
         }
     }
 
     [Fact]
-    public void The_built_in_profiles_are_ones_agentmove_will_accept()
+    public void The_built_in_profiles_are_ones_hermod_will_accept()
     {
         // These apply when there is no config file at all, so a bad key here breaks the tool for
         // anyone who has not configured it.

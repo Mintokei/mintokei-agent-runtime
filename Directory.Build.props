@@ -65,8 +65,8 @@
     <Description>Read and write the on-disk session stores of coding-agent CLIs (Claude Code, Codex and GitHub Copilot CLI), normalized to the same AgentMessage contract Mintokei.AgentEngine emits for live sessions — so a stored transcript can be moved between CLIs and resumed there.</Description>
     <PackageTags>claude-code;codex;copilot;session;transcript;migration;agent;cli;ai</PackageTags>
   </PropertyGroup>
-  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Mintokei.AgentMove'">
-    <Description>agentmove — a .NET global tool that moves a stored coding-agent session between CLIs. Pick a conversation Claude Code, Codex or GitHub Copilot CLI recorded in this directory, and carry on with it in a different one: the history is converted into the target's own session store and resumed there, optionally handing the terminal straight to that CLI's interface.</Description>
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Mintokei.Hermod'">
+    <Description>hermod — a .NET global tool that moves a stored coding-agent session between CLIs. Pick a conversation Claude Code, Codex or GitHub Copilot CLI recorded in this directory, and carry on with it in a different one: the history is converted into the target's own session store and resumed there, optionally handing the terminal straight to that CLI's interface.</Description>
     <PackageTags>claude-code;codex;copilot;session;transcript;migration;dotnet-tool;cli;ai</PackageTags>
   </PropertyGroup>
   <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Mintokei.Filesystem'">

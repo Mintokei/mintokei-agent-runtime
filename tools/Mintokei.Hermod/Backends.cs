@@ -1,12 +1,12 @@
 using Mintokei.AgentEngine.AgentTools;
 
-namespace Mintokei.AgentMove;
+namespace Mintokei.Hermod;
 
 /// <summary>
 /// Which config keys each backend's mapper in <c>Mintokei.AgentEngine</c> actually consumes.
 ///
 /// A key outside these sets is silently ignored by the engine, which for a permission-bearing
-/// setting is the worst possible outcome: the profile says <c>access: read-only</c>, agentmove
+/// setting is the worst possible outcome: the profile says <c>access: read-only</c>, hermod
 /// prints <c>access=read-only</c>, and the agent runs with the CLI's default sandbox. So an
 /// unrecognised key is an error here rather than something to shrug at.
 ///
@@ -117,7 +117,7 @@ internal static class Backends
     };
 
     /// <summary>
-    /// Keys the engine understands but agentmove cannot deliver, with the reason. Accepting one
+    /// Keys the engine understands but hermod cannot deliver, with the reason. Accepting one
     /// would mean mapping it, sending nothing, and saying nothing — the same silence that let a
     /// permission setting go missing.
     /// </summary>
@@ -125,11 +125,11 @@ internal static class Backends
     {
         why = key.ToLowerInvariant() switch
         {
-            // ThreadStart config. agentmove only ever resumes an existing thread.
-            "ephemeral" => "it only affects creating a thread, and agentmove always resumes one",
+            // ThreadStart config. hermod only ever resumes an existing thread.
+            "ephemeral" => "it only affects creating a thread, and hermod always resumes one",
             // TurnStart config with no command-line form, so only something driving Codex over
-            // `codex app-server` could set it — which agentmove no longer does.
-            "collaborationmode" => "codex takes it only over its app-server protocol, and agentmove "
+            // `codex app-server` could set it — which hermod no longer does.
+            "collaborationmode" => "codex takes it only over its app-server protocol, and hermod "
                 + "starts the CLI's own interface rather than driving it",
             _ => null,
         };

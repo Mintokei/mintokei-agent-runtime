@@ -1,11 +1,11 @@
 using Mintokei.AgentEngine.AgentTools;
-using Mintokei.AgentMove;
+using Mintokei.Hermod;
 using Mintokei.AgentTranscripts;
 using Mintokei.AgentTranscripts.Claude;
 using Mintokei.AgentTranscripts.Codex;
 using Mintokei.AgentTranscripts.Copilot;
 
-// agentmove — pick a session from one agent CLI and carry on with it in another.
+// hermod — pick a session from one agent CLI and carry on with it in another.
 //
 // The whole point is that neither half is guesswork: the sessions come from each CLI's own store,
 // and the target's launch settings come from a profile you wrote down, not from flags assembled
@@ -155,7 +155,7 @@ Console.WriteLine($"Selected: {Describe(picked)}");
 
 if (config.Profiles.Count == 0)
 {
-    Console.Error.WriteLine("No profiles configured. Run `agentmove --init` to write a starter config.");
+    Console.Error.WriteLine("No profiles configured. Run `hermod --init` to write a starter config.");
     return 1;
 }
 
@@ -204,7 +204,7 @@ if (target is null)
     return 1;
 }
 
-// A key the engine accepts but agentmove cannot deliver would be mapped, sent nowhere, and never
+// A key the engine accepts but hermod cannot deliver would be mapped, sent nowhere, and never
 // mentioned. Checked before the unknown-key pass so it gets the accurate reason rather than a
 // "did you mean" for a key that is spelled perfectly well.
 var inapplicable = profile.Config.Keys
@@ -540,7 +540,7 @@ static Exception Bail(string message)
 
 static int WriteStarterConfig(string? path)
 {
-    var target = path ?? Path.Combine(Environment.CurrentDirectory, "agentmove.json");
+    var target = path ?? Path.Combine(Environment.CurrentDirectory, "hermod.json");
     if (File.Exists(target))
     {
         Console.Error.WriteLine($"{target} already exists — delete it first.");
@@ -552,14 +552,14 @@ static int WriteStarterConfig(string? path)
 }
 
 static void PrintUsage() => Console.WriteLine("""
-    agentmove — pick a session from one agent CLI and carry on with it in another.
+    hermod — pick a session from one agent CLI and carry on with it in another.
 
     Run it in the directory the work happened in; it lists the sessions each CLI
     recorded there, by description rather than by id.
 
-      agentmove                       pick interactively, print a command to run
-      agentmove --attach              …and drop into that CLI's own interface
-      agentmove --init                write a starter agentmove.json
+      hermod                       pick interactively, print a command to run
+      hermod --attach              …and drop into that CLI's own interface
+      hermod --init                write a starter hermod.json
 
       --dir <path>       directory to look in (default: current)
       --from <cli>       skip the source prompt: claude | codex | copilot
@@ -581,8 +581,8 @@ static void PrintUsage() => Console.WriteLine("""
         <text>
       --summary-prompt-file <p>       read that prompt from a file
       --limit <n>        how many sessions to list (default 15)
-      --config <path>    config file (default: ./agentmove.json, then
-                         $XDG_CONFIG_HOME/agentmove/config.json)
+      --config <path>    config file (default: ./hermod.json, then
+                         $XDG_CONFIG_HOME/hermod/config.json)
       --yes              do not ask for confirmation
       --help
 
@@ -593,7 +593,7 @@ static void PrintUsage() => Console.WriteLine("""
     backend does not understand is an error, not a shrug.
 
     A profile becomes arguments to that CLI's own resume invocation, whether
-    agentmove prints the command or runs it. A key with no flag form is refused
+    hermod prints the command or runs it. A key with no flag form is refused
     up front rather than accepted and dropped, and --attach refuses outright
     rather than start an agent with permissions the profile did not ask for.
 
@@ -604,7 +604,7 @@ static void PrintUsage() => Console.WriteLine("""
     Summarising is off by default: moving the real transcript is the point, and a
     briefing is what you reach for when the conversation will not fit. When it is
     a profile writing the briefing, that is a second agent started in this
-    directory — agentmove says so, with whether the profile pins it to read-only,
+    directory — hermod says so, with whether the profile pins it to read-only,
     before it asks you to proceed.
     """);
 

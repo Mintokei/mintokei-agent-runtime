@@ -48,7 +48,7 @@ public sealed class HandoffPromptTests
     [Fact]
     public void A_deliberate_move_does_not_invent_a_failure()
     {
-        // agentmove moves a finished conversation on purpose. Saying "the previous turn did not
+        // hermod moves a finished conversation on purpose. Saying "the previous turn did not
         // finish" would be a lie the next agent then acts on.
         var text = HandoffPrompt.Render(null, Full with { Reason = null, Request = null });
 

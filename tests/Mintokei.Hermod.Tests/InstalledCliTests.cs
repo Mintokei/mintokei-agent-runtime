@@ -1,11 +1,11 @@
 using System.Diagnostics;
 
 using Mintokei.AgentEngine.AgentTools;
-using Mintokei.AgentMove;
+using Mintokei.Hermod;
 
 using Xunit;
 
-namespace Mintokei.AgentMove.Tests;
+namespace Mintokei.Hermod.Tests;
 
 /// <summary>
 /// The layer no unit test can reach: whether the flags <see cref="CliArgs"/> emits exist in the CLI
@@ -87,7 +87,7 @@ public class InstalledCliTests
         Assert.SkipWhen(output is null, $"{executable} is not installed here");
 
         Assert.False(WasRejected(output!),
-            $"{executable} rejected the invocation agentmove builds:\n"
+            $"{executable} rejected the invocation hermod builds:\n"
             + $"  {file} {string.Join(' ', argv)}\n"
             + $"  {Trim(output!)}");
     }

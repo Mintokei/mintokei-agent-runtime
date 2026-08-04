@@ -36,7 +36,7 @@
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-AGENTMOVE=(dotnet run --project "$REPO/tools/Mintokei.AgentMove" --)
+AGENTMOVE=(dotnet run --project "$REPO/tools/Mintokei.Hermod" --)
 WORK="${WORK:-$(mktemp -d /tmp/live-check.XXXXXX)}"
 mkdir -p "$WORK"
 PASS=0 FAIL=0 SKIP=0
@@ -58,7 +58,7 @@ have codex && TARGETS+=(codex)
 have copilot && TARGETS+=(copilot)
 
 profiles() {
-    cat > "$1/agentmove.json" <<'JSON'
+    cat > "$1/hermod.json" <<'JSON'
 {
   "profiles": {
     "codex":   { "tool": "codex",   "config": { "sandbox": "read-only", "approvalPolicy": "on-request" } },

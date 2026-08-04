@@ -9,7 +9,7 @@ using Mintokei.AgentEngine.Codex;
 using Mintokei.AgentEngine.Contracts;
 using Mintokei.AgentEngine.Copilot;
 
-namespace Mintokei.AgentMove;
+namespace Mintokei.Hermod;
 
 /// <summary>What a summarising run produced, or why it produced nothing.</summary>
 /// <param name="Briefing">The agent's prose, or null when the run did not finish usefully.</param>
@@ -66,7 +66,7 @@ internal static class AgentSummariser
         string readable;
         try
         {
-            readable = Path.Combine(workingDirectory, $".agentmove-transcript-{Guid.NewGuid():N}.jsonl");
+            readable = Path.Combine(workingDirectory, $".hermod-transcript-{Guid.NewGuid():N}.jsonl");
             File.Copy(transcriptPath, readable, overwrite: true);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

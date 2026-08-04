@@ -42,9 +42,15 @@ jobs:
         id: login
         with:
           user: ${{ secrets.NUGET_USER }}
+      # --timeout is per package, not per run. The default 300s is not enough when nuget.org is
+      # slow: the 0.1.3 publish saw Mintokei.Hermod take 208s and then lost Mintokei.AgentTranscripts
+      # to the timeout, leaving 7 of 9 packages on the feed and the family split across two versions.
+      # Re-running is safe (--skip-duplicate) but only if someone notices, and a half-published
+      # version looks exactly like a whole one from the outside.
       - name: Push to nuget.org
         run: |
           dotnet nuget push "nupkgs/*.nupkg" \
             --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" \
             --source https://api.nuget.org/v3/index.json \
+            --timeout 900 \
             --skip-duplicate

@@ -384,6 +384,9 @@ internal sealed class CodexStreamParser : IAgentStreamParser
             Type = MessageType.Error,
             Content = errorMessage,
             Status = MessageStatus.Failed,
+            // The same classification the turn failure just got. A consumer holding the message
+            // should not have to find the TurnEnded event to learn what kind of error it is.
+            FailureKind = _pendingTurnFailure.Kind,
             Metadata = codexErrorInfo,
             CreatedAt = DateTimeOffset.UtcNow,
         });

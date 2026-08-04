@@ -14,7 +14,12 @@ public sealed record TranscriptFailure
     /// <summary>What the CLI showed, verbatim: <c>You've hit your session limit · resets 7:40am (UTC)</c>.</summary>
     public required string Text { get; init; }
 
-    /// <summary>The failure classified into a kind, for a caller that would rather switch than match text.</summary>
+    /// <summary>
+    /// The failure classified into a kind, for a caller that would rather switch than match text.
+    ///
+    /// Comes from what the store read off the raw event — the provider's own <c>error</c> subtype
+    /// and HTTP status — falling back to the wording only when a transcript carries neither.
+    /// </summary>
     public TurnFailureKind Kind { get; init; }
 
     /// <summary>When it happened.</summary>
@@ -67,7 +72,9 @@ public static class TranscriptFailures
             {
                 Index = i,
                 Text = text,
-                Kind = TurnFailure.ClassifyFromText(text),
+                // What the parser resolved from the raw event beats anything recoverable from here:
+                // by this point the subtype and the status are gone and only the sentence is left.
+                Kind = messages[i].FailureKind ?? TurnFailure.ClassifyFromText(text),
                 At = messages[i].CreatedAt,
                 Recovered = ProducedWorkAfter(messages, i),
             });

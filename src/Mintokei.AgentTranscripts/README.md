@@ -146,8 +146,24 @@ ending: the person waits for the reset, types `continue`, and the session runs f
 On the session this was built against, both failures had been survived and 3,464 messages followed
 the second one.
 
-Classification comes from the flag the CLI set, never from the text. A session that spends an
+**Detection** comes from the flag the CLI set, never from the text. A session that spends an
 afternoon debugging a 401 is full of messages that say `API Error` and are ordinary conversation.
+
+**Classification** comes from the same line's structured fields, in that order of authority:
+
+| | Claude records | e.g. |
+|---|---|---|
+| 1. subtype | `"error"` | `rate_limit`, `authentication_failed`, `server_error` |
+| 2. HTTP status | `"apiErrorStatus"` | `429` |
+| 3. the wording | the message text | "You've hit your session limit · resets 7:40am (UTC)" |
+
+The wording is last on purpose, and it is the one that looks sufficient. One `rate_limit` reaches a
+person as both *"Server is temporarily limiting requests"* and *"You've hit your session limit"* —
+a vocabulary chasing those sentences is one release behind forever, and neither sentence contains
+the phrase "rate limit". The subtype does not move. `AgentMessage.FailureKind` carries what the
+parser resolved, because by the time a consumer holds the message the subtype and the status are
+gone and only the sentence is left; `Metadata` keeps the raw token for whoever widens the table
+next.
 
 ## Long conversations: summarising
 

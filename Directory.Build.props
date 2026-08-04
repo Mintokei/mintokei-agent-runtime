@@ -12,12 +12,14 @@
     <Product>Mintokei Agent Runtime</Product>
     <Copyright>Copyright (c) 2026 Mintokei</Copyright>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <!-- The source repo is private, so DON'T link it (a repo/source link on the nuget.org
-         listing would 404). Point at the product site instead, and keep SourceLink off so
-         no repo URL or source is embedded in the public packages/symbols. -->
+    <!-- The repo is public, so link it: nuget.org shows the product site and the source
+         separately, and the "Source repository" link is how someone decides whether to
+         trust a 0.1.x package from an owner they've never heard of. SourceLink is on by
+         default in the SDK — the properties that turned it off are gone rather than
+         flipped to true, so there is nothing left to re-explain when the default changes. -->
     <PackageProjectUrl>https://mintokei.com</PackageProjectUrl>
-    <EnableSourceLink>false</EnableSourceLink>
-    <EnableSourceControlManagerQueries>false</EnableSourceControlManagerQueries>
+    <RepositoryUrl>https://github.com/Mintokei/mintokei-agent-runtime</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
     <PackageIcon>logo.png</PackageIcon>
 
     <!-- Consumer IntelliSense from the (heavy) XML comments; don't fail the build on the
@@ -25,11 +27,14 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
 
-    <!-- Symbol packages (PDBs only — no embedded source, since the repo stays private) and
-         a deterministic CI build. -->
+    <!-- Symbol packages, and a deterministic CI build so the PDB's source paths resolve to
+         a commit rather than to this machine. EmbedUntrackedSources carries the files that
+         are not in the repo — the generated gRPC client, the build-time attributes — since
+         SourceLink can only point at what GitHub can serve. -->
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     <Deterministic>true</Deterministic>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
     <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
   </PropertyGroup>
 

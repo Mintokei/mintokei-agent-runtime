@@ -149,7 +149,21 @@ the second one.
 **Detection** comes from the flag the CLI set, never from the text. A session that spends an
 afternoon debugging a 401 is full of messages that say `API Error` and are ordinary conversation.
 
-**Classification** comes from the same line's structured fields, in that order of authority:
+**What each CLI records** — measured by making all three actually fail, not by reading docs:
+
+| | records the failure? | as | classify from |
+|---|---|---|---|
+| **Claude Code** | yes | an assistant message flagged `isApiErrorMessage` | `error` subtype, then `apiErrorStatus` |
+| **GitHub Copilot CLI** | yes | its own `session.error` event | the message — `errorType` says *where*, not *what* |
+| **Codex** | **no** | — the turn ends `task_complete` with `last_agent_message: null` | nothing to classify |
+
+Codex is the one to plan around: a rollout of a session killed by a 401 is indistinguishable from
+one that finished. `FindFailures()` returns nothing for it, correctly — there is nothing in the file
+to find. Detecting a Codex failure needs the live stream, where the engine's `CodexStreamParser`
+does see an error event.
+
+**Classification**, where there is something to classify, comes from the structured fields in that
+order of authority:
 
 | | Claude records | e.g. |
 |---|---|---|

@@ -260,6 +260,37 @@ public sealed class CopilotTranscriptStore : ITranscriptStore
                     break;
                 }
 
+                // A turn Copilot could not complete. Unlike Claude's, this arrives as its own
+                // event kind rather than dressed as an assistant message, so nothing was ever at
+                // risk of crossing as prose — it was simply discarded, and with it any record
+                // that the session had stopped rather than finished.
+                //
+                // `errorType` is where the failure happened ("query"), not what it was, so it is
+                // kept for the record and the classification comes from the message. Copilot
+                // publishes no failure taxonomy to map the way Claude's subtypes map.
+                case "session.error":
+                {
+                    var text = GetString(data, "message");
+                    if (!string.IsNullOrWhiteSpace(text))
+                    {
+                        var kind = TurnFailure.ClassifyFromText(text);
+                        messages.Add(new AgentMessage
+                        {
+                            Id = TranscriptIds.Derive(sessionScopedId.ToString(), GetString(root, "id")),
+                            AgentTaskId = sessionScopedId,
+                            ExternalId = GetString(root, "id"),
+                            Role = MessageRole.Assistant,
+                            Type = MessageType.Error,
+                            Status = MessageStatus.Failed,
+                            Content = text,
+                            FailureKind = kind == TurnFailureKind.Unknown ? null : kind,
+                            Metadata = GetString(data, "errorType"),
+                            CreatedAt = at,
+                        });
+                    }
+                    break;
+                }
+
                 case "assistant.message":
                 {
                     model ??= GetString(data, "model");

@@ -35,14 +35,18 @@ public class ShimTests : IDisposable
     [Fact]
     public void An_npm_shim_resolves_to_the_script_it_wraps()
     {
+        SkipUnlessWindows();
         var script = Write("codex.js", "process.exit(0)");
+        // npm drops a node beside its shims and the shim prefers it, so writing one here makes the
+        // test say what it means without depending on node being installed on the machine.
+        var node = Write("node.exe", "");
         var shim = Write("codex.cmd", NpmShim("codex.js"));
 
         var unwrapped = Shims.Unwrap(shim);
 
         Assert.NotNull(unwrapped);
         Assert.Equal(script, unwrapped!.Value.Script, ignoreCase: true);
-        Assert.EndsWith("node.exe", unwrapped.Value.Interpreter, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(node, unwrapped.Value.Interpreter, ignoreCase: true);
     }
 
     [Fact]
@@ -50,6 +54,8 @@ public class ShimTests : IDisposable
     {
         // The %dp0% expansion is a guess about how the shim was written. A path that does not
         // exist means the guess was wrong, and spawning it would be worse than falling back.
+        SkipUnlessWindows();
+        Write("node.exe", "");
         var shim = Write("codex.cmd", NpmShim("not-installed.js"));
 
         Assert.Null(Shims.Unwrap(shim));
@@ -58,6 +64,8 @@ public class ShimTests : IDisposable
     [Fact]
     public void A_shim_this_does_not_understand_is_not_guessed_at()
     {
+        SkipUnlessWindows();
+        Write("node.exe", "");
         var shim = Write("codex.cmd", "@echo off\r\nsome-other-launcher %*\r\n");
 
         Assert.Null(Shims.Unwrap(shim));
@@ -77,9 +85,11 @@ public class ShimTests : IDisposable
     }
 
     [Fact]
-    public void An_unwrappable_shim_is_stepped_over_rather_than_shelled()
+    public void A_shim_it_can_read_is_stepped_over_rather_than_shelled()
     {
+        SkipUnlessWindows();
         Write("codex.js", "process.exit(0)");
+        var node = Write("node.exe", "");
         var shim = Write("codex.cmd", NpmShim("codex.js"));
 
         var (fileName, args) = Attacher.Plan(shim, ["resume", "abc"]);
@@ -87,15 +97,17 @@ public class ShimTests : IDisposable
         // cmd.exe is the thing being avoided: neither the interpreter nor `/c` may mention it.
         Assert.DoesNotContain("cmd.exe", fileName, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("/c", args);
-        Assert.EndsWith("node.exe", fileName, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(node, fileName, ignoreCase: true);
         Assert.Equal(["resume", "abc"], args.Skip(1));
     }
 
     [Fact]
     public void A_multiline_turn_is_withheld_only_when_the_shell_would_cut_it()
     {
+        SkipUnlessWindows();
         var unknown = Write("codex.cmd", "@echo off\r\nsome-other-launcher %*\r\n");
         Write("codex.js", "process.exit(0)");
+        Write("node.exe", "");
         var npm = Write("npm-codex.cmd", NpmShim("codex.js"));
         var exe = Write("codex.exe", "not really an executable");
 
@@ -114,7 +126,7 @@ public class ShimTests : IDisposable
     [Fact]
     public void The_planned_spawn_delivers_a_multiline_turn_whole()
     {
-        Assert.SkipUnless(OperatingSystem.IsWindows(), "batch shims are a Windows problem");
+        SkipUnlessWindows();
         Assert.SkipWhen(NodePath() is null, "node is not installed here");
 
         var received = Path.Combine(_dir, "argv.json");
@@ -139,7 +151,7 @@ public class ShimTests : IDisposable
     {
         // The bug itself, pinned. If this ever stops truncating, the fallback in Plan and the
         // withholding in ShellWouldTruncate are both dead weight and can go.
-        Assert.SkipUnless(OperatingSystem.IsWindows(), "cmd.exe is a Windows problem");
+        SkipUnlessWindows();
         Assert.SkipWhen(NodePath() is null, "node is not installed here");
 
         var received = Path.Combine(_dir, "argv-via-cmd.json");
@@ -157,6 +169,14 @@ public class ShimTests : IDisposable
     }
 
     // ── helpers ──────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// A batch shim is a Windows thing, and <see cref="Attacher"/> only treats one as a shim there
+    /// — so everything guarded by this describes Windows behaviour and would assert the wrong thing
+    /// elsewhere.
+    /// </summary>
+    private static void SkipUnlessWindows() =>
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "batch shims are a Windows problem");
 
     /// <summary>
     /// The shape npm generates: the script named relative to the shim's own directory, and node

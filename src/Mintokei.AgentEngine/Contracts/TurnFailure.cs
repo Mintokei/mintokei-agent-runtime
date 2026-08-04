@@ -77,17 +77,24 @@ public sealed record TurnFailure(TurnFailureKind Kind, string? Message)
 
         var t = text.ToLowerInvariant();
 
+        // "session limit" is Claude's wording for the one people actually hit — "You've hit your
+        // session limit · resets 7:40am (UTC)". Without it the most common rate limit there is
+        // fell through to Unknown, which is the difference between a "wait and retry" state and a
+        // hard failure everywhere downstream that tells those apart.
         if (t.Contains("rate limit") || t.Contains("rate_limit") || t.Contains("ratelimit")
             || t.Contains("429") || t.Contains("too many requests")
-            || t.Contains("quota") || t.Contains("usage limit"))
+            || t.Contains("quota") || t.Contains("usage limit") || t.Contains("session limit"))
             return TurnFailureKind.RateLimited;
 
         if (t.Contains("overloaded") || t.Contains("529"))
             return TurnFailureKind.Overloaded;
 
+        // "not logged in" rather than the CLI's own remedy ("please run /login"): this classifier
+        // is shared by every backend, and a provider's slash command does not belong in it.
         if (t.Contains("authentication") || t.Contains("unauthorized") || t.Contains("401")
             || t.Contains("403") || t.Contains("api key") || t.Contains("api-key")
-            || t.Contains("billing") || t.Contains("credit balance"))
+            || t.Contains("billing") || t.Contains("credit balance")
+            || t.Contains("not logged in") || t.Contains("not authenticated"))
             return TurnFailureKind.Auth;
 
         if (t.Contains("max turns") || t.Contains("max_turns") || t.Contains("maximum number of"))
@@ -95,6 +102,15 @@ public sealed record TurnFailure(TurnFailureKind Kind, string? Message)
 
         if (t.Contains("context") && t.Contains("limit"))
             return TurnFailureKind.MaxTokens;
+
+        // Last, because it is the broadest: a reachability failure is what is left once nothing
+        // more specific has matched. The text counterparts of the 408/5xx statuses
+        // <see cref="ClassifyFromStatus"/> already maps.
+        if (t.Contains("unable to connect") || t.Contains("connection refused")
+            || t.Contains("connectionrefused") || t.Contains("timed out") || t.Contains("timeout")
+            || t.Contains("bad gateway") || t.Contains("service unavailable")
+            || t.Contains("internal server error"))
+            return TurnFailureKind.ApiError;
 
         return TurnFailureKind.Unknown;
     }

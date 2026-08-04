@@ -65,10 +65,35 @@ public sealed record TurnFailure(TurnFailureKind Kind, string? Message)
     };
 
     /// <summary>
+    /// Classifies a provider's own error subtype token — <c>rate_limit</c>,
+    /// <c>authentication_failed</c>, <c>server_error</c> and friends.
+    ///
+    /// **Try this before <see cref="ClassifyFromText"/>.** A subtype is what the provider called
+    /// the failure; the prose beside it is what it decided to show a human that day. Claude words
+    /// the same <c>rate_limit</c> as both "Server is temporarily limiting requests" and "You've hit
+    /// your session limit", and a vocabulary chasing those sentences will always be one release
+    /// behind. Returns <see cref="TurnFailureKind.Unknown"/> for a token this does not know, which
+    /// is the caller's cue to fall back.
+    /// </summary>
+    public static TurnFailureKind ClassifyFromSubtype(string? subtype) => subtype switch
+    {
+        "rate_limit" => TurnFailureKind.RateLimited,
+        "overloaded_error" => TurnFailureKind.Overloaded,
+        "authentication_failed" => TurnFailureKind.Auth,
+        "billing_error" => TurnFailureKind.Auth,
+        "invalid_request" => TurnFailureKind.ApiError,
+        "server_error" => TurnFailureKind.ApiError,
+        _ => TurnFailureKind.Unknown,
+    };
+
+    /// <summary>
     /// Best-effort classification of a free-text error message from any backend
     /// by substring-matching the common provider error vocabularies. Returns
     /// <see cref="TurnFailureKind.Unknown"/> when nothing matches. The input is
     /// always an error string, so matching short tokens like "429" is safe enough.
+    ///
+    /// The **last** resort. Prefer <see cref="ClassifyFromSubtype"/> or
+    /// <see cref="ClassifyFromStatus"/> whenever the backend reports either.
     /// </summary>
     public static TurnFailureKind ClassifyFromText(string? text)
     {

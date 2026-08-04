@@ -385,7 +385,14 @@ public sealed partial class ClaudeTranscriptStore : ITranscriptStore
     }
 
     /// <summary>
-    /// The provider's own failure text, as a message a consumer can recognise as one.
+    /// The provider's own failure, as a message a consumer can recognise as one.
+    ///
+    /// The line carries more than the sentence it showed: <c>error</c> is the subtype Claude gave
+    /// the failure (<c>rate_limit</c>, <c>authentication_failed</c>, <c>server_error</c>) and
+    /// <c>apiErrorStatus</c> is the HTTP status. Both are read here, because the prose is the part
+    /// that gets reworded — one <c>rate_limit</c> appears as "Server is temporarily limiting
+    /// requests" and as "You've hit your session limit", and a reader matching sentences would
+    /// have to keep up with every rewording forever.
     /// </summary>
     private static AgentMessage FailureMessage(Guid sessionScopedId, JsonElement root)
     {
@@ -411,6 +418,21 @@ public sealed partial class ClaudeTranscriptStore : ITranscriptStore
 
         var externalId = GetString(root, "uuid");
         var text = string.Join('\n', parts.Where(p => !string.IsNullOrWhiteSpace(p)));
+
+        // Subtype, then status, then the words — most authoritative first. Text is what is left
+        // when a release stops filling the other two in.
+        var subtype = GetString(root, "error");
+        var kind = TurnFailure.ClassifyFromSubtype(subtype);
+        if (kind == TurnFailureKind.Unknown
+            && root.TryGetProperty("apiErrorStatus", out var s)
+            && s.ValueKind == JsonValueKind.Number
+            && s.TryGetInt32(out var status))
+        {
+            kind = TurnFailure.ClassifyFromStatus(status);
+        }
+        if (kind == TurnFailureKind.Unknown)
+            kind = TurnFailure.ClassifyFromText(text);
+
         return new AgentMessage
         {
             Id = TranscriptIds.Derive(sessionScopedId.ToString(), externalId ?? text),
@@ -420,6 +442,11 @@ public sealed partial class ClaudeTranscriptStore : ITranscriptStore
             Type = MessageType.Error,
             Status = MessageStatus.Failed,
             Content = text,
+            FailureKind = kind == TurnFailureKind.Unknown ? null : kind,
+            // The provider's own token, kept verbatim. ClassifyFromSubtype will not know every one
+            // of these forever, and the next person to widen it should be able to see what a real
+            // transcript actually said rather than infer it from a sentence.
+            Metadata = subtype,
             CreatedAt = GetString(root, "timestamp") is { } ts
                 && DateTimeOffset.TryParse(ts, CultureInfo.InvariantCulture,
                     DateTimeStyles.RoundtripKind, out var at)

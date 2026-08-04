@@ -691,23 +691,14 @@ internal sealed class ClaudeStreamParser : IAgentStreamParser
                 message = m.GetString();
         }
 
-        var kind = MapAssistantErrorSubtype(subtype);
+        // The table lives on TurnFailure so the transcript reader classifies the same tokens the
+        // same way — the file records the identical `error` field this stream event carries.
+        var kind = TurnFailure.ClassifyFromSubtype(subtype);
         if (kind == TurnFailureKind.Unknown)
             kind = TurnFailure.ClassifyFromText(message ?? subtype);
 
         _pendingTurnFailure = new TurnFailure(kind, message ?? subtype);
     }
-
-    private static TurnFailureKind MapAssistantErrorSubtype(string? subtype) => subtype switch
-    {
-        "rate_limit" => TurnFailureKind.RateLimited,
-        "overloaded_error" => TurnFailureKind.Overloaded,
-        "authentication_failed" => TurnFailureKind.Auth,
-        "billing_error" => TurnFailureKind.Auth,
-        "invalid_request" => TurnFailureKind.ApiError,
-        "server_error" => TurnFailureKind.ApiError,
-        _ => TurnFailureKind.Unknown,
-    };
 
     private AgentMessage SystemMessage(string? content, MessageType type, MessageStatus status)
         => new()

@@ -48,6 +48,86 @@ public sealed class TranscriptFailureTests : IDisposable
         Assert.DoesNotContain(session.Messages, m => m.Type == MessageType.AgentMessage);
     }
 
+    [Theory]
+    // The three subtypes that appear in real stores, with the wording each shipped with. The
+    // wording is deliberately unhelpful in the first two: "session limit" is not in any rate-limit
+    // vocabulary, and "Not logged in" is not in any auth one. The subtype is.
+    [InlineData("rate_limit", "You've hit your session limit · resets 7:40am (UTC)",
+        TurnFailureKind.RateLimited)]
+    [InlineData("authentication_failed", "Not logged in · Please run /login", TurnFailureKind.Auth)]
+    [InlineData("server_error", "API Error: Unable to connect to API (ConnectionRefused)",
+        TurnFailureKind.ApiError)]
+    public async Task The_kind_comes_from_the_subtype_the_cli_recorded_not_from_the_wording(
+        string subtype, string text, TurnFailureKind expected)
+    {
+        var line = ApiErrorLine(text);
+        line["error"] = subtype;
+
+        var session = await ReadClaude(UserLine("go"), line);
+
+        Assert.Equal(expected, Assert.Single(session!.FindFailures()).Kind);
+    }
+
+    [Theory]
+    [InlineData("rate_limit", TurnFailureKind.RateLimited)]
+    [InlineData("authentication_failed", TurnFailureKind.Auth)]
+    [InlineData("server_error", TurnFailureKind.ApiError)]
+    public async Task The_subtype_alone_is_enough_when_the_wording_says_nothing(
+        string subtype, TurnFailureKind expected)
+    {
+        // The rows above pair each subtype with the sentence it really ships with, and those
+        // sentences now match the text vocabulary too — so they cannot show which one answered.
+        // Wording no vocabulary knows can.
+        var line = ApiErrorLine("The service declined to continue.");
+        line["error"] = subtype;
+
+        var session = await ReadClaude(UserLine("go"), line);
+
+        Assert.Equal(expected, Assert.Single(session!.FindFailures()).Kind);
+    }
+
+    [Fact]
+    public async Task A_status_is_read_when_the_subtype_is_one_this_version_does_not_know()
+    {
+        // Providers add subtypes. An unrecognised one must not throw away the 429 sitting beside it.
+        var line = ApiErrorLine("Something new and undocumented happened");
+        line["error"] = "a_subtype_from_next_year";
+        line["apiErrorStatus"] = 429;
+
+        var session = await ReadClaude(UserLine("go"), line);
+
+        Assert.Equal(TurnFailureKind.RateLimited, Assert.Single(session!.FindFailures()).Kind);
+    }
+
+    [Fact]
+    public async Task The_wording_is_still_read_when_a_transcript_carries_neither()
+    {
+        var session = await ReadClaude(UserLine("go"), ApiErrorLine("429 Too Many Requests"));
+
+        Assert.Equal(TurnFailureKind.RateLimited, Assert.Single(session!.FindFailures()).Kind);
+    }
+
+    [Fact]
+    public async Task An_unclassifiable_failure_says_so_rather_than_guessing()
+    {
+        var session = await ReadClaude(UserLine("go"), ApiErrorLine("Something went wrong"));
+
+        Assert.Null(Assert.Single(session!.Messages, m => m.Type == MessageType.Error).FailureKind);
+        Assert.Equal(TurnFailureKind.Unknown, Assert.Single(session.FindFailures()).Kind);
+    }
+
+    [Fact]
+    public async Task The_provider_s_own_token_is_kept_for_whoever_widens_the_table_next()
+    {
+        var line = ApiErrorLine("You've hit your session limit");
+        line["error"] = "rate_limit";
+
+        var session = await ReadClaude(UserLine("go"), line);
+
+        Assert.Equal("rate_limit",
+            Assert.Single(session!.Messages, m => m.Type == MessageType.Error).Metadata);
+    }
+
     [Fact]
     public async Task A_conversation_about_api_errors_is_not_a_conversation_that_hit_one()
     {

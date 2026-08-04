@@ -25,6 +25,19 @@ public sealed class AgentMessage
     public string? Metadata { get; set; }
     public string? ImagesJson { get; set; }
 
+    /// <summary>
+    /// For a <see cref="MessageType.Error"/> message: what kind of failure it was, as the provider
+    /// itself named it.
+    ///
+    /// Set at parse time, where the raw event is still in hand and its <c>error</c> subtype and
+    /// HTTP status can be read directly. A consumer reaching this message later has only the prose,
+    /// and the prose is the part providers reword — the same <c>rate_limit</c> reaches a person as
+    /// both "Server is temporarily limiting requests" and "You've hit your session limit".
+    ///
+    /// Null on every other message type, and on an error whose kind could not be determined.
+    /// </summary>
+    public TurnFailureKind? FailureKind { get; set; }
+
     /// <summary>Normalized, provider-agnostic view of <see cref="ImagesJson"/>: attached images as
     /// directly-renderable sources. Derived from <see cref="ImagesJson"/> on read.</summary>
     public IReadOnlyList<ImageAttachment> Images => ImageNormalizer.Parse(ImagesJson);

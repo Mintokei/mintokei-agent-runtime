@@ -348,6 +348,10 @@ you which flag was missing.
   otherwise reach the target twice, once as history and once as the thing to do.
 - **A turn cut off mid-way is kept.** Four files edited out of five is work worth carrying; the
   handoff says the last step's outcome is unknown instead of throwing it away.
+- **A turn the provider refused is dropped.** Every CLI files a rate limit or an API error as an
+  ordinary assistant message with a flag beside it, so carried over verbatim it reads as something
+  the agent said — `You've hit your session limit` lands in the new session as a sentence *it*
+  supposedly wrote. What follows the failure is real work and is kept.
 - **Conversations can be summarised** into a briefing — see [Summarising](#summarising) — because
   every move re-ingests the whole transcript and can overflow the target's context. Off unless you
   ask for it.

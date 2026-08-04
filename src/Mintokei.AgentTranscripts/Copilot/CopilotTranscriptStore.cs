@@ -627,6 +627,10 @@ public sealed class CopilotTranscriptStore : ITranscriptStore
                         tool.Result ?? tool.Error, string.IsNullOrEmpty(tool.Error));
                     break;
 
+                // The provider giving up is not something the agent said. See the Claude writer.
+                case MessageType.Error:
+                    break;
+
                 default:
                     // Built from the payload when there is no Content: a file edit carries its path
                     // and diff and no prose, and was previously dropped without a word.

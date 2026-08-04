@@ -199,6 +199,17 @@ public sealed partial class ClaudeTranscriptStore : ITranscriptStore
 
             if (type == "assistant")
             {
+                // A turn the provider refused. Claude files it as an ordinary assistant message
+                // with a flag beside it, so reading it as prose put "You've hit your session limit
+                // · resets 7:40am (UTC)" into the next agent's history as something this one had
+                // said. It is transport, not conversation — and it is the one line in the file
+                // that says where the session broke, which is worth being able to find.
+                if (GetBool(root, "isApiErrorMessage"))
+                {
+                    messages.Add(FailureMessage(sessionScopedId, root));
+                    continue;
+                }
+
                 if (root.TryGetProperty("message", out var m) && GetString(m, "model") is { } mo)
                     model ??= mo;
 
@@ -371,6 +382,50 @@ public sealed partial class ClaudeTranscriptStore : ITranscriptStore
 
         text = string.Join('\n', parts);
         return !string.IsNullOrWhiteSpace(text) && !InterruptMarker().IsMatch(text.Trim());
+    }
+
+    /// <summary>
+    /// The provider's own failure text, as a message a consumer can recognise as one.
+    /// </summary>
+    private static AgentMessage FailureMessage(Guid sessionScopedId, JsonElement root)
+    {
+        var parts = new List<string>();
+        if (root.TryGetProperty("message", out var message))
+        {
+            if (message.TryGetProperty("content", out var content))
+            {
+                if (content.ValueKind == JsonValueKind.String)
+                {
+                    parts.Add(content.GetString() ?? string.Empty);
+                }
+                else if (content.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var block in content.EnumerateArray())
+                    {
+                        if (GetString(block, "type") == "text" && GetString(block, "text") is { Length: > 0 } t)
+                            parts.Add(t);
+                    }
+                }
+            }
+        }
+
+        var externalId = GetString(root, "uuid");
+        var text = string.Join('\n', parts.Where(p => !string.IsNullOrWhiteSpace(p)));
+        return new AgentMessage
+        {
+            Id = TranscriptIds.Derive(sessionScopedId.ToString(), externalId ?? text),
+            AgentTaskId = sessionScopedId,
+            ExternalId = externalId,
+            Role = MessageRole.Assistant,
+            Type = MessageType.Error,
+            Status = MessageStatus.Failed,
+            Content = text,
+            CreatedAt = GetString(root, "timestamp") is { } ts
+                && DateTimeOffset.TryParse(ts, CultureInfo.InvariantCulture,
+                    DateTimeStyles.RoundtripKind, out var at)
+                ? at
+                : DateTimeOffset.UtcNow,
+        };
     }
 
     private static AgentMessage UserMessage(Guid sessionScopedId, JsonElement root, string text)
@@ -571,6 +626,12 @@ public sealed partial class ClaudeTranscriptStore : ITranscriptStore
                         // Codex and Copilot readers already recover a status from.
                         TranscriptNarration.WithExitStatus(cmd),
                         isError: cmd.ExitCode is not (null or 0));
+                    break;
+
+                // The provider giving up is not something the agent said, and writing it as
+                // assistant prose makes the target CLI's history claim it announced a limit it
+                // never hit. Dropped: what came after it is the recovery, which is real.
+                case MessageType.Error:
                     break;
 
                 default:

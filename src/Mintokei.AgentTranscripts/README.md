@@ -119,6 +119,36 @@ scanning. The others are not the same shape, and the engine's parsers do **not**
   `"o"` format instead of `2026-08-01T14:51:32.508Z`. It also expects `checkpoints/`, `files/` and
   `research/` beside the transcript.
 
+## Where the provider gave up
+
+A refused turn — a rate limit, a session limit, an API error — is not something the agent said, but
+that is how the CLIs store it: an ordinary assistant message with a flag beside it. Read as prose it
+crosses into the next agent's history as a sentence *it* supposedly wrote, which is the wrong lesson
+to teach an agent you moved there **because** a provider was failing.
+
+So the parsers classify it as `MessageType.Error`, no writer emits it, and it can be found:
+
+```csharp
+var failures = transcript.FindFailures();
+foreach (var f in failures)
+    Console.WriteLine($"{f.At}  {f.Kind}  {f.Text}  {(f.Recovered ? "(survived)" : "")}");
+
+// the conversation as it stood just before the first one
+var atTheFailure = transcript.CutBefore(failures[0]).TrimIncompleteTail().Transcript;
+```
+
+`CutBefore` drops the failure and everything after it. The result generally ends mid-turn — the last
+thing recorded before a provider gives up is whatever tool call it was in the middle of — so run
+`TrimIncompleteTail()` after it rather than duplicating that logic.
+
+`Recovered` is the field to read before cutting anything. A limit is usually a scar rather than an
+ending: the person waits for the reset, types `continue`, and the session runs for hours more.
+On the session this was built against, both failures had been survived and 3,464 messages followed
+the second one.
+
+Classification comes from the flag the CLI set, never from the text. A session that spends an
+afternoon debugging a 401 is full of messages that say `API Error` and are ordinary conversation.
+
 ## Long conversations: summarising
 
 Every hop re-ingests the whole transcript, so a long conversation can overflow the target's context
@@ -244,6 +274,9 @@ whatever the message carries when it has no `Content` of its own.
 - **Message kinds with no wire form** in the target — `FileChange` and `CompactBoundary` are
   written as assistant prose rather than dropped. `TranscriptNarration` builds that prose from the
   payload when the message has no `Content` of its own, which is the usual case for an edit.
+- **The provider's own failures**, on purpose — a `MessageType.Error` is not written by any store.
+  See [Where the provider gave up](#where-the-provider-gave-up); it survives the read so it can be
+  found and cut at, and is dropped from the write so no agent inherits it as its own words.
 - **Side channels outside the transcript** — Claude's `file-history-snapshot` (so undo history is
   lost), Codex shell snapshots, Copilot checkpoints and per-session todo databases.
 

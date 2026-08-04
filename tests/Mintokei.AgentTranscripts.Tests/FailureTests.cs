@@ -145,6 +145,45 @@ public sealed class TranscriptFailureTests : IDisposable
         Assert.Equal(TurnFailureKind.RateLimited, only.Kind);
     }
 
+    [Fact]
+    public async Task Copilot_records_its_failure_as_its_own_event_kind()
+    {
+        // Captured by pointing a real Copilot CLI at a dead provider endpoint. Copilot does not
+        // dress a failure as an assistant message the way Claude does — it emits session.error —
+        // so nothing was ever at risk of crossing as prose. It was discarded instead, taking with
+        // it any record that the session stopped rather than finished.
+        var home = Path.Combine(_home, "copilot");
+        var dir = Path.Combine(home, "session-state", SessionId);
+        Directory.CreateDirectory(dir);
+        await File.WriteAllLinesAsync(Path.Combine(dir, "events.jsonl"),
+        [
+            Copilot("session.start", new JsonObject
+            {
+                ["sessionId"] = SessionId,
+                ["copilotVersion"] = "1.0.77",
+                ["startTime"] = "2026-08-04T12:40:16.867Z",
+                ["context"] = new JsonObject { ["cwd"] = Cwd },
+            }),
+            Copilot("user.message", new JsonObject { ["content"] = "say hi" }),
+            Copilot("session.error", new JsonObject
+            {
+                ["errorType"] = "query",
+                ["message"] = "Could not connect to local model provider at http://127.0.0.1:45999/v1.\n"
+                    + "  Check that the service is running and the port is correct.",
+            }),
+        ], TestContext.Current.CancellationToken);
+
+        var session = await new CopilotTranscriptStore(home)
+            .ReadAsync(SessionId, TestContext.Current.CancellationToken);
+
+        var failure = Assert.Single(session!.FindFailures());
+        Assert.Contains("Could not connect", failure.Text);
+        Assert.Equal(TurnFailureKind.ApiError, failure.Kind);
+        // errorType says where it happened, not what it was — kept, but not classified from.
+        Assert.Equal("query",
+            Assert.Single(session.Messages, m => m.Type == MessageType.Error).Metadata);
+    }
+
     // ── finding and cutting ──────────────────────────────────────────────
 
     [Fact]
@@ -244,6 +283,14 @@ public sealed class TranscriptFailureTests : IDisposable
         return await new ClaudeTranscriptStore(_home)
             .ReadAsync(SessionId, TestContext.Current.CancellationToken);
     }
+
+    private static string Copilot(string type, JsonNode data) => new JsonObject
+    {
+        ["type"] = type,
+        ["id"] = Guid.NewGuid().ToString(),
+        ["timestamp"] = DateTimeOffset.UtcNow.ToString("O"),
+        ["data"] = data,
+    }.ToJsonString();
 
     private static JsonObject Line(string type, JsonNode message) => new()
     {

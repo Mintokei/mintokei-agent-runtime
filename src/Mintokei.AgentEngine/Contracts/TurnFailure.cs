@@ -131,7 +131,8 @@ public sealed record TurnFailure(TurnFailureKind Kind, string? Message)
         // Last, because it is the broadest: a reachability failure is what is left once nothing
         // more specific has matched. The text counterparts of the 408/5xx statuses
         // <see cref="ClassifyFromStatus"/> already maps.
-        if (t.Contains("unable to connect") || t.Contains("connection refused")
+        if (t.Contains("unable to connect") || t.Contains("could not connect")
+            || t.Contains("connection refused")
             || t.Contains("connectionrefused") || t.Contains("timed out") || t.Contains("timeout")
             || t.Contains("bad gateway") || t.Contains("service unavailable")
             || t.Contains("internal server error"))

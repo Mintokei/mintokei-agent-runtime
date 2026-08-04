@@ -4,14 +4,14 @@ using System.Diagnostics;
 using Mintokei.AgentEngine.AgentTools;
 using Mintokei.AgentEngine.CommandRunner;
 
-namespace Mintokei.AgentMove;
+namespace Mintokei.Hermod;
 
 /// <summary>
 /// Hands this terminal to the target CLI's own interface: spawns its resume command as a child
 /// inheriting stdin, stdout and stderr, so the real TUI appears — colours, keybindings, slash
 /// commands, all of it.
 ///
-/// agentmove sees nothing from here on: a TUI paints escape sequences meant for a human's eyes, not
+/// hermod sees nothing from here on: a TUI paints escape sequences meant for a human's eyes, not
 /// events for a program watching. This is an <c>exec</c> with a transcript conversion in front of
 /// it, which is the whole job.
 /// </summary>

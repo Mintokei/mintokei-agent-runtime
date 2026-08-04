@@ -2,13 +2,13 @@ using System.Xml.Linq;
 
 using Xunit;
 
-namespace Mintokei.AgentMove.Tests;
+namespace Mintokei.Hermod.Tests;
 
 /// <summary>
 /// The install instructions name two different strings — the package you ask for and the command
 /// you get — and neither is checked by building. Both come from the csproj, and one of them already
 /// went wrong: <c>PackageId</c> follows <c>AssemblyName</c> unless it is set, so the first pack
-/// produced <c>agentmove</c>, outside the reserved <c>Mintokei.</c> prefix and unlike every other
+/// produced <c>hermod</c>, outside the reserved <c>Mintokei.</c> prefix and unlike every other
 /// package in the family. A build cannot notice that, and a README that names the wrong id is only
 /// discovered by someone whose install fails.
 /// </summary>
@@ -16,7 +16,7 @@ public class PackagingTests
 {
     private static readonly string RepoRoot = FindRepoRoot();
     private static readonly XElement Project =
-        XDocument.Load(Path.Combine(RepoRoot, "tools/Mintokei.AgentMove/Mintokei.AgentMove.csproj")).Root!;
+        XDocument.Load(Path.Combine(RepoRoot, "tools/Mintokei.Hermod/Mintokei.Hermod.csproj")).Root!;
 
     private static string PackageId => Property("PackageId");
     private static string Command => Property("ToolCommandName");
@@ -49,7 +49,7 @@ public class PackagingTests
 
     [Theory]
     [InlineData("tools/README.md")]
-    [InlineData("tools/Mintokei.AgentMove/README.md")]
+    [InlineData("tools/Mintokei.Hermod/README.md")]
     public void The_readmes_tell_you_to_install_the_package_that_exists(string path)
     {
         var text = File.ReadAllText(Path.Combine(RepoRoot, path));

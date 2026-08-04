@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace Mintokei.AgentMove;
+namespace Mintokei.Hermod;
 
 /// <summary>Whether a briefing replaces the transcript, and on what condition.</summary>
 public enum SummaryWhen

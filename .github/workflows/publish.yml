@@ -1,6 +1,6 @@
 name: Publish to NuGet
 
-# Manual release: pack the libraries — and Mintokei.AgentMove, which packs as a `dotnet tool`
+# Manual release: pack the libraries — and Mintokei.Hermod, which packs as a `dotnet tool`
 # rather than a library but ships on the same lockstep version — and push them to nuget.org
 # via Trusted Publishing
 # (OIDC — no long-lived API key stored in the repo). Separate from CI (which only packs to

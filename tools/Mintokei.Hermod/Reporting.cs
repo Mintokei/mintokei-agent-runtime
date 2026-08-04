@@ -1,11 +1,11 @@
 using Mintokei.AgentEngine.AgentTools;
 
-namespace Mintokei.AgentMove;
+namespace Mintokei.Hermod;
 
 /// <summary>
 /// Says truthfully which of a profile's settings will be in force.
 ///
-/// Everything reaches the CLI as an argument to its own resume invocation — agentmove either prints
+/// Everything reaches the CLI as an argument to its own resume invocation — hermod either prints
 /// that command or runs it. A key <see cref="CliArgs"/> cannot express is refused up front rather
 /// than reported here, so in practice this prints the profile and nothing else; the unapplied path
 /// remains because a backend can gain a key before it gains a flag for it.

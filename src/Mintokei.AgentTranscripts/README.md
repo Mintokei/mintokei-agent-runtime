@@ -147,7 +147,7 @@ than either alone — and is labelled as somebody else's reading rather than as 
 happened. The extracted sections stay underneath, because whoever wrote it can be wrong about what
 they read and a file list cannot be; `IncludeFacts = false` if you want only the prose.
 
-`agentmove --summarise-with <profile>` is this, with an agent CLI as the reader.
+`hermod --summarise-with <profile>` is this, with an agent CLI as the reader.
 
 The briefing ends on an assistant turn on purpose. A transcript ending on a user turn reads as an
 unanswered question — to the next CLI, and to `TrimIncompleteTail`, which would otherwise strip the

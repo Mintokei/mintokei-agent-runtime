@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 
 using Mintokei.AgentEngine.AgentTools;
 
-namespace Mintokei.AgentMove;
+namespace Mintokei.Hermod;
 
 /// <summary>
 /// A named target: which CLI to continue in, and how to launch it.
@@ -54,7 +54,7 @@ public sealed record Profile
         .Select(kv => $"{kv.Key}={kv.Value}");
 }
 
-/// <summary>Everything agentmove reads from disk.</summary>
+/// <summary>Everything hermod reads from disk.</summary>
 public sealed record MoveConfig
 {
     public Dictionary<string, Profile> Profiles { get; init; } = new(StringComparer.OrdinalIgnoreCase);
@@ -110,8 +110,8 @@ public sealed record MoveConfig
     };
 
     /// <summary>
-    /// Loads the first config found: an explicit path, then <c>./agentmove.json</c>, then
-    /// <c>$XDG_CONFIG_HOME/agentmove/config.json</c> (or <c>~/.config/…</c>). Returns
+    /// Loads the first config found: an explicit path, then <c>./hermod.json</c>, then
+    /// <c>$XDG_CONFIG_HOME/hermod/config.json</c> (or <c>~/.config/…</c>). Returns
     /// <see cref="Fallback"/> when there is none, so the tool is useful before it is configured.
     /// </summary>
     public static (MoveConfig Config, string Origin) Load(string? explicitPath)
@@ -143,10 +143,10 @@ public sealed record MoveConfig
     private static IEnumerable<string?> CandidatePaths(string? explicitPath)
     {
         yield return explicitPath;
-        yield return Path.Combine(Environment.CurrentDirectory, "agentmove.json");
+        yield return Path.Combine(Environment.CurrentDirectory, "hermod.json");
         var xdg = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME")
             ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config");
-        yield return Path.Combine(xdg, "agentmove", "config.json");
+        yield return Path.Combine(xdg, "hermod", "config.json");
     }
 
     /// <summary>

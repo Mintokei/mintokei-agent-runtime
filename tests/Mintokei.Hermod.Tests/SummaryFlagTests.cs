@@ -1,9 +1,9 @@
 using Mintokei.AgentEngine.AgentTools;
-using Mintokei.AgentMove;
+using Mintokei.Hermod;
 
 using Xunit;
 
-namespace Mintokei.AgentMove.Tests;
+namespace Mintokei.Hermod.Tests;
 
 /// <summary>
 /// The summary flags, and the one that bites: <c>--summarise</c> takes an optional value, so it has
@@ -32,7 +32,7 @@ public class SummaryFlagTests
     [InlineData("--no-handoff")]
     public void Summarise_does_not_swallow_the_flag_after_it(string next)
     {
-        // `agentmove --summarise --yes` must still be --yes. Consuming it would either fail on a
+        // `hermod --summarise --yes` must still be --yes. Consuming it would either fail on a
         // word that is not a trigger, or silently drop a flag the user typed.
         var options = MoveOptions.Parse(["--summarise", next]);
 

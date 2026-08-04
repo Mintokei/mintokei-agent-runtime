@@ -1,23 +1,26 @@
-# agentmove
+# hermod
 
 Pick a session from one agent CLI and carry on with it in another.
 
 ```bash
-dotnet tool install -g Mintokei.AgentMove
+dotnet tool install -g Mintokei.Hermod
 ```
 
-`Mintokei.AgentMove` is the package; `agentmove` is the command. It needs the .NET runtime and at
+`Mintokei.Hermod` is the package; `hermod` is the command. It needs the .NET runtime and at
 least one agent CLI already installed — it reads and writes their own session stores rather than
 keeping any of its own.
+
+> Hermóðr rode nine nights down to Hel to bring Baldr back. Retrieving something from the place
+> things do not come back from is the job, so it seemed fair to borrow the name.
 
 Run it in the directory the work happened in. It lists what each CLI recorded there — by
 description, not by id — and moves the one you choose into whichever agent you want to continue in.
 
 ```
-$ agentmove
+$ hermod
 
 directory  /repo
-config     ./agentmove.json
+config     ./hermod.json
 
 Copy from:
   [1] Claude Code  (7 session(s))
@@ -81,7 +84,7 @@ yourself:
   starting codex — no opening turn, the history is already there
 ```
 
-which is this, spawned as a child of agentmove with your stdin, stdout and stderr:
+which is this, spawned as a child of hermod with your stdin, stdout and stderr:
 
 ```
 codex resume 019fc2a8-… --ask-for-approval on-request --sandbox read-only \
@@ -93,7 +96,7 @@ Claude `--permission-mode` / `--effort`, Codex `--sandbox` / `--ask-for-approval
 `config.toml` fields, Copilot `--mode` / `--allow-all-paths` — so `--attach` is not the lossy
 option it looks like.
 
-agentmove sees nothing from the moment the TUI starts — it paints escape sequences meant for a
+hermod sees nothing from the moment the TUI starts — it paints escape sequences meant for a
 human's eyes, not events for a program. `--attach` is an `exec` with a transcript conversion in
 front of it, which is the whole job. Driving a CLI over its protocol and reacting to what it says
 is a different tool; `samples/FailoverAgentMinimal` is that one.
@@ -110,7 +113,7 @@ run with its own defaults instead of what this profile says.
 
 |  | default | `--attach` |
 |---|---|---|
-| who starts the CLI | you | agentmove |
+| who starts the CLI | you | hermod |
 | what you see | a command to copy | the real TUI |
 | profile applied | yes, if you run it as printed | yes |
 | opening turn | printed to paste | sent, shown first |
@@ -124,10 +127,10 @@ Leaving the CLI does not end anything. The session is a normal session in the ta
 ## Configuration
 
 ```bash
-agentmove --init          # writes ./agentmove.json
+hermod --init          # writes ./hermod.json
 ```
 
-Read from `--config`, then `./agentmove.json`, then `$XDG_CONFIG_HOME/agentmove/config.json`.
+Read from `--config`, then `./hermod.json`, then `$XDG_CONFIG_HOME/hermod/config.json`.
 Without one, a conservative built-in profile per supported CLI is used.
 
 ```json
@@ -226,7 +229,7 @@ tool results. …File mtimes are all before the recorded session start.
 That is the difference worth paying a model call for: the previous agent had claimed edits it never
 made, and only something that *read* the transcript could notice.
 
-**It is a second agent, started in your working directory.** agentmove says so before it asks you to
+**It is a second agent, started in your working directory.** hermod says so before it asks you to
 proceed, along with whether the profile pins it to read-only:
 
 ```
@@ -258,8 +261,8 @@ means the same thing whether the command is printed or run:
 | opencode | `model` `agent` `dangerouslySkipPermissions` |
 
 `ephemeral` and `collaborationMode` are deliberately absent. The first only affects *creating* a
-thread and agentmove always resumes one; the second Codex takes only over its app-server protocol,
-which agentmove does not speak — it starts the CLI's own interface instead. Both are refused with
+thread and hermod always resumes one; the second Codex takes only over its app-server protocol,
+which hermod does not speak — it starts the CLI's own interface instead. Both are refused with
 the reason rather than accepted, mapped, sent nowhere and never mentioned.
 
 A key outside its backend's list is an **error**, not a shrug:
@@ -286,7 +289,7 @@ which rejects an unknown field instead of ignoring it.
 ### Permissions are not translated
 
 `permissionMode` is Claude's; `approvalPolicy` and `sandbox` are Codex's; `mode` is Copilot's.
-There is no honest mapping between them, so each profile states its own target's — and agentmove
+There is no honest mapping between them, so each profile states its own target's — and hermod
 prints them, marked with whether the start method you chose actually applies them:
 
 ```
@@ -297,17 +300,17 @@ That is the point of profiles rather than interactive flag entry: switching agen
 an agent quietly gains more reach than it had, and a file you wrote last week is easier to review
 than flags typed while something is broken.
 
-Once the CLI is running it asks its own permission questions, in its own interface. agentmove is
+Once the CLI is running it asks its own permission questions, in its own interface. hermod is
 not in the middle of that and does not try to be — the profile decides what the session starts
 with, and the CLI decides everything after.
 
 ## Non-interactive
 
 ```bash
-agentmove --from claude --session e9b8e444 --to codex --yes
+hermod --from claude --session e9b8e444 --to codex --yes
 ```
 
-`--session` takes any unique prefix. With stdin not a terminal, agentmove refuses to guess and tells
+`--session` takes any unique prefix. With stdin not a terminal, hermod refuses to guess and tells
 you which flag was missing.
 
 | Flag | |

@@ -15,14 +15,14 @@
     <Project Path="src/Mintokei.Sandbox.Hosting/Mintokei.Sandbox.Hosting.csproj" />
   </Folder>
   <Folder Name="/tools/">
-    <Project Path="tools/Mintokei.AgentMove/Mintokei.AgentMove.csproj" />
+    <Project Path="tools/Mintokei.Hermod/Mintokei.Hermod.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Mintokei.AgentEngine.Tests/Mintokei.AgentEngine.Tests.csproj" />
     <Project Path="tests/Mintokei.AgentControlPlane.Tests/Mintokei.AgentControlPlane.Tests.csproj" />
     <Project Path="tests/Mintokei.Filesystem.Tests/Mintokei.Filesystem.Tests.csproj" />
     <Project Path="tests/Mintokei.AgentTranscripts.Tests/Mintokei.AgentTranscripts.Tests.csproj" />
-    <Project Path="tests/Mintokei.AgentMove.Tests/Mintokei.AgentMove.Tests.csproj" />
+    <Project Path="tests/Mintokei.Hermod.Tests/Mintokei.Hermod.Tests.csproj" />
     <Project Path="tests/Mintokei.Sandbox.Tests/Mintokei.Sandbox.Tests.csproj" />
     <Project Path="tests/Mintokei.Sandbox.Hosting.Tests/Mintokei.Sandbox.Hosting.Tests.csproj" />
     <Project Path="tests/Mintokei.Runner.Host.Tests/Mintokei.Runner.Host.Tests.csproj" />

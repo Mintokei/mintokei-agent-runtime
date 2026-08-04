@@ -1,9 +1,9 @@
 using Mintokei.AgentEngine.AgentTools;
-using Mintokei.AgentMove;
+using Mintokei.Hermod;
 
 using Xunit;
 
-namespace Mintokei.AgentMove.Tests;
+namespace Mintokei.Hermod.Tests;
 
 public class CliArgsTests
 {

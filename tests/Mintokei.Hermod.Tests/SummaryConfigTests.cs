@@ -1,10 +1,10 @@
 using System.Text.Json;
 
-using Mintokei.AgentMove;
+using Mintokei.Hermod;
 
 using Xunit;
 
-namespace Mintokei.AgentMove.Tests;
+namespace Mintokei.Hermod.Tests;
 
 /// <summary>
 /// Summarising has two independent axes — when it happens, and who writes it — and the point of

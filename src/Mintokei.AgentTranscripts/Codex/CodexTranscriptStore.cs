@@ -600,6 +600,10 @@ public sealed class CodexTranscriptStore : ITranscriptStore
                         tool.Result ?? tool.Error);
                     break;
 
+                // The provider giving up is not something the agent said. See the Claude writer.
+                case MessageType.Error:
+                    break;
+
                 default:
                     // Plan, FileChange and friends have no faithful Codex wire form, so they cross
                     // as assistant prose — built from the payload when there is no Content, or a

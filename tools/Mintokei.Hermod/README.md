@@ -10,6 +10,13 @@ dotnet tool install -g Mintokei.Hermod
 least one agent CLI already installed — it reads and writes their own session stores rather than
 keeping any of its own.
 
+**Claude Code, Codex and GitHub Copilot CLI**, as both source and target, in any of the six
+directions. OpenCode has no transcript store yet, and Gemini CLI is not supported.
+
+**No configuration needed to start.** There is a built-in profile per CLI, each one conservative
+about permissions. Reach for [`hermod --init`](#configuration) when you want to pin a model, or
+say what the target may do once it is running.
+
 > Hermóðr rode nine nights down to Hel to bring Baldr back. Retrieving something from the place
 > things do not come back from is the job, so it seemed fair to borrow the name.
 
@@ -313,6 +320,8 @@ hermod --from claude --session e9b8e444 --to codex --yes
 `--session` takes any unique prefix. With stdin not a terminal, hermod refuses to guess and tells
 you which flag was missing.
 
+## All flags
+
 | Flag | |
 |---|---|
 | `--dir <path>` | directory to look in (default: current) |
@@ -347,3 +356,34 @@ you which flag was missing.
 
 Conversion is lossy — opaque reasoning cannot cross, and tool calls with no equivalent become prose.
 The handoff includes the path to the original transcript so anything missing can still be read.
+
+## When it does not work
+
+**`hermod: command not found`** — `dotnet tool install -g` puts it in `~/.dotnet/tools`, which is
+not always on `PATH`. The installer prints the fix as a single line that scrolls past:
+
+```bash
+export PATH="$PATH:$HOME/.dotnet/tools"     # add to ~/.bashrc or ~/.zshrc
+```
+
+On Windows the equivalent is `%USERPROFILE%\.dotnet\tools`.
+
+**`No sessions found for <dir>`** — almost always the directory, not the sessions. Every CLI here
+records which directory a conversation happened in, and hermod only lists the ones belonging to
+where you are standing. `cd` to the repository you were working in, or point at it:
+
+```bash
+hermod --dir ~/projects/the-one-you-meant
+```
+
+A session started somewhere else is invisible here on purpose. Listing every session on the machine
+would mean picking a conversation about a different codebase and resuming it against this one.
+
+**Only one CLI is listed when you expected two** — hermod lists a CLI only when it has sessions in
+this directory. An installed CLI you have never used here does not appear.
+
+**The target CLI does not show your moved session in its own picker** — the transcript is written
+and `<cli> resume <id>` works regardless; what may be missing is the index row that makes it
+*discoverable*. hermod writes one where the CLI keeps an index, but treats a locked or migrated
+database as non-fatal rather than failing a move that already succeeded. The id it printed is
+always enough.

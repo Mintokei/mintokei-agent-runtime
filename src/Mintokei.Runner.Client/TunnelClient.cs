@@ -39,17 +39,27 @@ public sealed class TunnelClient : BackgroundService
         _tokenRefreshService = tokenRefreshService;
         _logger = logger;
 
-        _httpClient = new HttpClient(new HttpClientHandler
+        _httpClient = CreateLocalHttpClient();
+    }
+
+    /// <summary>
+    /// The client that reaches runner-local servers on behalf of tunneled requests. It keeps no
+    /// cookie jar: each request carries exactly the Cookie header its browser sent, and each
+    /// Set-Cookie goes back to that browser. A shared jar would sign every user of a preview into
+    /// whichever session logged in last, and leak that cookie to every other localhost port.
+    /// </summary>
+    public static HttpClient CreateLocalHttpClient() =>
+        new(new HttpClientHandler
         {
             // Don't follow redirects — let the browser handle them
             AllowAutoRedirect = false,
+            UseCookies = false,
         })
         {
             // No global timeout — long-lived SSE connections need to stay open.
             // The local server still controls request lifetime via cancellation.
             Timeout = Timeout.InfiniteTimeSpan,
         };
-    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {

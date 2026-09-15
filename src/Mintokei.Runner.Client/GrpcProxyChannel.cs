@@ -1,6 +1,7 @@
 using System.Net.Sockets;
 using System.Text;
 using Grpc.Net.Client;
+using Mintokei.Runner.Contracts;
 
 namespace Mintokei.Runner;
 
@@ -31,7 +32,7 @@ public static class GrpcProxyChannel
     public static GrpcChannel ForAddress(string address, Uri? proxy)
     {
         if (proxy is null)
-            return GrpcChannel.ForAddress(address);
+            return GrpcChannel.ForAddress(address, NewOptions());
 
         var handler = new SocketsHttpHandler
         {
@@ -53,8 +54,20 @@ public static class GrpcProxyChannel
                 }
             },
         };
-        return GrpcChannel.ForAddress(address, new GrpcChannelOptions { HttpHandler = handler });
+        var options = NewOptions();
+        options.HttpHandler = handler;
+        return GrpcChannel.ForAddress(address, options);
     }
+
+    /// <summary>Channel options carrying the shared runner message-size limits. The 4 MiB default on both
+    /// gRPC stacks is smaller than a single frame can legitimately be (resuming a long agent thread replays
+    /// its whole transcript), and overflowing it kills the stream mid-handshake — see
+    /// <see cref="RunnerGrpcLimits"/>.</summary>
+    private static GrpcChannelOptions NewOptions() => new()
+    {
+        MaxReceiveMessageSize = RunnerGrpcLimits.MaxMessageSizeBytes,
+        MaxSendMessageSize = RunnerGrpcLimits.MaxMessageSizeBytes,
+    };
 
     /// <summary>Perform the HTTP <c>CONNECT</c> handshake over <paramref name="stream"/> for
     /// <paramref name="host"/>:<paramref name="port"/>. Throws on a non-2xx proxy response. Public for tests.</summary>

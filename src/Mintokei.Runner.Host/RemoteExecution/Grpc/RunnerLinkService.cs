@@ -204,9 +204,8 @@ public sealed class RunnerLinkService(
 
         await responseStream.WriteAsync(new ServerControlMessage { Handshake = handshakeResponse }, ct);
 
-        logger.LogInformation(
-            "Runner {MachineId} connected via gRPC Control stream (lastAckedOutbound={LastAcked}, activeCorrelations={Count}, cliProbes={Probes})",
-            machineId, first.Handshake.LastAckedOutboundSequence, reportedCorrelations.Count, handshakeResponse.CliProbes.Count);
+        RunnerLinkLog.ControlStreamConnected(
+            logger, machineId, first.Handshake.LastAckedOutboundSequence, reportedCorrelations.Count, handshakeResponse.CliProbes.Count);
 
         try
         {
@@ -287,7 +286,7 @@ public sealed class RunnerLinkService(
         {
             controlChannelRegistry.Unregister(machineId, responseStream);
             await TeardownControlPresenceAsync(machineId, controlConnectionId);
-            logger.LogInformation("Runner {MachineId} disconnected from gRPC Control stream", machineId);
+            RunnerLinkLog.ControlStreamDisconnected(logger, machineId);
         }
     }
 
@@ -361,7 +360,7 @@ public sealed class RunnerLinkService(
         }
 
         watcherChannelRegistry.Register(machineId, responseStream);
-        logger.LogInformation("Runner {MachineId} opened gRPC Watcher stream", machineId);
+        RunnerLinkLog.WatcherStreamOpened(logger, machineId);
 
         // Re-issue StartFileWatcher to any active subscribers' workspaces /
         // tasks. We do this here rather than from Control's handshake because
@@ -397,7 +396,7 @@ public sealed class RunnerLinkService(
         finally
         {
             watcherChannelRegistry.Unregister(machineId, responseStream);
-            logger.LogInformation("Runner {MachineId} closed gRPC Watcher stream", machineId);
+            RunnerLinkLog.WatcherStreamClosed(logger, machineId);
         }
     }
 
@@ -513,9 +512,7 @@ public sealed class RunnerLinkService(
                     // Concurrent OpenTask raced us in. Detach our pending insert
                     // and retry — the second pass will find the winner's row.
                     db.Entry(channel).State = EntityState.Detached;
-                    logger.LogDebug(
-                        "OpenTask raced on RunnerOutboxChannels insert for {MachineId}/{Correlation}, retrying",
-                        machineId, correlationId);
+                    RunnerLinkLog.OpenTaskInsertRaced(logger, machineId, correlationId);
                 }
             }
 
@@ -556,9 +553,7 @@ public sealed class RunnerLinkService(
         // immediately instead of waiting for the next signal.
         outboxProcessor.NotifyMachineConnected(machineId);
 
-        logger.LogInformation(
-            "Runner {MachineId} opened gRPC Task stream for correlation {CorrelationId} (resume from runnerSeq>{Seq})",
-            machineId, correlationId, lastReceivedRunnerSeq);
+        RunnerLinkLog.TaskStreamOpened(logger, machineId, correlationId, lastReceivedRunnerSeq);
 
         try
         {
@@ -621,9 +616,7 @@ public sealed class RunnerLinkService(
                         break;
 
                     case TaskClientMessage.PayloadOneofCase.Wakeup:
-                        logger.LogDebug(
-                            "Task {CorrelationId} reported ScheduleWakeup via gRPC (skeleton — no dispatch)",
-                            correlationId);
+                        RunnerLinkLog.TaskWakeupReported(logger, correlationId);
                         break;
 
                     case TaskClientMessage.PayloadOneofCase.Open:
@@ -641,9 +634,7 @@ public sealed class RunnerLinkService(
         finally
         {
             taskChannelRegistry.Unregister(machineId, correlationId, responseStream);
-            logger.LogInformation(
-                "Runner {MachineId} closed gRPC Task stream for correlation {CorrelationId}",
-                machineId, correlationId);
+            RunnerLinkLog.TaskStreamClosed(logger, machineId, correlationId);
         }
     }
 
@@ -731,7 +722,7 @@ public sealed class RunnerLinkService(
         }
 
         queryChannelRegistry.Register(machineId, responseStream);
-        logger.LogInformation("Runner {MachineId} opened gRPC Query stream", machineId);
+        RunnerLinkLog.QueryStreamOpened(logger, machineId);
 
         try
         {
@@ -773,7 +764,7 @@ public sealed class RunnerLinkService(
         finally
         {
             queryChannelRegistry.Unregister(machineId, responseStream);
-            logger.LogInformation("Runner {MachineId} closed gRPC Query stream", machineId);
+            RunnerLinkLog.QueryStreamClosed(logger, machineId);
         }
     }
 
@@ -806,7 +797,7 @@ public sealed class RunnerLinkService(
         }
 
         bulkChannelRegistry.Register(machineId, responseStream);
-        logger.LogInformation("Runner {MachineId} opened gRPC Bulk stream", machineId);
+        RunnerLinkLog.BulkStreamOpened(logger, machineId);
 
         // query_id → ordered chunk byte arrays accumulated until last=true.
         var pending = new Dictionary<string, List<byte[]>>();
@@ -865,7 +856,7 @@ public sealed class RunnerLinkService(
         finally
         {
             bulkChannelRegistry.Unregister(machineId, responseStream);
-            logger.LogInformation("Runner {MachineId} closed gRPC Bulk stream", machineId);
+            RunnerLinkLog.BulkStreamClosed(logger, machineId);
         }
     }
 
@@ -891,4 +882,50 @@ public sealed class RunnerLinkService(
         }
         return false;
     }
+}
+
+/// <summary>
+/// Source-generated, allocation-free log methods for <see cref="RunnerLinkService"/>. Routing the
+/// Debug / Information stream-lifecycle logs through the LoggerMessage source generator (rather than
+/// <c>logger.LogInformation(...)</c>) avoids boxing their <see cref="Guid"/> / <see cref="long"/>
+/// arguments when the level is disabled (CA1873). The message templates are unchanged, so structured
+/// field names and rendered output are identical.
+/// </summary>
+internal static partial class RunnerLinkLog
+{
+    [LoggerMessage(Level = LogLevel.Information, Message = "Runner {MachineId} opened gRPC Watcher stream")]
+    public static partial void WatcherStreamOpened(ILogger logger, Guid machineId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Runner {MachineId} closed gRPC Watcher stream")]
+    public static partial void WatcherStreamClosed(ILogger logger, Guid machineId);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "OpenTask raced on RunnerOutboxChannels insert for {MachineId}/{Correlation}, retrying")]
+    public static partial void OpenTaskInsertRaced(ILogger logger, Guid machineId, Guid correlation);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Runner {MachineId} opened gRPC Task stream for correlation {CorrelationId} (resume from runnerSeq>{Seq})")]
+    public static partial void TaskStreamOpened(ILogger logger, Guid machineId, Guid correlationId, long seq);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Task {CorrelationId} reported ScheduleWakeup via gRPC (skeleton — no dispatch)")]
+    public static partial void TaskWakeupReported(ILogger logger, Guid correlationId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Runner {MachineId} closed gRPC Task stream for correlation {CorrelationId}")]
+    public static partial void TaskStreamClosed(ILogger logger, Guid machineId, Guid correlationId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Runner {MachineId} opened gRPC Query stream")]
+    public static partial void QueryStreamOpened(ILogger logger, Guid machineId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Runner {MachineId} closed gRPC Query stream")]
+    public static partial void QueryStreamClosed(ILogger logger, Guid machineId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Runner {MachineId} opened gRPC Bulk stream")]
+    public static partial void BulkStreamOpened(ILogger logger, Guid machineId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Runner {MachineId} closed gRPC Bulk stream")]
+    public static partial void BulkStreamClosed(ILogger logger, Guid machineId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Runner {MachineId} connected via gRPC Control stream (lastAckedOutbound={LastAcked}, activeCorrelations={Count}, cliProbes={Probes})")]
+    public static partial void ControlStreamConnected(ILogger logger, Guid machineId, long lastAcked, int count, int probes);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Runner {MachineId} disconnected from gRPC Control stream")]
+    public static partial void ControlStreamDisconnected(ILogger logger, Guid machineId);
 }

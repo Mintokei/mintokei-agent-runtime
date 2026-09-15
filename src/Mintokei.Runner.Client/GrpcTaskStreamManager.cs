@@ -208,8 +208,7 @@ public sealed class GrpcTaskStreamManager(ILogger<GrpcTaskStreamManager> logger)
             // to retain the Task on the ActiveStream.
             _ = ReadStreamAsync(correlationId, call.ResponseStream, streamCts.Token);
 
-            logger.LogInformation("OpenTask {CorrelationId}: opened (server lastReceivedRunnerSeq={Seq})",
-                correlationId, first.OpenAck.LastReceivedRunnerSeq);
+            GrpcTaskStreamManagerLog.TaskStreamOpened(logger, correlationId, first.OpenAck.LastReceivedRunnerSeq);
             return true;
         }
         catch (Exception ex)
@@ -308,7 +307,7 @@ public sealed class GrpcTaskStreamManager(ILogger<GrpcTaskStreamManager> logger)
         if (_streams.TryRemove(correlationId, out var stream))
         {
             stream.Dispose();
-            logger.LogDebug("OpenTask {CorrelationId}: closed", correlationId);
+            GrpcTaskStreamManagerLog.TaskStreamClosed(logger, correlationId);
         }
     }
 
@@ -343,4 +342,13 @@ public sealed class GrpcTaskStreamManager(ILogger<GrpcTaskStreamManager> logger)
             CloseInternal(correlationId);
         }
     }
+}
+
+internal static partial class GrpcTaskStreamManagerLog
+{
+    [LoggerMessage(Level = LogLevel.Information, Message = "OpenTask {CorrelationId}: opened (server lastReceivedRunnerSeq={Seq})")]
+    public static partial void TaskStreamOpened(ILogger logger, Guid correlationId, long seq);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "OpenTask {CorrelationId}: closed")]
+    public static partial void TaskStreamClosed(ILogger logger, Guid correlationId);
 }

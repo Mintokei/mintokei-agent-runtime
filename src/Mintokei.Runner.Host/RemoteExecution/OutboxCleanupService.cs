@@ -50,9 +50,7 @@ public sealed class OutboxCleanupService(
 
                 if (deletedAcked > 0 || expiredCount > 0 || deletedInbound > 0)
                 {
-                    logger.LogDebug(
-                        "Outbox cleanup: deleted {Acked} acked, expired {Expired}, deleted {Inbound} inbound",
-                        deletedAcked, expiredCount, deletedInbound);
+                    OutboxCleanupLog.CleanupCompleted(logger, deletedAcked, expiredCount, deletedInbound);
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -61,4 +59,14 @@ public sealed class OutboxCleanupService(
             }
         }
     }
+}
+
+/// <summary>
+/// Source-generated, allocation-free log method for <see cref="OutboxCleanupService"/> — keeps the
+/// Debug cleanup summary from boxing its int arguments when Debug is disabled (CA1873).
+/// </summary>
+internal static partial class OutboxCleanupLog
+{
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Outbox cleanup: deleted {Acked} acked, expired {Expired}, deleted {Inbound} inbound")]
+    public static partial void CleanupCompleted(ILogger logger, int acked, int expired, int inbound);
 }

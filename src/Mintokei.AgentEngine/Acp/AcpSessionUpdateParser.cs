@@ -120,7 +120,7 @@ internal sealed class AcpSessionUpdateParser : IAgentStreamParser
             if (method == "session/request_permission")
                 return BuildPermissionRequest(agentTaskId, idProp, msg);
 
-            _logger.LogDebug("Unhandled ACP agent request {Method}", method);
+            AcpSessionUpdateParserLog.UnhandledAgentRequest(_logger, method);
             return [];
         }
 
@@ -129,7 +129,7 @@ internal sealed class AcpSessionUpdateParser : IAgentStreamParser
             return HandleUpdate(agentTaskId, paramsProp);
 
         if (method != "session/update")
-            _logger.LogDebug("Unhandled ACP notification {Method}", method);
+            AcpSessionUpdateParserLog.UnhandledNotification(_logger, method);
 
         return [];
     }
@@ -256,7 +256,7 @@ internal sealed class AcpSessionUpdateParser : IAgentStreamParser
                 var toolCallId = update.TryGetProperty("toolCallId", out var tid) ? tid.GetString() : null;
                 if (toolCallId is null || !_toolCalls.TryGetValue(toolCallId, out var state))
                 {
-                    _logger.LogDebug("tool_call_update for unknown toolCallId {Id}, skipping", toolCallId);
+                    AcpSessionUpdateParserLog.ToolCallUpdateUnknownId(_logger, toolCallId);
                     break;
                 }
 
@@ -289,7 +289,11 @@ internal sealed class AcpSessionUpdateParser : IAgentStreamParser
 
             case "usage_update":
             {
-                _logger.LogDebug("ACP usage_update: {Raw}", update.GetRawText());
+                if (_logger.IsEnabled(LogLevel.Debug))
+                {
+                    var raw = update.GetRawText();
+                    AcpSessionUpdateParserLog.UsageUpdate(_logger, raw);
+                }
                 var usage = ExtractContextUsage(update);
                 if (usage is not null)
                     yield return new DeltaOutput(usage);
@@ -298,11 +302,19 @@ internal sealed class AcpSessionUpdateParser : IAgentStreamParser
 
             case "current_mode_update":
             case "available_commands_update":
-                _logger.LogDebug("ACP {Kind}: {Raw}", kind, update.GetRawText());
+                if (_logger.IsEnabled(LogLevel.Debug))
+                {
+                    var raw = update.GetRawText();
+                    AcpSessionUpdateParserLog.ModeOrCommandsUpdate(_logger, kind, raw);
+                }
                 break;
 
             default:
-                _logger.LogDebug("Unhandled ACP sessionUpdate: {Kind} {Raw}", kind, update.GetRawText());
+                if (_logger.IsEnabled(LogLevel.Debug))
+                {
+                    var raw = update.GetRawText();
+                    AcpSessionUpdateParserLog.UnhandledSessionUpdate(_logger, kind, raw);
+                }
                 break;
         }
     }
@@ -822,4 +834,25 @@ internal sealed class AcpSessionUpdateParser : IAgentStreamParser
             CreatedAt = DateTimeOffset.UtcNow,
         };
     }
+}
+
+internal static partial class AcpSessionUpdateParserLog
+{
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Unhandled ACP agent request {Method}")]
+    public static partial void UnhandledAgentRequest(ILogger logger, string? method);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Unhandled ACP notification {Method}")]
+    public static partial void UnhandledNotification(ILogger logger, string? method);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "tool_call_update for unknown toolCallId {Id}, skipping")]
+    public static partial void ToolCallUpdateUnknownId(ILogger logger, string? id);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "ACP usage_update: {Raw}")]
+    public static partial void UsageUpdate(ILogger logger, string raw);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "ACP {Kind}: {Raw}")]
+    public static partial void ModeOrCommandsUpdate(ILogger logger, string? kind, string raw);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Unhandled ACP sessionUpdate: {Kind} {Raw}")]
+    public static partial void UnhandledSessionUpdate(ILogger logger, string? kind, string raw);
 }

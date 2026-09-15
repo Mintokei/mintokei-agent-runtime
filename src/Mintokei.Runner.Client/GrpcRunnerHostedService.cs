@@ -84,7 +84,7 @@ public sealed class GrpcRunnerHostedService(
         var grpcUrlForLog = !string.IsNullOrEmpty(_options.GrpcBackendUrl)
             ? _options.GrpcBackendUrl
             : _options.BackendUrl;
-        logger.LogInformation("GrpcRunnerHostedService starting (gRPC={GrpcUrl})", grpcUrlForLog);
+        GrpcRunnerHostedServiceLog.Starting(logger, grpcUrlForLog);
 
         var backoff = ReconnectInitialDelay;
         while (!stoppingToken.IsCancellationRequested)
@@ -170,9 +170,7 @@ public sealed class GrpcRunnerHostedService(
         if (!first.Handshake.Success)
             throw new IOException($"Handshake rejected: {first.Handshake.Error}");
 
-        logger.LogInformation(
-            "gRPC Control handshake successful (machineId={MachineId})",
-            first.Handshake.MachineId);
+        GrpcRunnerHostedServiceLog.ControlHandshakeSucceeded(logger, first.Handshake.MachineId);
 
         // Running without SignalR: CLI discovery rides this stream. The server delivered the probe specs
         // in the handshake response; probe them and report back over Control. Fire-and-forget so the ~5s
@@ -225,9 +223,7 @@ public sealed class GrpcRunnerHostedService(
                 // round-trip that we don't want to serialize handshake on.
                 _ = taskStreamManager.EnsureOpenAsync(correlationId);
             }
-            logger.LogInformation(
-                "Reopened {Count} OpenTask stream(s) for active correlations after handshake",
-                activeCorrelations.Count);
+            GrpcRunnerHostedServiceLog.ReopenedTaskStreams(logger, activeCorrelations.Count);
         }
 
         // Run all stream pumps concurrently. First failure cancels the others
@@ -337,7 +333,7 @@ public sealed class GrpcRunnerHostedService(
             try { await writer.WriteAsync(new RunnerControlMessage { ClisReport = report }); }
             finally { writeLock.Release(); }
 
-            logger.LogInformation("Reported {Count} installed CLI(s) to backend over gRPC Control", installed.Count);
+            GrpcRunnerHostedServiceLog.ReportedInstalledClis(logger, installed.Count);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -361,9 +357,7 @@ public sealed class GrpcRunnerHostedService(
                     // Skeleton: CLI probing still flows over SignalR. Will be
                     // wired here when the gRPC transport becomes the source
                     // of truth.
-                    logger.LogDebug(
-                        "Received CliProbe for {Tool} via gRPC (skipped)",
-                        msg.CliProbe.AgentToolKey);
+                    GrpcRunnerHostedServiceLog.CliProbeReceived(logger, msg.CliProbe.AgentToolKey);
                     break;
                 case ServerControlMessage.PayloadOneofCase.OpenTask:
                     // API is asking us to open an OpenTask stream for this
@@ -378,9 +372,7 @@ public sealed class GrpcRunnerHostedService(
                         // (TaskOpen/TaskOpenAck) which we don't want to block
                         // the Control reader on.
                         _ = taskStreamManager.EnsureOpenAsync(bootstrapCorrelation);
-                        logger.LogDebug(
-                            "Received OpenTaskRequest for correlation {CorrelationId} via gRPC",
-                            bootstrapCorrelation);
+                        GrpcRunnerHostedServiceLog.OpenTaskRequestReceived(logger, bootstrapCorrelation);
                     }
                     else
                     {
@@ -469,4 +461,25 @@ public sealed class GrpcRunnerHostedService(
             }
         }
     }
+}
+
+internal static partial class GrpcRunnerHostedServiceLog
+{
+    [LoggerMessage(Level = LogLevel.Information, Message = "GrpcRunnerHostedService starting (gRPC={GrpcUrl})")]
+    public static partial void Starting(ILogger logger, string grpcUrl);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "gRPC Control handshake successful (machineId={MachineId})")]
+    public static partial void ControlHandshakeSucceeded(ILogger logger, string machineId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Reopened {Count} OpenTask stream(s) for active correlations after handshake")]
+    public static partial void ReopenedTaskStreams(ILogger logger, int count);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Reported {Count} installed CLI(s) to backend over gRPC Control")]
+    public static partial void ReportedInstalledClis(ILogger logger, int count);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Received CliProbe for {Tool} via gRPC (skipped)")]
+    public static partial void CliProbeReceived(ILogger logger, string tool);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Received OpenTaskRequest for correlation {CorrelationId} via gRPC")]
+    public static partial void OpenTaskRequestReceived(ILogger logger, Guid correlationId);
 }

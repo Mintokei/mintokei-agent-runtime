@@ -88,7 +88,7 @@ internal sealed class CodexSessionProtocol : IAgentSessionProtocol
         var threadId = CodexJsonRpcHelper.ExtractThreadId(threadResponse)
             ?? throw new InvalidOperationException("No threadId in thread/start|resume response.");
         await session.ReportSessionIdAsync(threadId);
-        _logger.LogDebug("Codex thread {ThreadId} (resume={Resume})", threadId, resuming);
+        CodexSessionProtocolLog.ThreadStarted(_logger, threadId, resuming);
     }
 
     public async Task SendTurnAsync(AgentSession session, SessionTurn turn, CancellationToken ct)
@@ -145,4 +145,10 @@ internal sealed class CodexSessionProtocol : IAgentSessionProtocol
         _turnConfig = CodexConfigMapper.Map(newConfig).TurnStart;
         return Task.FromResult(true);
     }
+}
+
+internal static partial class CodexSessionProtocolLog
+{
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Codex thread {ThreadId} (resume={Resume})")]
+    public static partial void ThreadStarted(ILogger logger, string threadId, bool resume);
 }

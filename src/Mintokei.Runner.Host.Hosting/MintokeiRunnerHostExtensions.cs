@@ -13,6 +13,7 @@ using Mintokei.AgentEngine;
 using Mintokei.AgentEngine.Claude;
 using Mintokei.AgentEngine.Codex;
 using Mintokei.AgentEngine.CommandRunner;
+using Mintokei.Runner.Contracts;
 using Mintokei.Runner.Host.Persistence;
 using Mintokei.Runner.Host.RemoteExecution;
 using Mintokei.Runner.Host.RemoteExecution.Grpc;
@@ -93,7 +94,13 @@ public static class MintokeiRunnerHostExtensions
 
         // Control plane + gRPC transport.
         services.AddAgentControlPlane();
-        services.AddGrpc();
+        // The 4 MiB default receive cap is smaller than a single legitimate frame (resuming a long
+        // agent thread replays its whole transcript in one message) — see RunnerGrpcLimits.
+        services.AddGrpc(o =>
+        {
+            o.MaxReceiveMessageSize = RunnerGrpcLimits.MaxMessageSizeBytes;
+            o.MaxSendMessageSize = RunnerGrpcLimits.MaxMessageSizeBytes;
+        });
         services.AddScoped<RunnerLinkService>();
 
         var runnerBuilder = new MintokeiRunnerHostBuilder(services);

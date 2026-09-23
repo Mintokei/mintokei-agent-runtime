@@ -35,8 +35,7 @@ public sealed class RunnerHostedService : BackgroundService
     private readonly ILogger<RunnerHostedService> _logger;
 
 
-    // Thread-safe state
-    private long _lastAckedBackendSequence;
+    private readonly TaskCommandDispatcher _taskCommands;
 
     // Process handles keyed by correlation ID
     private readonly ConcurrentDictionary<Guid, IProcessHandle> _handles = new();
@@ -71,6 +70,7 @@ public sealed class RunnerHostedService : BackgroundService
         _options = options.Value;
         _commandLineRunner = commandLineRunner;
         _outbox = outbox;
+        _taskCommands = new TaskCommandDispatcher(outbox);
         _tokenRefreshService = tokenRefreshService;
         _fileWatcherService = fileWatcherService;
         _fileServer = fileServer;
@@ -85,8 +85,6 @@ public sealed class RunnerHostedService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        Interlocked.Exchange(ref _lastAckedBackendSequence, await _outbox.GetLastAckedBackendSequenceAsync());
-
         // Wire the gRPC OpenQuery / OpenBulk readers to this service's query / bulk handlers, hand the
         // gRPC handshake the live process correlations for reconnect reconciliation, and provide the CLI
         // prober so the gRPC Control handshake's probe specs get probed + reported over Control.
@@ -503,9 +501,8 @@ public sealed class RunnerHostedService : BackgroundService
     /// stream only (post-PR #6 the dual SignalR <c>Acknowledge</c> is gone);
     /// the API-side OpenTask Ack handler now flips
     /// <c>OutboxMessage.Status = Acknowledged</c> per-correlation on the
-    /// same cumulative ack. The legacy per-machine sequence dedup is reused
-    /// so the runner won't double-execute messages on transient duplicate
-    /// delivery.
+    /// same cumulative ack. Replay cursors are durable and scoped to each process;
+    /// delivery on another stream must never skip this one's commands.
     /// </summary>
     private async Task DispatchGrpcTaskCommandsLoopAsync(CancellationToken ct)
     {
@@ -513,52 +510,34 @@ public sealed class RunnerHostedService : BackgroundService
         {
             var seq = command.Sequence;
 
-            var lastAcked = Interlocked.Read(ref _lastAckedBackendSequence);
-            if (seq <= lastAcked)
-            {
-                // Duplicate — re-ack so the server's per-correlation cursor
-                // can catch up if it lost an earlier ack write.
-                await _grpcTaskStreams.TrySendUpAsync(correlationId,
-                    new GrpcContracts.TaskClientMessage
-                    {
-                        Ack = new GrpcContracts.Ack { CumulativeSeq = seq },
-                    }, ct);
-                continue;
-            }
-
             try
             {
-                switch (command.CommandCase)
+                var dispatched = await _taskCommands.DispatchAsync(correlationId, seq, async () =>
                 {
-                    case GrpcContracts.ServerTaskCommand.CommandOneofCase.Start:
-                        HandleStartProcess(command.Start.PayloadJson);
-                        break;
-                    case GrpcContracts.ServerTaskCommand.CommandOneofCase.Stdin:
-                        await HandleWriteStdinAsync(command.Stdin.PayloadJson);
-                        break;
-                    case GrpcContracts.ServerTaskCommand.CommandOneofCase.Kill:
-                        HandleKillProcess(command.Kill.PayloadJson);
-                        break;
-                    default:
-                        _logger.LogWarning(
-                            "Unknown ServerTaskCommand case {Case} for correlation {CorrelationId}",
-                            command.CommandCase, correlationId);
-                        continue;
-                }
-
-                Interlocked.Exchange(ref _lastAckedBackendSequence, seq);
-                await _outbox.SetLastAckedBackendSequenceAsync(seq);
-
-                // Single ack — only the per-correlation gRPC ack. The
-                // API-side OpenTask Ack handler now flips per-machine
-                // OutboxMessage.Status to Acknowledged on the same
-                // cumulative ack (PR #6), so the SignalR Acknowledge that
-                // used to do that is no longer needed.
-                await _grpcTaskStreams.TrySendUpAsync(correlationId,
-                    new GrpcContracts.TaskClientMessage
+                    switch (command.CommandCase)
                     {
-                        Ack = new GrpcContracts.Ack { CumulativeSeq = seq },
+                        case GrpcContracts.ServerTaskCommand.CommandOneofCase.Start:
+                            HandleStartProcess(command.Start.PayloadJson);
+                            break;
+                        case GrpcContracts.ServerTaskCommand.CommandOneofCase.Stdin:
+                            await HandleWriteStdinAsync(command.Stdin.PayloadJson);
+                            break;
+                        case GrpcContracts.ServerTaskCommand.CommandOneofCase.Kill:
+                            HandleKillProcess(command.Kill.PayloadJson);
+                            break;
+                        default:
+                            throw new InvalidOperationException($"Unknown task command: {command.CommandCase}");
+                    }
+                }, async () =>
+                {
+                    await _grpcTaskStreams.TrySendUpAsync(correlationId,
+                        new GrpcContracts.TaskClientMessage
+                        {
+                            Ack = new GrpcContracts.Ack { CumulativeSeq = seq },
                     }, ct);
+                }, ct);
+                if (!dispatched)
+                    _logger.LogWarning("Deferred task command {Sequence} for {CorrelationId} until its earlier failed command is replayed", seq, correlationId);
             }
             catch (Exception ex)
             {

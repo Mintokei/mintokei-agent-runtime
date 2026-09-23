@@ -44,6 +44,12 @@ public sealed class LocalOutbox
                 Key TEXT PRIMARY KEY,
                 Value TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS TaskCommandCursor (
+                CorrelationId TEXT PRIMARY KEY,
+                LastProcessedSequence INTEGER NOT NULL DEFAULT 0,
+                PendingSequence INTEGER
+            );
             """);
     }
 
@@ -204,6 +210,60 @@ public sealed class LocalOutbox
     {
         await using var conn = await OpenAsync();
         await UpsertConfigAsync(conn, "LastAckedBackendSequence", sequence.ToString());
+    }
+
+    // Global sequence numbers can arrive out of order across task streams.
+    // Never seed a task cursor from the legacy LastAckedBackendSequence.
+    public async Task<long> GetLastProcessedTaskSequenceAsync(Guid correlationId)
+    {
+        await using var conn = await OpenAsync();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT LastProcessedSequence FROM TaskCommandCursor WHERE CorrelationId = @corr";
+        cmd.Parameters.AddWithValue("@corr", correlationId.ToString());
+        return Convert.ToInt64(await cmd.ExecuteScalarAsync() ?? 0L);
+    }
+
+    public async Task<TaskCommandAdmission> BeginTaskCommandAsync(Guid correlationId, long sequence)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sequence);
+        await using var conn = await OpenAsync();
+        await using var tx = (SqliteTransaction)await conn.BeginTransactionAsync();
+        await using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.Parameters.AddWithValue("@corr", correlationId.ToString());
+        cmd.Parameters.AddWithValue("@seq", sequence);
+        cmd.CommandText = "INSERT OR IGNORE INTO TaskCommandCursor (CorrelationId) VALUES (@corr)";
+        await cmd.ExecuteNonQueryAsync();
+        cmd.CommandText = "SELECT LastProcessedSequence, PendingSequence FROM TaskCommandCursor WHERE CorrelationId = @corr";
+        long last; long? pending;
+        await using (var reader = await cmd.ExecuteReaderAsync())
+        {
+            await reader.ReadAsync();
+            last = reader.GetInt64(0);
+            pending = reader.IsDBNull(1) ? null : reader.GetInt64(1);
+        }
+        if (sequence <= last) return TaskCommandAdmission.Duplicate;
+        // Preserve a failed handler's boundary across restarts. Later commands
+        // must not cumulatively acknowledge it without successful replay.
+        if (pending is not null && pending != sequence) return TaskCommandAdmission.Blocked;
+        cmd.CommandText = "UPDATE TaskCommandCursor SET PendingSequence = @seq WHERE CorrelationId = @corr";
+        await cmd.ExecuteNonQueryAsync();
+        await tx.CommitAsync();
+        return TaskCommandAdmission.Execute;
+    }
+
+    public async Task CompleteTaskCommandAsync(Guid correlationId, long sequence)
+    {
+        await using var conn = await OpenAsync();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            UPDATE TaskCommandCursor SET LastProcessedSequence = @seq, PendingSequence = NULL
+            WHERE CorrelationId = @corr AND PendingSequence = @seq AND LastProcessedSequence < @seq
+            """;
+        cmd.Parameters.AddWithValue("@corr", correlationId.ToString());
+        cmd.Parameters.AddWithValue("@seq", sequence);
+        if (await cmd.ExecuteNonQueryAsync() != 1)
+            throw new InvalidOperationException("Task command has no matching pending receipt.");
     }
 
     // --- private helpers ---

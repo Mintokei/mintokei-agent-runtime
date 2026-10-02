@@ -10,6 +10,55 @@ namespace Mintokei.Sandbox.Hosting.Tests;
 
 public class SandboxAgentHostTests
 {
+    [Fact]
+    public async Task Failed_cleanup_can_be_retried_on_the_same_run()
+    {
+        var (host, runtime, _, _) = NewHost();
+        var run = await host.RunAsync(Request());
+        runtime.StopThrows = new SandboxRuntimeException("unconfirmed");
+        await Assert.ThrowsAsync<SandboxRuntimeException>(() => run.DisposeAsync().AsTask());
+        runtime.StopThrows = null;
+        await run.DisposeAsync();
+        await run.DisposeAsync();
+        Assert.Equal(2, runtime.Stopped.Count);
+    }
+
+    [Fact]
+    public async Task JSON_failure_recycles_compute_and_applies_inference_profile()
+    {
+        var (host, runtime, _, plane) = NewHost();
+        plane.Session.Script.Add(new Mintokei.AgentEngine.Contracts.MessageOutput(new()
+        {
+            Role = Mintokei.AgentEngine.Contracts.MessageRole.Assistant,
+            Type = Mintokei.AgentEngine.Contracts.MessageType.AgentMessage, Content = "invalid json"
+        }));
+        plane.Session.Script.Add(new Mintokei.AgentEngine.Contracts.TurnEnded(null, false, null));
+        await Assert.ThrowsAsync<Mintokei.AgentEngine.AgentInferenceException>(() => new SandboxJsonExecutor(host).ExecuteAsync(Request(prompt: "infer")));
+        Assert.Single(runtime.Stopped);
+        Assert.Contains("--restricted", plane.StartedSpec!.ExtraArgs!);
+        Assert.False(plane.StartedSpec.EnableMcp);
+    }
+    [Fact]
+    public async Task Per_request_target_and_complete_session_spec_are_preserved()
+    {
+        var (host, original, _, plane) = NewHost();
+        var target = new FakeRuntime();
+        var session = new Mintokei.AgentEngine.AgentSessionSpec
+        {
+            Tool = AgentToolKey.CodexCli, WorkingDirectory = "/workspace",
+            SystemPrompt = "Return JSON", ExtraArgs = ["--flag", ""],
+            Config = new() { ["model"] = "selected" }, EnableMcp = false,
+            EnvironmentVariables = new Dictionary<string, string> { ["MODEL_PROXY_TOKEN"] = "scoped" }
+        };
+        await using (var run = await host.RunAsync(new() { Session = session, Runtime = target, Prompt = "input" }))
+        {
+            Assert.Equal(session, plane.StartedSpec);
+            Assert.Single(target.Provisioned);
+            Assert.Empty(original.Provisioned);
+        }
+        Assert.Single(target.Stopped);
+        Assert.Empty(original.Stopped);
+    }
     private static (SandboxAgentHost Host, FakeRuntime Runtime, FakeEnrollment Enrollment, FakeControlPlane Plane)
         NewHost(Action<SandboxAgentHostOptions>? configureHost = null, Action<SandboxOptions>? configureSandbox = null)
     {

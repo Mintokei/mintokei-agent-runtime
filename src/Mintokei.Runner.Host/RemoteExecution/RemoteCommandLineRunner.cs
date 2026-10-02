@@ -31,8 +31,7 @@ public sealed class RemoteCommandLineRunner(
         {
             CorrelationId = correlationId,
             options.Executable,
-            options.Arguments,
-            options.ArgumentList,
+            ArgumentList = options.ToArgumentList(),
             options.WorkingDirectory,
             options.EnvironmentVariables,
             options.RedirectStdIn,

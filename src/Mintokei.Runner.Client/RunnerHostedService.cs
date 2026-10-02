@@ -191,6 +191,7 @@ public sealed class RunnerHostedService : BackgroundService
 
     private async Task<List<InstalledCliModel>?> DiscoverModelsAsync(string agentToolKeyString, CancellationToken ct)
     {
+        if (!_options.DiscoverModels) return null;
         if (!Enum.TryParse<AgentToolKey>(agentToolKeyString, ignoreCase: false, out var key))
             return null;
 

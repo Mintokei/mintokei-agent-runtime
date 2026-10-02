@@ -10,6 +10,12 @@ namespace Mintokei.Sandbox.Hosting;
 /// </summary>
 public sealed record SandboxAgentRequest
 {
+    /// <summary>Full session configuration. When provided, its Tool and WorkingDirectory take precedence
+    /// over the convenience fields. Authentication/MCP/environment are supplied by the authorized host.</summary>
+    public AgentSessionSpec? Session { get; init; }
+
+    /// <summary>Explicit per-request runtime (for example a tenant's Modal account).</summary>
+    public ISandboxRuntime? Runtime { get; init; }
     /// <summary>Which agent CLI runs inside the sandbox. The backend must be registered on the host
     /// (e.g. <c>.AddClaude()</c>), otherwise starting the session fails.</summary>
     public AgentToolKey Tool { get; init; } = AgentToolKey.ClaudeCodeCli;

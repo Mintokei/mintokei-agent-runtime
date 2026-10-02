@@ -27,4 +27,19 @@ public sealed class CommandLineOptions
     public IReadOnlyDictionary<string, string>? EnvironmentVariables { get; init; }
     public bool RedirectStdIn { get; init; }
     public bool CaptureStdErr { get; init; } = true;
+
+    /// <summary>Resolve both argument forms and extras to literal argv tokens. Used before remote
+    /// dispatch so empty values, quotes and newlines have the same meaning on either side.</summary>
+    public IReadOnlyList<string> ToArgumentList()
+    {
+        var args = ArgumentList is { Count: > 0 } ? ArgumentList.ToList() : [];
+        if (ArgumentList is not { Count: > 0 })
+            foreach (var (key, value) in Arguments ?? new Dictionary<string, string?>())
+            {
+                args.Add(key);
+                if (value is not null) args.Add(value);
+            }
+        if (ExtraArgs is not null) args.AddRange(ExtraArgs);
+        return args;
+    }
 }

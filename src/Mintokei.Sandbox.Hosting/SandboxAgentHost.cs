@@ -63,6 +63,7 @@ public sealed class SandboxAgentHost(
         var sandbox = await provisioner.ProvisionAsync(
             new SandboxProvisionRequest
             {
+                Runtime = request.Runtime,
                 Profile = request.Profile,
                 Repos = request.AllRepos(),
                 HostMachineId = request.HostMachineId,
@@ -90,12 +91,12 @@ public sealed class SandboxAgentHost(
     {
         // Default to the first repo's checkout so the agent starts inside the code it was given.
         var repos = request.AllRepos();
-        var workingDirectory = request.WorkingDirectory
+        var workingDirectory = request.Session?.WorkingDirectory ?? request.WorkingDirectory
             ?? (repos.Count > 0
                 ? repos[0].SourcePath ?? SandboxSpecFactory.DefaultSourcePath(repos[0].Url)
                 : SandboxSpecFactory.RepoRoot);
 
-        var spec = new AgentSessionSpec { Tool = request.Tool, WorkingDirectory = workingDirectory };
+        var spec = (request.Session ?? new AgentSessionSpec { Tool = request.Tool }) with { WorkingDirectory = workingDirectory };
 
         IAgentSession session;
         try
@@ -107,7 +108,7 @@ public sealed class SandboxAgentHost(
         catch (Exception ex)
         {
             throw new SandboxAgentException(
-                $"The sandbox '{sandbox.Name}' came online but the {request.Tool} session could not start: " +
+                $"The sandbox '{sandbox.Name}' came online but the {spec.Tool} session could not start: " +
                 $"{ex.Message}. Check that this backend is registered on the host (e.g. .AddClaude()) and that " +
                 "the CLI is present in the sandbox image.", inner: ex);
         }

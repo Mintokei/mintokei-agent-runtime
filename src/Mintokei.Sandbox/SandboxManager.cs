@@ -27,6 +27,10 @@ public sealed class SandboxManager(
     /// <summary>Snapshot of currently tracked sandboxes.</summary>
     public IReadOnlyCollection<SandboxLease> Active => _leases.Values.ToArray();
 
+    /// <summary>Independent leases for an explicitly selected target. Shares profile configuration,
+    /// never the warm pool or credentials of the original runtime.</summary>
+    public SandboxManager ForRuntime(ISandboxRuntime target) => new(target, profiles, specs, options, logger, brokerSecrets);
+
     /// <summary>
     /// Claim an available warm sandbox matching <paramref name="profile"/> for a session — profile-aware
     /// selection from the pool. Atomically flips it from warm to serving (so it isn't handed out twice);
@@ -90,10 +94,11 @@ public sealed class SandboxManager(
     /// <summary>Stop + remove a sandbox and untrack it (one-shot recycle after its single session).</summary>
     public async Task RecycleAsync(string name, CancellationToken ct = default)
     {
-        if (!_leases.TryRemove(name, out var lease))
+        if (!_leases.TryGetValue(name, out var lease))
             return;
 
         await runtime.StopAsync(lease.Handle, ct);
+        _leases.TryRemove(new KeyValuePair<string, SandboxLease>(name, lease));
         logger.LogInformation("Sandbox {Name} recycled", name);
     }
 

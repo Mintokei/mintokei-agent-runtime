@@ -88,6 +88,13 @@ public sealed class SandboxProvisioner(
         Func<SandboxSessionRequest, SandboxSessionRequest>? configure,
         CancellationToken ct = default)
     {
+        if (request.Runtime is { } target)
+        {
+            if (request.HostMachineId != null)
+                throw new ArgumentException("Select either an explicit runtime or a remote Docker worker.", nameof(request));
+            var selected = new SandboxProvisioner(scopeFactory, manager.ForRuntime(target), target, runners, options, logger, services);
+            return await selected.ProvisionAsync(request with { Runtime = null }, configure, ct);
+        }
         var o = options.Value;
         var profile = request.Profile ?? o.Profile;
         var name = $"sandbox-{profile}-{Guid.NewGuid().ToString("N")[..12]}";
@@ -212,7 +219,7 @@ public sealed class SandboxProvisioner(
 
         SandboxTelemetry.RecordOutcome("online", backend);
         return new ProvisionedSandbox(machineId, sessionRequest.Name, backend,
-            c => manager.RecycleAsync(sessionRequest.Name, c));
+            c => manager.RecycleAsync(sessionRequest.Name, c), lease.Handle);
     }
 
     /// <summary>A connected worker's own Docker, dispatched over its control channel. <c>LaunchAsync</c> stages
@@ -409,6 +416,9 @@ public sealed class SandboxProvisioner(
 /// <summary>What to provision: which profile, which repos, where, and how long to wait.</summary>
 public sealed record SandboxProvisionRequest
 {
+    /// <summary>Optional per-request target, already authorized and bound to an account by the host.
+    /// Null uses the registered backend. Never shares the registered backend's warm pool.</summary>
+    public ISandboxRuntime? Runtime { get; init; }
     /// <summary>Isolation profile. Falls back to <see cref="SandboxAgentHostOptions.Profile"/>.</summary>
     public string? Profile { get; init; }
 
@@ -448,7 +458,7 @@ public sealed record SandboxProvisionRequest
 
 /// <summary>An online sandbox: the machine id to dispatch sessions to, and an explicit recycle. The caller
 /// decides when it dies — nothing here disposes it for you.</summary>
-public sealed class ProvisionedSandbox(Guid machineId, string name, string backend, Func<CancellationToken, Task> recycle)
+public sealed class ProvisionedSandbox(Guid machineId, string name, string backend, Func<CancellationToken, Task> recycle, SandboxHandle? handle = null)
 {
     /// <summary>Ephemeral machine identity of the sandbox's runner (the control plane's handle for it).</summary>
     public Guid MachineId { get; } = machineId;
@@ -463,10 +473,9 @@ public sealed class ProvisionedSandbox(Guid machineId, string name, string backe
     /// The sandbox as the runtime addresses it — pass this to <see cref="SandboxProvisioner.EnsureCanAttachAsync"/>
     /// when a second session wants to join, or to any <see cref="ISandboxRuntime"/> call.
     ///
-    /// Name-based (id == name): the backends look sandboxes up by name, and it is the only identifier that
-    /// survives the control plane. Exposed because a caller cannot otherwise build one without knowing that.
+    /// Preserves the provider ID returned by the runtime. Remote Docker uses its stable container name.
     /// </summary>
-    public SandboxHandle Handle { get; } = new(name, name, backend);
+    public SandboxHandle Handle { get; } = handle ?? new(name, name, backend);
 
     /// <summary>Stop and remove the sandbox (plus staged credentials and broker, on the remote path).</summary>
     public Task RecycleAsync(CancellationToken ct = default) => recycle(ct);

@@ -16,6 +16,7 @@ internal class FakeRuntime : ISandboxRuntime, ISandboxLogSource
     public List<string> Stopped { get; } = [];
     public SandboxState Status { get; set; } = SandboxState.Running;
     public int? ExitCode { get; set; }
+    public Exception? StopThrows { get; set; }
     public string Logs { get; set; } = "boom: could not clone repo";
 
     public string Backend => "fake";
@@ -32,6 +33,7 @@ internal class FakeRuntime : ISandboxRuntime, ISandboxLogSource
     public Task StopAsync(SandboxHandle handle, CancellationToken ct = default)
     {
         Stopped.Add(handle.Name);
+        if (StopThrows != null) throw StopThrows;
         return Task.CompletedTask;
     }
 
@@ -134,6 +136,7 @@ internal sealed class FakeSession : IAgentSession
 {
     public List<string> Sent { get; } = [];
     public List<AgentStreamOutput> Script { get; } = [];
+    public List<UserInteractionResponse> Responses { get; } = [];
     public bool Disposed { get; private set; }
 
     public Guid SessionId { get; } = Guid.NewGuid();
@@ -168,7 +171,8 @@ internal sealed class FakeSession : IAgentSession
     public Task StartAsync(bool resume, CancellationToken ct) => Task.CompletedTask;
     public Task AttachAsync(CancellationToken ct = default) => Task.CompletedTask;
     public Task SendTurnAsync(SessionTurn turn, CancellationToken ct = default) => Task.CompletedTask;
-    public Task<bool> RespondAsync(string requestId, UserInteractionResponse decision, CancellationToken ct = default) => Task.FromResult(true);
+    public Task<bool> RespondAsync(string requestId, UserInteractionResponse decision, CancellationToken ct = default)
+    { Responses.Add(decision); return Task.FromResult(true); }
     public Task<bool> InterruptAsync(CancellationToken ct = default) => Task.FromResult(true);
     public Task CompactAsync(string? instructions, CancellationToken ct = default) => Task.CompletedTask;
     public Task RollbackAsync(int numTurns, CancellationToken ct = default) => Task.CompletedTask;

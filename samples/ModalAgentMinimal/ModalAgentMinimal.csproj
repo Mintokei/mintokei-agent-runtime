@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup><TargetFramework>net10.0</TargetFramework><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><IsPackable>false</IsPackable></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Mintokei.Sandbox.Modal/Mintokei.Sandbox.Modal.csproj" />
+    <ProjectReference Include="../../src/Mintokei.Sandbox.Hosting/Mintokei.Sandbox.Hosting.csproj" />
+  </ItemGroup>
+</Project>

@@ -2,6 +2,10 @@ namespace Mintokei.Runner;
 
 public sealed class RunnerOptions
 {
+    /// <summary>Probe authenticated CLIs for available models during enrollment/reconnect.
+    /// Disable on disposable workers whose caller already selected the model.</summary>
+    public bool DiscoverModels { get; set; } = true;
+
     public required string BackendUrl { get; set; }
 
     /// <summary>

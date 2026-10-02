@@ -15,7 +15,8 @@ namespace Mintokei.Sandbox.Hosting;
 public sealed class SandboxAgentRun : IAsyncDisposable
 {
     private readonly Func<ValueTask> _cleanup;
-    private int _disposed;
+    private readonly SemaphoreSlim _disposeGate = new(1);
+    private bool _disposed;
 
     internal SandboxAgentRun(IAgentSession session, Guid machineId, string sandboxName, Func<ValueTask> cleanup)
     {
@@ -70,9 +71,14 @@ public sealed class SandboxAgentRun : IAsyncDisposable
     /// <summary>Stop the session and recycle the sandbox. Idempotent; safe to call from a <c>finally</c>.</summary>
     public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) != 0)
-            return;
-        await _cleanup();
+        await _disposeGate.WaitAsync();
+        try
+        {
+            if (_disposed) return;
+            await _cleanup();
+            _disposed = true; // A failed/unconfirmed stop remains retryable through this handle.
+        }
+        finally { _disposeGate.Release(); }
     }
 }
 

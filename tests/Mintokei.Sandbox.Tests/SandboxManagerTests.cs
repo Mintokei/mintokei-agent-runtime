@@ -16,6 +16,7 @@ public class SandboxManagerTests
         public List<SandboxHandle> Managed { get; } = [];    // returned by ListManagedAsync
 
         public string Backend => "fake";
+        public bool StopFails { get; set; }
 
         public Task<SandboxHandle> ProvisionAsync(SandboxSpec spec, CancellationToken ct = default)
         {
@@ -28,6 +29,7 @@ public class SandboxManagerTests
 
         public Task StopAsync(SandboxHandle handle, CancellationToken ct = default)
         {
+            if (StopFails) throw new SandboxRuntimeException("termination unknown");
             Stopped.Add(handle.Name);
             return Task.CompletedTask;
         }
@@ -81,6 +83,19 @@ public class SandboxManagerTests
 
         Assert.Empty(manager.Active);
         Assert.Contains("s1", runtime.Stopped);
+    }
+
+    [Fact]
+    public async Task Failed_cleanup_retains_the_lease_for_reconciliation()
+    {
+        var (manager, runtime) = NewManager();
+        await manager.ProvisionAsync(Request());
+        runtime.StopFails = true;
+        await Assert.ThrowsAsync<SandboxRuntimeException>(() => manager.RecycleAsync("s1"));
+        Assert.Single(manager.Active);
+        runtime.StopFails = false;
+        await manager.RecycleAsync("s1");
+        Assert.Empty(manager.Active);
     }
 
     [Fact]

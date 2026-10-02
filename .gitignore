@@ -18,3 +18,8 @@ obj/
 ## OS
 .DS_Store
 Thumbs.db
+
+## Modal helpers and locally published runner bundles
+__pycache__/
+*.py[cod]
+/artifacts/modal/

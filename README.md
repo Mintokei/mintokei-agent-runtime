@@ -52,6 +52,11 @@ in the ones below it, so you never reference a lower package directly.
 
 ## Getting started
 
+- Modal execution and optional native CLI accounts: [Modal backend](src/Mintokei.Sandbox.Modal),
+  [independent sample](samples/ModalAgentMinimal), and [Codex account authentication](src/Mintokei.AgentAuthentication).
+  These are experimental source projects. JSON inference composes the existing engine and sandbox host;
+  application account policy and durable recovery stay in the embedding host.
+
 ```bash
 dotnet build Mintokei.slnx
 dotnet test  Mintokei.slnx

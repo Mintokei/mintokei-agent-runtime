@@ -19,6 +19,8 @@ jobs:
         run: dotnet build Mintokei.slnx -c Release --no-restore
       - name: Test
         run: dotnet test Mintokei.slnx -c Release --no-build
+      - name: Modal bridge contracts (offline)
+        run: python3 -m unittest discover -s tests/modal -v
       - name: Pack
         run: dotnet pack Mintokei.slnx -c Release --no-build -o "${{ github.workspace }}/nupkgs"
       - name: Upload packages

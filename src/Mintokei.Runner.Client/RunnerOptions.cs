@@ -42,4 +42,11 @@ public sealed class RunnerOptions
     /// name; set a distinct value (--name) when running several runners per host.
     /// </summary>
     public string? Name { get; set; }
+
+    /// <summary>
+    /// Opt in to accepting invalid TLS certificates on runner-local tunnel upstreams
+    /// (e.g. a self-signed Client Portal Gateway). Off by default; never applies to
+    /// the backend connection or to non-loopback hosts.
+    /// </summary>
+    public bool TunnelAllowInvalidLocalhostCertificates { get; set; }
 }

@@ -27,6 +27,13 @@ Bind a `Runner` section or configure `RunnerOptions` in code. The important sett
 - `GrpcBackendUrl` — optional override for the gRPC endpoint; usually only needed in local plaintext dev where HTTP/1 and HTTP/2 are split across ports.
 - `DataDir` — where credentials and the local outbox live. Set this when running multiple workers on one machine.
 - `Name` — optional display name reported during enrollment.
+- `TunnelAllowInvalidLocalhostCertificates` — defaults to `false`. Enable only to accept invalid
+  certificates on localhost HTTPS/WSS preview upstreams, such as a self-signed IBKR gateway.
+  Set `Runner__TunnelAllowInvalidLocalhostCertificates=true` and restart the runner, or configure
+  the option in code. Backend and non-loopback TLS certificate validation stays enabled.
+
+HTTP and WebSocket tunnel requests carry an upstream `Scheme` (`http` or `https`); the
+runner uses HTTPS/WSS when requested. Older requests without a scheme keep using HTTP/WS.
 
 Example:
 

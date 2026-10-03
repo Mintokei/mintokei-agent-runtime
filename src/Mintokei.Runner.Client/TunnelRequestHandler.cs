@@ -34,7 +34,9 @@ public static class TunnelRequestHandler
     {
         try
         {
-            var url = $"http://localhost:{tunnelRequest.Port}{tunnelRequest.Path}{tunnelRequest.QueryString}";
+            if (tunnelRequest.Scheme is not ("http" or "https"))
+                throw new InvalidDataException("Upstream scheme must be http or https.");
+            var url = $"{tunnelRequest.Scheme}://localhost:{tunnelRequest.Port}{tunnelRequest.Path}{tunnelRequest.QueryString}";
             var method = new HttpMethod(tunnelRequest.Method);
             using var request = new HttpRequestMessage(method, url);
 

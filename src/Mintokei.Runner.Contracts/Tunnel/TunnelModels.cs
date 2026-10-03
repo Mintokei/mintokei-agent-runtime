@@ -8,7 +8,8 @@ public sealed record TunnelHttpRequest(
     string Path,
     string? QueryString,
     int Port,
-    Dictionary<string, string> Headers);
+    Dictionary<string, string> Headers,
+    string Scheme = "http");
 
 /// <summary>
 /// Metadata for an HTTP response returned through the tunnel (Runner → API).
@@ -31,7 +32,8 @@ public sealed record TunnelWsOpenRequest(
     string? QueryString,
     int Port,
     string? SubProtocol,
-    Dictionary<string, string> Headers);
+    Dictionary<string, string> Headers,
+    string Scheme = "http");
 
 /// <summary>
 /// Confirmation that the runner opened a local WebSocket (Runner → API).

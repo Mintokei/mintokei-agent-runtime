@@ -1,4 +1,5 @@
 using System.Net.WebSockets;
+using System.Net.Security;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -39,7 +40,7 @@ public sealed class TunnelClient : BackgroundService
         _tokenRefreshService = tokenRefreshService;
         _logger = logger;
 
-        _httpClient = CreateLocalHttpClient();
+        _httpClient = CreateLocalHttpClient(_options.TunnelAllowInvalidLocalhostCertificates);
     }
 
     /// <summary>
@@ -48,12 +49,15 @@ public sealed class TunnelClient : BackgroundService
     /// Set-Cookie goes back to that browser. A shared jar would sign every user of a preview into
     /// whichever session logged in last, and leak that cookie to every other localhost port.
     /// </summary>
-    public static HttpClient CreateLocalHttpClient() =>
+    public static HttpClient CreateLocalHttpClient(bool allowInvalidLocalhostCertificates = false) =>
         new(new HttpClientHandler
         {
             // Don't follow redirects — let the browser handle them
             AllowAutoRedirect = false,
             UseCookies = false,
+            ServerCertificateCustomValidationCallback = (request, _, _, errors) =>
+                errors == SslPolicyErrors.None
+                || allowInvalidLocalhostCertificates && request.RequestUri?.IsLoopback == true,
         })
         {
             // No global timeout — long-lived SSE connections need to stay open.
@@ -181,7 +185,8 @@ public sealed class TunnelClient : BackgroundService
                 case TunnelFrameType.WsOpen:
                 {
                     var (_, request) = TunnelFrameCodec.DecodeWsOpen(frame);
-                    _ = TunnelWsHandler.HandleAsync(ws, _writeLock, requestId, request, _wsSessions, _logger, ct);
+                    _ = TunnelWsHandler.HandleAsync(ws, _writeLock, requestId, request, _wsSessions, _logger, ct,
+                        _options.TunnelAllowInvalidLocalhostCertificates);
                     break;
                 }
                 case TunnelFrameType.WsData:

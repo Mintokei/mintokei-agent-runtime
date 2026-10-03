@@ -1,4 +1,5 @@
 using System.Net.WebSockets;
+using System.Net.Security;
 using Microsoft.Extensions.Logging;
 using Mintokei.Runner.Contracts.Tunnel;
 
@@ -17,7 +18,8 @@ public static class TunnelWsHandler
         TunnelWsOpenRequest request,
         RunnerWsSessionStore sessionStore,
         ILogger logger,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool allowInvalidLocalhostCertificates = false)
     {
         ClientWebSocket? localWs = null;
         RunnerWsSession? session = null;
@@ -28,10 +30,18 @@ public static class TunnelWsHandler
             if (request.SubProtocol is not null)
                 localWs.Options.AddSubProtocol(request.SubProtocol);
 
-            var url = $"ws://localhost:{request.Port}{request.Path}{request.QueryString}";
+            var scheme = request.Scheme switch
+            {
+                "http" => "ws",
+                "https" => "wss",
+                _ => throw new InvalidDataException("Upstream scheme must be http or https."),
+            };
+            var url = new Uri($"{scheme}://localhost:{request.Port}{request.Path}{request.QueryString}");
+            localWs.Options.RemoteCertificateValidationCallback = (_, _, _, errors) =>
+                errors == SslPolicyErrors.None || allowInvalidLocalhostCertificates && url.IsLoopback;
             using var connectTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(connectTimeout.Token, ct);
-            await localWs.ConnectAsync(new Uri(url), linked.Token);
+            await localWs.ConnectAsync(url, linked.Token);
 
             // 2. Send WsOpened confirmation
             var openedFrame = TunnelFrameCodec.EncodeWsOpened(sessionId,

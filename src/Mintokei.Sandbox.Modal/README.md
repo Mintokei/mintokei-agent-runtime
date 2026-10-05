@@ -109,13 +109,18 @@ authentication and native subscription authentication are not interchangeable pr
 ## JSON inference
 
 `IAgentJsonExecutor` / `SandboxJsonExecutor` compose a fresh `SandboxAgentHost` run with
-`ClaudeSessionProfiles.Inference` and `AgentJsonOutput.CollectAsync`. They return the bounded final
+`AgentSessionProfiles.Inference` and `AgentJsonOutput.CollectAsync`. They return the bounded final
 assistant JSON only after a successful turn boundary. Tool/reasoning text is excluded, interactions
 are denied, and invalid JSON, provider failures, interruptions and incomplete streams throw. Callers
 apply their own schema/domain validation and own retries/checkpoints. Supply a cancellation deadline.
 
-The inference-only profile currently supports **Claude Code**. Normal engine sessions still support
-Codex; Codex inference needs its own verified tool-disable mapping before this executor accepts it.
+The inference-only profiles support **Claude Code and Codex**. Codex starts an ephemeral thread with
+`environments=[]` to remove filesystem/shell tools, and disables MCP, hooks, skills, project docs,
+agent collaboration and other auxiliary tool features. Supply a fresh isolated CLI home; do not mount
+a coding workspace or inherited config. Hosts retain authentication and network policy. A model
+gateway should additionally reject tool definitions and references to provider-owned context.
+The profile was exercised with the managed image's Codex 0.157.1 against a local synthetic Responses
+server: a complete turn requested an empty tool list. Recheck this contract when updating the CLI/model.
 CLI arguments preserve literal empty values over remote dispatch (`--tools ""`, `--setting-sources ""`).
 Modal runners disable background model discovery so account probing cannot race native use.
 

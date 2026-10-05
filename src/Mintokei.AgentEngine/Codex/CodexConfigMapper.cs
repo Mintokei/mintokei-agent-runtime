@@ -110,6 +110,7 @@ public static class CodexConfigMapper
         public string? Sandbox { get; set; }
         public string? Personality { get; set; }
         public bool? Ephemeral { get; set; }
+        public bool? EnvironmentAccess { get; set; }
         public ThreadNestedConfig? Config { get; set; }
 
         /// <summary>
@@ -181,6 +182,9 @@ public static class CodexConfigMapper
                     break;
                 case "ephemeral":
                     result.ThreadStart.Ephemeral = IsTruthy(value);
+                    break;
+                case "environmentAccess":
+                    result.ThreadStart.EnvironmentAccess = IsTruthy(value);
                     break;
                 case "effort":
                     result.TurnStart.Effort = value;

@@ -92,4 +92,23 @@ public sealed class AgentJsonOutputTests
         Assert.Equal("", spec.ExtraArgs![Array.IndexOf(spec.ExtraArgs.ToArray(), "--tools") + 1]);
         Assert.Throws<NotSupportedException>(() => ClaudeSessionProfiles.Inference(new() { Tool = AgentToolKey.CodexCli }));
     }
+
+    [Fact]
+    public void Codex_inference_has_no_environment_access_and_discards_coding_configuration()
+    {
+        var spec = AgentSessionProfiles.Inference(new() {
+            Tool = AgentToolKey.CodexCli, EnableMcp = true, McpUrl = "https://tools.example.test", McpToken = "secret",
+            ResumeSessionId = "old", ForkFromSessionId = "old", ResumeSessionAt = "old-turn",
+            Config = new() { ["model"] = "selected", ["sandbox"] = "danger-full-access", ["collaborationMode"] = "plan", ["modelProvider"] = "untrusted" },
+            ExtraArgs = ["-c", "features.shell_tool=true"]
+        });
+        Assert.False(spec.EnableMcp); Assert.Null(spec.McpUrl); Assert.Null(spec.McpToken);
+        Assert.Null(spec.ResumeSessionId); Assert.Null(spec.ForkFromSessionId); Assert.Null(spec.ResumeSessionAt);
+        Assert.Equal("selected", spec.Config!["model"]); Assert.Equal("false", spec.Config["environmentAccess"]);
+        Assert.Equal("never", spec.Config["approvalPolicy"]); Assert.Equal("read-only", spec.Config["sandbox"]);
+        Assert.Equal("true", spec.Config["ephemeral"]); Assert.Equal("true", spec.Config["noProjectDoc"]);
+        Assert.False(spec.Config.ContainsKey("collaborationMode")); Assert.False(spec.Config.ContainsKey("modelProvider"));
+        Assert.Contains("features.shell_tool=false", spec.ExtraArgs!); Assert.Contains("features.hooks=false", spec.ExtraArgs!);
+        Assert.Contains("mcp_servers={}", spec.ExtraArgs!); Assert.DoesNotContain("features.shell_tool=true", spec.ExtraArgs!);
+    }
 }

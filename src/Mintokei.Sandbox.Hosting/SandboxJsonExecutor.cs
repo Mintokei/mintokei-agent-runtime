@@ -1,5 +1,4 @@
 using Mintokei.AgentEngine;
-using Mintokei.AgentEngine.Claude;
 
 namespace Mintokei.Sandbox.Hosting;
 
@@ -16,7 +15,7 @@ public sealed class SandboxJsonExecutor(SandboxAgentHost host) : IAgentJsonExecu
     {
         if (request.Repos.Count != 0 || request.Repo != null || request.PersistentWorkspaceKey != null)
             throw new ArgumentException("Inference requests require a fresh empty workspace.", nameof(request));
-        var session = ClaudeSessionProfiles.Inference(request.Session ?? new() { Tool = request.Tool });
+        var session = AgentSessionProfiles.Inference(request.Session ?? new() { Tool = request.Tool });
         await using var run = await host.RunAsync(request with
         {
             Session = session, SessionOptions = new() { InteractionMode = InteractionMode.Surface }

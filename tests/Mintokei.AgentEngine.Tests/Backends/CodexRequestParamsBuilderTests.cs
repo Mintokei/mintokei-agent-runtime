@@ -7,6 +7,17 @@ namespace Mintokei.AgentEngine.Tests;
 public class CodexRequestParamsBuilderTests
 {
     [Fact]
+    public void Inference_profile_disables_environments_without_changing_normal_sessions()
+    {
+        var spec = AgentSessionProfiles.Inference(new() { Tool = AgentTools.AgentToolKey.CodexCli });
+        var config = CodexConfigMapper.Map(spec.Config!).ThreadStart;
+        var request = Serialize(CodexRequestParamsBuilder.BuildThreadStartParams(config));
+        Assert.Empty(request.GetProperty("environments").EnumerateArray());
+        Assert.True(request.GetProperty("ephemeral").GetBoolean());
+        Assert.False(Serialize(CodexRequestParamsBuilder.BuildThreadStartParams(new())).TryGetProperty("environments", out _));
+    }
+
+    [Fact]
     public void BuildThreadResumeParams_IncludesFullThreadConfig()
     {
         var config = new CodexConfigMapper.ThreadStartConfig

@@ -65,6 +65,8 @@ internal static class CodexRequestParamsBuilder
         AddIfNotNull(parameters, "personality", config.Personality);
         AddIfNotNull(parameters, "config", config.Config);
         AddIfNotNull(parameters, "baseInstructions", config.BaseInstructions);
+        if (includeEphemeral && config.EnvironmentAccess == false)
+            parameters["environments"] = Array.Empty<object>();
 
         if (includeEphemeral && config.Ephemeral.HasValue)
             parameters["ephemeral"] = config.Ephemeral.Value;

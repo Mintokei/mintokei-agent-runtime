@@ -23,8 +23,10 @@ public class SandboxAgentHostTests
         Assert.Equal(2, runtime.Stopped.Count);
     }
 
-    [Fact]
-    public async Task JSON_failure_recycles_compute_and_applies_inference_profile()
+    [Theory]
+    [InlineData(AgentToolKey.ClaudeCodeCli)]
+    [InlineData(AgentToolKey.CodexCli)]
+    public async Task JSON_failure_recycles_compute_and_applies_inference_profile(AgentToolKey tool)
     {
         var (host, runtime, _, plane) = NewHost();
         plane.Session.Script.Add(new Mintokei.AgentEngine.Contracts.MessageOutput(new()
@@ -33,9 +35,10 @@ public class SandboxAgentHostTests
             Type = Mintokei.AgentEngine.Contracts.MessageType.AgentMessage, Content = "invalid json"
         }));
         plane.Session.Script.Add(new Mintokei.AgentEngine.Contracts.TurnEnded(null, false, null));
-        await Assert.ThrowsAsync<Mintokei.AgentEngine.AgentInferenceException>(() => new SandboxJsonExecutor(host).ExecuteAsync(Request(prompt: "infer")));
+        await Assert.ThrowsAsync<Mintokei.AgentEngine.AgentInferenceException>(() => new SandboxJsonExecutor(host).ExecuteAsync(Request(prompt: "infer") with { Tool = tool }));
         Assert.Single(runtime.Stopped);
-        Assert.Contains("--restricted", plane.StartedSpec!.ExtraArgs!);
+        if (tool == AgentToolKey.ClaudeCodeCli) Assert.Contains("--restricted", plane.StartedSpec!.ExtraArgs!);
+        else Assert.Equal("false", plane.StartedSpec!.Config!["environmentAccess"]);
         Assert.False(plane.StartedSpec.EnableMcp);
     }
     [Fact]

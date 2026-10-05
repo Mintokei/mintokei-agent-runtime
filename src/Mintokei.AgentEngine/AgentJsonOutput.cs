@@ -4,7 +4,8 @@ using Mintokei.AgentEngine.Contracts;
 namespace Mintokei.AgentEngine;
 
 /// <summary>Collect a bounded final JSON answer from a session already configured for inference only.
-/// Permissions fail closed. No transcript decoration, tool output or reasoning enters the result.</summary>
+/// Permissions fail closed. A single enclosing JSON code fence is removed; tool output,
+/// surrounding prose and reasoning never enter the result.</summary>
 public static class AgentJsonOutput
 {
     public static async Task<string> CollectAsync(IAgentSession session, int maxCharacters = 128000, CancellationToken ct = default)
@@ -28,12 +29,28 @@ public static class AgentJsonOutput
                     if (turn.IsInterrupted || turn.Failure != null)
                         throw new AgentInferenceException("The inference turn did not complete successfully.", turn.Failure?.Kind);
                     if (string.IsNullOrWhiteSpace(answer)) throw new AgentInferenceException("The inference turn returned no JSON answer.");
+                    answer = UnwrapJsonFence(answer);
                     try { using var json = JsonDocument.Parse(answer, new() { MaxDepth = 64 }); }
                     catch (JsonException) { throw new AgentInferenceException("The inference turn returned invalid JSON."); }
                     return answer;
             }
         }
         throw new AgentInferenceException("The inference stream ended before its turn completed.");
+    }
+
+    // Claude can wrap an otherwise valid answer despite a JSON-only prompt. Accept only one
+    // complete, explicitly JSON (or unlabelled) fence around the entire answer. Never search
+    // prose for a JSON-looking substring or repair malformed/truncated JSON.
+    private static string UnwrapJsonFence(string answer)
+    {
+        var text = answer.Trim();
+        var firstLine = text.IndexOf('\n');
+        var lastLine = text.LastIndexOf('\n');
+        if (firstLine < 0 || lastLine <= firstLine) return answer;
+        var opening = text[..firstLine].TrimEnd('\r');
+        if (opening != "```" && !opening.Equals("```json", StringComparison.OrdinalIgnoreCase)) return answer;
+        if (text[(lastLine + 1)..] != "```") return answer;
+        return text[(firstLine + 1)..lastLine].Trim();
     }
 }
 

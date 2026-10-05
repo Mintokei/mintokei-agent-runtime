@@ -42,13 +42,28 @@ public sealed class AgentJsonOutputTests
     }
 
     [Theory]
-    [InlineData("```json\n{}\n```", 100)]
+    [InlineData("Here is JSON:\n```json\n{}\n```", 100)]
+    [InlineData("```json\n{}\n```\nExtra explanation", 100)]
+    [InlineData("```javascript\n{}\n```", 100)]
+    [InlineData("```json\n{}\n```\n```json\n{}\n```", 100)]
+    [InlineData("```json\n{\"broken\":\n```", 100)]
+    [InlineData("```json\n{}", 100)]
     [InlineData("", 100)]
     [InlineData("{\"long\":true}", 5)]
     public async Task Invalid_or_oversized_results_are_rejected(string content, int limit)
     {
         var session = new FakeSession(); session.Script.AddRange([Answer(content), new TurnEnded(null, false, null)]);
         await Assert.ThrowsAsync<AgentInferenceException>(() => AgentJsonOutput.CollectAsync(session, limit));
+    }
+
+    [Theory]
+    [InlineData("```json\n{\"candidates\":[]}\n```", "{\"candidates\":[]}")]
+    [InlineData(" \n```JSON\r\n{\"nodes\":[],\"edges\":[]}\r\n```\n ", "{\"nodes\":[],\"edges\":[]}")]
+    [InlineData("```\n[]\n```", "[]")]
+    public async Task A_single_complete_JSON_fence_is_removed_after_successful_turn(string content, string expected)
+    {
+        var session = new FakeSession(); session.Script.AddRange([Answer(content), new TurnEnded(null, false, null)]);
+        Assert.Equal(expected, await AgentJsonOutput.CollectAsync(session));
     }
 
     [Fact]

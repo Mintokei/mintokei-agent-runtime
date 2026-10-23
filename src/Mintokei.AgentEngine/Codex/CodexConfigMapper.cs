@@ -24,9 +24,12 @@ public static class CodexConfigMapper
             ApplyMode: AgentToolConfigApplyMode.NextTurn,
             Options:
             [
+                new("none", "None"),
+                new("minimal", "Minimal"),
                 new("low", "Low"),
                 new("medium", "Medium"),
                 new("high", "High"),
+                new("xhigh", "Extra high"),
             ]),
         new(
             Key: "summary",

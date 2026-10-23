@@ -34,6 +34,7 @@ public class CodexRequestParamsBuilderTests
         Assert.False(threadResume.TryGetProperty("ephemeral", out _));
 
         Assert.Equal("thread-123", threadResume.GetProperty("threadId").GetString());
+        Assert.True(threadResume.GetProperty("excludeTurns").GetBoolean());
         Assert.Equal("gpt-5", threadResume.GetProperty("model").GetString());
         Assert.Equal("openai", threadResume.GetProperty("modelProvider").GetString());
         Assert.Equal("on-failure", threadResume.GetProperty("approvalPolicy").GetString());

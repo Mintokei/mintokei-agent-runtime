@@ -69,6 +69,7 @@ public sealed class GrpcRunnerHostedService(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        taskStreamManager.ProcessedCommandSequenceProvider = outbox.GetLastProcessedTaskSequenceAsync;
         if (!configuration.GetValue("Runner:EnableGrpc", defaultValue: true))
         {
             logger.LogInformation("Runner:EnableGrpc is false — gRPC client disabled");
@@ -147,7 +148,9 @@ public sealed class GrpcRunnerHostedService(
         var handshakeRequest = new HandshakeRequest
         {
             FileServerPort = fileServer.Port,
-            LastAckedOutboundSequence = await outbox.GetLastAckedBackendSequenceAsync(),
+            // Commands are acknowledged per correlation. A machine-wide maximum
+            // can skip a lower command still pending on another task stream.
+            LastAckedOutboundSequence = 0,
         };
         var activeCorrelations = ActiveCorrelationIdsProvider?.Invoke();
         if (activeCorrelations is { Count: > 0 })

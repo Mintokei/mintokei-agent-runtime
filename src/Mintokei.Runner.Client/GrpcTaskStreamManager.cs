@@ -113,6 +113,9 @@ public sealed class GrpcTaskStreamManager(ILogger<GrpcTaskStreamManager> logger)
 
     public bool IsOpen(Guid correlationId) => _streams.ContainsKey(correlationId);
 
+    /// <summary>Durable per-process command receipt, supplied by the runner host.</summary>
+    public Func<Guid, Task<long>>? ProcessedCommandSequenceProvider { get; set; }
+
     /// <summary>
     /// Snapshot of correlations that currently have an open per-task stream.
     /// Used by <see cref="RunnerHostedService.DrainOutboxLoopAsync"/> to filter
@@ -165,6 +168,9 @@ public sealed class GrpcTaskStreamManager(ILogger<GrpcTaskStreamManager> logger)
         try
         {
             call = client.OpenTask(headers, cancellationToken: streamCts.Token);
+
+            if (ProcessedCommandSequenceProvider is { } cursor)
+                lastAckedServerSeq = Math.Max(lastAckedServerSeq, await cursor(correlationId));
 
             await call.RequestStream.WriteAsync(new TaskClientMessage
             {

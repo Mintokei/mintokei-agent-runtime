@@ -24,6 +24,10 @@ public sealed class RemoteProcessHandle : IProcessHandle
     private volatile bool _disconnected;
     private int? _exitCode;
 
+    // Start is durably enqueued asynchronously by RemoteCommandLineRunner. Input
+    // and shutdown must not acquire an earlier outbox sequence than that start.
+    internal Task StartEnqueued { get; set; } = Task.CompletedTask;
+
     public RemoteProcessHandle(
         IRunnerMessageEnqueuer enqueuer,
         Guid machineId,
@@ -58,6 +62,7 @@ public sealed class RemoteProcessHandle : IProcessHandle
 
     public async Task WriteLineAsync(string line, CancellationToken cancellationToken = default)
     {
+        await StartEnqueued.WaitAsync(cancellationToken);
         await _enqueuer.EnqueueAsync(MachineId, OutboxMessageType.WriteStdin,
             new { CorrelationId = _correlationId, Text = line + "\n", AppendNewline = false },
             correlationId: _correlationId, ct: cancellationToken);
@@ -65,6 +70,7 @@ public sealed class RemoteProcessHandle : IProcessHandle
 
     public async Task WriteAsync(string text, CancellationToken cancellationToken = default)
     {
+        await StartEnqueued.WaitAsync(cancellationToken);
         await _enqueuer.EnqueueAsync(MachineId, OutboxMessageType.WriteStdin,
             new { CorrelationId = _correlationId, Text = text, AppendNewline = false },
             correlationId: _correlationId, ct: cancellationToken);
@@ -83,7 +89,13 @@ public sealed class RemoteProcessHandle : IProcessHandle
 
     public void Kill()
     {
-        _ = _enqueuer.EnqueueAsync(MachineId, OutboxMessageType.KillProcess,
+        _ = KillAfterStartAsync();
+    }
+
+    private async Task KillAfterStartAsync()
+    {
+        await StartEnqueued;
+        await _enqueuer.EnqueueAsync(MachineId, OutboxMessageType.KillProcess,
             new { CorrelationId = _correlationId },
             correlationId: _correlationId);
     }

@@ -26,9 +26,8 @@ public sealed class RemoteCommandLineRunner(
         var remoteHandle = new RemoteProcessHandle(enqueuer, machineId, correlationId);
         remoteProcessStore.Add(correlationId, remoteHandle);
 
-        // Enqueue the start process message — must not be fire-and-forget
-        // because the outbox sequence guarantees ordering.
-        _ = enqueuer.EnqueueAsync(machineId, OutboxMessageType.StartProcess, new
+        // The handle waits for this write before enqueueing stdin or kill.
+        remoteHandle.StartEnqueued = enqueuer.EnqueueAsync(machineId, OutboxMessageType.StartProcess, new
         {
             CorrelationId = correlationId,
             options.Executable,

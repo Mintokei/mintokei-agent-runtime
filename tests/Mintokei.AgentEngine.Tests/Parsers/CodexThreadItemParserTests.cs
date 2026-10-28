@@ -33,6 +33,55 @@ public class CodexThreadItemParserTests
     // --- plan ---
 
     [Fact]
+    public void Parse_AsyncAgentMessage_PreservesQuestionsAndStringChoices()
+    {
+        var result = CodexThreadItemParser.Parse(TaskId, Json(new
+        {
+            type = "agentMessage", id = "msg-async", delivery = "async",
+            text = "I can continue while you decide.",
+            questions = new object[]
+            {
+                new { title = "Which database?", options = new[] { "SQLite", "Postgres" } },
+                new { title = "Any other requirements?", options = (string[]?)null },
+            },
+        }));
+
+        Assert.NotNull(result);
+        Assert.Equal(MessageType.UserQuestion, result.Type);
+        Assert.Equal(MessageStatus.InProgress, result.Status);
+        Assert.Equal("I can continue while you decide.", result.Content);
+        Assert.Equal("msg-async", result.ExternalId);
+        var interaction = Assert.IsType<UserInteractionData>(result.UserInteraction);
+        Assert.Equal("msg-async", interaction.RequestId);
+        Assert.Equal(CodexAsyncUserInput.ReplyContext, interaction.ReplyContext);
+        Assert.Equal("Which database?", interaction.QuestionList[0].Question);
+        Assert.Equal(new[] { "SQLite", "Postgres" }, interaction.QuestionList[0].Options.Select(o => o.Label));
+        Assert.Empty(interaction.QuestionList[1].Options);
+
+        // Async questions have no JSON-RPC request to respond to.
+        Assert.Null(new CodexInteractionReplyBuilder().Build(interaction, new("answered", null, null)));
+        var reply = CodexAsyncUserInput.BuildAnswerMessage(interaction, new("answered", null,
+            """{"q_0":{"answers":["Postgres"]},"q_1":{"answers":["Keep backups"]}}"""));
+        Assert.Contains("message msg-async", reply);
+        Assert.Contains("Question: Which database?\nAnswer: Postgres", reply);
+        Assert.Contains("Question: Any other requirements?\nAnswer: Keep backups", reply);
+        Assert.Null(CodexAsyncUserInput.BuildAnswerMessage(interaction, new("answered", null,
+            """{"q_0":{"answers":["Postgres"]}}""")));
+    }
+
+    [Theory]
+    [InlineData("null")]
+    [InlineData("[]")]
+    [InlineData("[null, {}, {\"title\":\"\"}]")]
+    public void Parse_AgentMessageWithoutUsableQuestions_RemainsText(string questions)
+    {
+        using var doc = JsonDocument.Parse($$"""{"type":"agentMessage","id":"msg-1","text":"Progress","delivery":"async","questions":{{questions}}}""");
+        var result = CodexThreadItemParser.Parse(TaskId, doc.RootElement);
+        Assert.Equal(MessageType.AgentMessage, result!.Type);
+        Assert.Null(result.UserInteraction);
+    }
+
+    [Fact]
     public void Parse_Plan_ReturnsMappedEntity()
     {
         var item = Json(new { type = "plan", id = "plan-1", text = "Step 1: do stuff" });

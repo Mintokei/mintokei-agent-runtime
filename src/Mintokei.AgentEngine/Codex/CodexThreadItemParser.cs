@@ -49,14 +49,17 @@ internal static class CodexThreadItemParser
 
     private static AgentMessage ParseAgentMessage(Guid agentTaskId, JsonElement item)
     {
+        var question = CodexAsyncUserInput.Parse(item);
         return new AgentMessage
         {
             Id = Guid.NewGuid(),
             AgentTaskId = agentTaskId,
             ExternalId = GetStringOrNull(item, "id"),
             Role = MessageRole.Assistant,
-            Type = MessageType.AgentMessage,
+            Type = question is null ? MessageType.AgentMessage : MessageType.UserQuestion,
             Content = GetStringOrNull(item, "text"),
+            Status = question is null ? null : MessageStatus.InProgress,
+            UserInteraction = question,
             CreatedAt = DateTimeOffset.UtcNow,
         };
     }

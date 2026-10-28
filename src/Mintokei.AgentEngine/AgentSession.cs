@@ -341,6 +341,11 @@ public sealed class AgentSession : IAgentSession
                 await EmitAsync(produced);
                 return;
 
+            case TurnEnded:
+                CurrentTurnId = null;
+                await EmitAsync(produced);
+                return;
+
             default:
                 await EmitAsync(produced);
                 return;

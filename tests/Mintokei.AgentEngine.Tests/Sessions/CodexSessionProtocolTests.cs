@@ -87,6 +87,56 @@ public class CodexSessionProtocolTests
     }
 
     [Fact]
+    public async Task Async_answer_steers_running_turn_and_starts_a_new_turn_after_completion()
+    {
+        var fake = new FakeProcessHandle();
+        await using var session = await StartHandshakenCodexAsync(fake, "thread-1");
+        session.CurrentTurnId = "turn-1";
+
+        var answerTask = session.SendMessageAsync("Question: Color?\nAnswer: Blue", TestContext.Current.CancellationToken);
+        var steer = await fake.WaitForWriteAsync(l => l.Contains("\"method\":\"turn/steer\""), Timeout);
+        using (var doc = JsonDocument.Parse(steer))
+        {
+            Assert.Equal("turn-1", doc.RootElement.GetProperty("params").GetProperty("expectedTurnId").GetString());
+            Assert.Contains("Answer: Blue", doc.RootElement.GetProperty("params").GetProperty("input")[0].GetProperty("text").GetString());
+        }
+        fake.FeedStdout(JsonRpcResult(JsonRpcIdOf(steer), new { turnId = "turn-1" }));
+        await answerTask.WaitAsync(Timeout, TestContext.Current.CancellationToken);
+        Assert.Equal("turn-1", session.CurrentTurnId);
+        Assert.DoesNotContain(fake.Writes, l => l.Contains("\"method\":\"turn/start\""));
+
+        fake.FeedStdout("""{"method":"turn/completed","params":{"turn":{"id":"turn-1","status":"completed","items":[]}}}""");
+        using var readCts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        readCts.CancelAfter(Timeout);
+        await foreach (var output in session.Output.WithCancellation(readCts.Token))
+            if (output is TurnEnded) break;
+        Assert.Null(session.CurrentTurnId);
+
+        var next = session.SendMessageAsync("A later answer", TestContext.Current.CancellationToken);
+        var start = await fake.WaitForWriteAsync(l => l.Contains("\"method\":\"turn/start\""), Timeout);
+        fake.FeedStdout(JsonRpcResult(JsonRpcIdOf(start), new { turn = new { id = "turn-2" } }));
+        await next.WaitAsync(Timeout, TestContext.Current.CancellationToken);
+        Assert.Equal("turn-2", session.CurrentTurnId);
+    }
+
+    [Fact]
+    public async Task Answer_racing_turn_completion_retries_as_a_new_turn()
+    {
+        var fake = new FakeProcessHandle();
+        await using var session = await StartHandshakenCodexAsync(fake, "thread-1");
+        session.CurrentTurnId = "turn-1";
+        var answer = session.SendMessageAsync("Blue", TestContext.Current.CancellationToken);
+        var steer = await fake.WaitForWriteAsync(l => l.Contains("\"method\":\"turn/steer\""), Timeout);
+        fake.FeedStdout("""{"method":"turn/completed","params":{"turn":{"id":"turn-1","status":"completed","items":[]}}}""");
+        fake.FeedStdout(JsonSerializer.Serialize(new { id = JsonRpcIdOf(steer), error = new { code = -32600, message = "No active turn" } }));
+
+        var start = await fake.WaitForWriteAsync(l => l.Contains("\"method\":\"turn/start\""), Timeout);
+        fake.FeedStdout(JsonRpcResult(JsonRpcIdOf(start), new { turn = new { id = "turn-2" } }));
+        await answer.WaitAsync(Timeout, TestContext.Current.CancellationToken);
+        Assert.Equal("turn-2", session.CurrentTurnId);
+    }
+
+    [Fact]
     public async Task RollbackAsync_round_trips_thread_rollback_with_the_thread_id_and_turn_count()
     {
         var fake = new FakeProcessHandle();

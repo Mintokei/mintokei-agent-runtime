@@ -103,6 +103,25 @@ internal sealed class CodexSessionProtocol : IAgentSessionProtocol
         inputItems.Add(new { type = "text", text = turn.Content });
         ImageAttachmentHelper.AppendCodexImageItems(inputItems, turn.ImagesJson);
 
+        if (session.CurrentTurnId is { } activeTurnId)
+        {
+            try
+            {
+                await session.SendRequestAndWaitAsync("turn/steer", new
+                {
+                    threadId,
+                    expectedTurnId = activeTurnId,
+                    input = inputItems,
+                }, ct);
+                return;
+            }
+            catch (CodexJsonRpcException) when (session.CurrentTurnId is null)
+            {
+                // The turn completed between reading its id and steering it. Its completion
+                // notification cleared the id; send this answer as a fresh turn below.
+            }
+        }
+
         var response = await session.SendRequestAndWaitAsync(
             "turn/start", CodexRequestParamsBuilder.BuildTurnStartParams(threadId, inputItems, _turnConfig), ct);
         await session.BeginTurnAsync(CodexJsonRpcHelper.ExtractTurnId(response));

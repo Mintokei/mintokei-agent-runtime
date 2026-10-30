@@ -20,6 +20,7 @@
   <ItemGroup>
     <!-- Relational (brings base EF Core transitively) — RunnerHostDbContext uses HasFilter, a
          relational-only index method. The concrete SQLite provider is configured by the embedding host. -->
+    <PackageReference Include="Microsoft.Data.Sqlite.Core" Version="10.0.2" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.2" />
     <!-- The outbox substrate (OutboxProcessorService / OutboxCleanupService) are BackgroundServices
          resolved from DI and log via ILogger. The Hosting/DI/Logging abstractions they use come from

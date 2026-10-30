@@ -69,12 +69,12 @@ public sealed class GrpcTaskStreamManager(ILogger<GrpcTaskStreamManager> logger,
         public required AsyncDuplexStreamingCall<TaskClientMessage, TaskServerMessage> Call { get; init; }
         public required CancellationTokenSource Cts { get; init; }
         public SemaphoreSlim WriteLock { get; } = new(1, 1);
+        public bool Closing { get; set; }
 
         public void Dispose()
         {
             try { Cts.Cancel(); } catch { }
             Call.Dispose();
-            WriteLock.Dispose();
             Cts.Dispose();
         }
     }
@@ -105,10 +105,15 @@ public sealed class GrpcTaskStreamManager(ILogger<GrpcTaskStreamManager> logger,
 
         foreach (var (correlationId, stream) in _streams)
         {
-            stream.Dispose();
+            CloseInternal(correlationId, stream);
         }
-        _streams.Clear();
         logger.LogDebug("GrpcTaskStreamManager: client unregistered, all task streams cancelled");
+    }
+
+    public async Task ReopenPendingAsync(CancellationToken ct = default)
+    {
+        foreach (var correlation in await outbox.GetRecoverableCorrelationsAsync())
+            await EnsureOpenAsync(correlation, ct: ct);
     }
 
     public bool IsOpen(Guid correlationId) => _streams.ContainsKey(correlationId);
@@ -195,20 +200,24 @@ public sealed class GrpcTaskStreamManager(ILogger<GrpcTaskStreamManager> logger,
                 return false;
             }
 
-            await outbox.AcknowledgeAsync(correlationId, first.OpenAck.LastReceivedRunnerSeq);
+            var completed = await outbox.ResumeStreamAsync(correlationId, first.OpenAck.LastReceivedRunnerSeq);
 
             var stream = new ActiveStream { Call = call, Cts = streamCts };
-            if (!_streams.TryAdd(correlationId, stream))
+            bool added;
+            lock (_clientLock)
+                added = ReferenceEquals(client, _client) && _streams.TryAdd(correlationId, stream);
+            if (!added)
             {
                 // Lost the race with a concurrent EnsureOpenAsync — tear ours
                 // down and let the winner's stream serve future calls.
                 stream.Dispose();
-                return true;
+                return _streams.ContainsKey(correlationId);
             }
 
             // Reader self-cleans via finally → CloseInternal; we don't need
             // to retain the Task on the ActiveStream.
-            _ = ReadStreamAsync(correlationId, call.ResponseStream, streamCts.Token);
+            _ = ReadStreamAsync(correlationId, stream, streamCts.Token);
+            if (completed) await CloseStreamAsync(stream);
 
             logger.LogInformation("OpenTask {CorrelationId}: opened (server lastReceivedRunnerSeq={Seq})",
                 correlationId, first.OpenAck.LastReceivedRunnerSeq);
@@ -243,6 +252,7 @@ public sealed class GrpcTaskStreamManager(ILogger<GrpcTaskStreamManager> logger,
         await stream.WriteLock.WaitAsync(ct);
         try
         {
+            if (stream.Closing) return false;
             await stream.Call.RequestStream.WriteAsync(msg);
             return true;
         }
@@ -251,7 +261,7 @@ public sealed class GrpcTaskStreamManager(ILogger<GrpcTaskStreamManager> logger,
             logger.LogWarning(ex,
                 "OpenTask {CorrelationId}: send failed; tearing down stream so caller falls back to SignalR",
                 correlationId);
-            CloseInternal(correlationId);
+            CloseInternal(correlationId, stream);
             return false;
         }
         finally
@@ -266,12 +276,24 @@ public sealed class GrpcTaskStreamManager(ILogger<GrpcTaskStreamManager> logger,
         if (!_streams.TryGetValue(correlationId, out var stream))
             return;
 
+        await CloseStreamAsync(stream);
+    }
+
+    private static async Task CloseStreamAsync(ActiveStream stream)
+    {
         // Half-close: signal end-of-input on the runner→server direction.
         // After this returns, the messages we wrote (including the terminal
         // ReportProcessCompleted) are queued on the wire with the HTTP/2
         // END_STREAM flag set on the request side.
-        try { await stream.Call.RequestStream.CompleteAsync(); }
-        catch { /* best effort */ }
+        await stream.WriteLock.WaitAsync();
+        try
+        {
+            if (stream.Closing) return;
+            stream.Closing = true;
+            await stream.Call.RequestStream.CompleteAsync();
+        }
+        catch { /* best effort; the read loop will reopen unacknowledged output */ }
+        finally { stream.WriteLock.Release(); }
 
         // Do NOT call CloseInternal here. CloseInternal disposes the
         // AsyncDuplexStreamingCall, which sends an HTTP/2 RST_STREAM frame.
@@ -305,9 +327,9 @@ public sealed class GrpcTaskStreamManager(ILogger<GrpcTaskStreamManager> logger,
         // So no entry can leak in any realistic case.
     }
 
-    private void CloseInternal(Guid correlationId)
+    private void CloseInternal(Guid correlationId, ActiveStream stream)
     {
-        if (_streams.TryRemove(correlationId, out var stream))
+        if (_streams.TryRemove(new KeyValuePair<Guid, ActiveStream>(correlationId, stream)))
         {
             stream.Dispose();
             logger.LogDebug("OpenTask {CorrelationId}: closed", correlationId);
@@ -316,9 +338,10 @@ public sealed class GrpcTaskStreamManager(ILogger<GrpcTaskStreamManager> logger,
 
     private async Task ReadStreamAsync(
         Guid correlationId,
-        IAsyncStreamReader<TaskServerMessage> reader,
+        ActiveStream stream,
         CancellationToken ct)
     {
+        var reader = stream.Call.ResponseStream;
         try
         {
             while (await reader.MoveNext(ct))
@@ -330,7 +353,8 @@ public sealed class GrpcTaskStreamManager(ILogger<GrpcTaskStreamManager> logger,
                 }
                 else if (msg.PayloadCase == TaskServerMessage.PayloadOneofCase.Ack)
                 {
-                    await outbox.AcknowledgeAsync(correlationId, msg.Ack.CumulativeSeq);
+                    if (await outbox.AcknowledgeAsync(correlationId, msg.Ack.CumulativeSeq))
+                        await CloseStreamAsync(stream);
                 }
             }
         }
@@ -344,7 +368,7 @@ public sealed class GrpcTaskStreamManager(ILogger<GrpcTaskStreamManager> logger,
         }
         finally
         {
-            CloseInternal(correlationId);
+            CloseInternal(correlationId, stream);
         }
     }
 }

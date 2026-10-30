@@ -28,6 +28,7 @@ public sealed class RunnerLinkService(
     GrpcControlChannelRegistry controlChannelRegistry,
     PendingQueryStore pendingQueryStore,
     RemoteProcessOutputDispatcher processOutputDispatcher,
+    RunnerHeartbeatWriter heartbeatWriter,
     OutboxProcessorService outboxProcessor,
     IRunnerHost runnerHost,
     IOptions<RunnerHostOptions> runnerHostOptions,
@@ -216,20 +217,9 @@ public sealed class RunnerLinkService(
                 switch (msg.PayloadCase)
                 {
                     case RunnerControlMessage.PayloadOneofCase.Heartbeat:
-                        // Parity with SignalR's RunnerHub.Heartbeat hub method:
-                        // refresh the per-machine liveness timestamp so
-                        // RunnerHeartbeatService doesn't flag the machine
-                        // offline. Without this the API never sees the
-                        // runner's gRPC pong as proof of life and would
-                        // mark it Offline once SignalR is removed.
-                        await using (var scope = scopeFactory.CreateAsyncScope())
-                        {
-                            var db = scope.ServiceProvider.GetRequiredService<RunnerHostDbContext>();
-                            await db.RunnerMachines
-                                .Where(m => m.Id == machineId)
-                                .ExecuteUpdateAsync(s => s.SetProperty(
-                                    m => m.LastHeartbeatAt, DateTimeOffset.UtcNow), ct);
-                        }
+                        // A temporary DB lock must not tear down Control and all task
+                        // streams. Bounded persistence retries; always acknowledge liveness.
+                        await heartbeatWriter.TryUpdateAsync(machineId, ct);
 
                         await responseStream.WriteAsync(new ServerControlMessage
                         {

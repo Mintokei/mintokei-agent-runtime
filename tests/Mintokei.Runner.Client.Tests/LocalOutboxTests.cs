@@ -92,4 +92,61 @@ public sealed class LocalOutboxTests : IAsyncLifetime
         Assert.True(await reader.ReadAsync());
         Assert.Contains("IX_OutboxMessage_Pending_Seq", reader.GetString(3));
     }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Reconnect_retires_received_output_and_retries_only_its_unreceived_sent_rows(bool emptyServer)
+    {
+        var a = Guid.NewGuid(); var b = Guid.NewGuid();
+        var received = await _outbox.InsertAsync("ReportProcessOutput", "received", a);
+        var other = await _outbox.InsertAsync("ReportProcessOutput", "other stream", b);
+        var missing = await _outbox.InsertAsync("ReportProcessOutput", "final answer", a);
+        await _outbox.MarkSentAsync(received);
+        await _outbox.MarkSentAsync(other);
+        await _outbox.MarkSentAsync(missing);
+        await _outbox.ResumeStreamAsync(a, emptyServer ? 0 : received);
+        Assert.Equal(emptyServer ? new[] { received, missing } : new[] { missing },
+            (await _outbox.GetPendingAsync()).Select(m => m.Seq));
+        await _outbox.ResumeStreamAsync(a, emptyServer ? 0 : received);
+        Assert.DoesNotContain(await _outbox.GetPendingAsync(), m => m.Seq == other);
+    }
+
+    [Fact]
+    public async Task Exited_process_remains_recoverable_across_runner_restart_until_terminal_ack()
+    {
+        var a = Guid.NewGuid();
+        var answer = await _outbox.InsertAsync("ReportProcessOutput", "answer", a);
+        var terminal = await _outbox.InsertAsync("ReportProcessCompleted", "completed", a);
+        await _outbox.MarkSentAsync(answer);
+        await _outbox.MarkSentAsync(terminal);
+        await _outbox.InitializeAsync();
+        Assert.Equal(a, Assert.Single(await _outbox.GetRecoverableCorrelationsAsync()));
+        await _outbox.ResumeStreamAsync(a, answer);
+        Assert.Equal(terminal, Assert.Single(await _outbox.GetPendingAsync()).Seq);
+        Assert.False(await _outbox.AcknowledgeAsync(a, answer));
+        Assert.True(await _outbox.AcknowledgeAsync(a, terminal));
+        Assert.Empty(await _outbox.GetRecoverableCorrelationsAsync());
+        Assert.Empty(await _outbox.GetPendingAsync());
+        Assert.Equal(terminal + 1, await _outbox.InsertAsync("ReportProcessOutput", "next", Guid.NewGuid()));
+    }
+
+    [Fact]
+    public async Task Upgrade_does_not_reopen_old_untracked_streams()
+    {
+        var old = Guid.NewGuid();
+        var seq = await _outbox.InsertAsync("ReportProcessCompleted", "historical", old);
+        await _outbox.MarkSentAsync(seq);
+        await using var connection = new SqliteConnection(ConnectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "DROP TABLE OutboxStream";
+        await command.ExecuteNonQueryAsync();
+        await _outbox.InitializeAsync();
+        Assert.Empty(await _outbox.GetRecoverableCorrelationsAsync());
+        Assert.Empty(await _outbox.GetPendingAsync());
+        // Existing live streams can still explicitly reconcile their old Sent output.
+        await _outbox.ResumeStreamAsync(old, 0);
+        Assert.Equal(seq, Assert.Single(await _outbox.GetPendingAsync()).Seq);
+    }
 }

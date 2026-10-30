@@ -49,6 +49,7 @@ public static class RunnerHostServiceCollectionExtensions
         // RunnerLink handlers share a single open-stream view. If gRPC is disabled no streams ever
         // register and the pump's TrySendAsync simply returns false.
         services.AddSingleton<GrpcControlChannelRegistry>();
+        services.AddSingleton<RunnerHeartbeatWriter>();
         services.AddSingleton<GrpcTaskChannelRegistry>();
         services.AddSingleton<GrpcWatcherChannelRegistry>();
         services.AddSingleton<GrpcQueryChannelRegistry>();

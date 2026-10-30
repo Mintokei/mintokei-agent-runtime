@@ -46,6 +46,13 @@ public sealed class LocalOutbox
             CREATE INDEX IF NOT EXISTS IX_OutboxMessage_Pending_Correlation_Seq
                 ON OutboxMessage(CorrelationId, SequenceNumber) WHERE Status = 'Pending';
 
+            -- Track only streams touched by this version. Do not replay the historical
+            -- pre-ack backlog from old installations when upgrading.
+            CREATE TABLE IF NOT EXISTS OutboxStream (
+                CorrelationId TEXT PRIMARY KEY,
+                CompletionSequence INTEGER
+            );
+
             CREATE TABLE IF NOT EXISTS RunnerConfig (
                 Key TEXT PRIMARY KEY,
                 Value TEXT NOT NULL
@@ -74,6 +81,16 @@ public sealed class LocalOutbox
         cmd.Parameters.AddWithValue("@created", DateTimeOffset.UtcNow.ToString("O"));
         await cmd.ExecuteNonQueryAsync();
 
+        if (correlationId is not null && messageType is "ReportProcessOutput" or "ReportProcessCompleted")
+        {
+            cmd.CommandText = """
+                INSERT INTO OutboxStream (CorrelationId, CompletionSequence) VALUES (@corr, @completed)
+                ON CONFLICT(CorrelationId) DO UPDATE SET
+                    CompletionSequence = COALESCE(excluded.CompletionSequence, CompletionSequence);
+                """;
+            cmd.Parameters.AddWithValue("@completed", messageType == "ReportProcessCompleted" ? seq : DBNull.Value);
+            await cmd.ExecuteNonQueryAsync();
+        }
         await tx.CommitAsync();
         return seq;
     }
@@ -191,9 +208,9 @@ public sealed class LocalOutbox
     /// Keep the sequence floor in the same transaction so removing the highest row cannot reuse
     /// an id the server has already seen. Duplicate/late acks are harmless.
     /// </summary>
-    public async Task AcknowledgeAsync(Guid correlationId, long sequence)
+    public async Task<bool> AcknowledgeAsync(Guid correlationId, long sequence)
     {
-        if (sequence <= 0) return;
+        if (sequence <= 0) return false;
         await using var conn = await OpenAsync();
         await using var tx = (SqliteTransaction)await conn.BeginTransactionAsync();
         await using var cmd = conn.CreateCommand();
@@ -207,7 +224,38 @@ public sealed class LocalOutbox
         cmd.Parameters.AddWithValue("@seq", sequence);
         cmd.Parameters.AddWithValue("@corr", correlationId.ToString());
         await cmd.ExecuteNonQueryAsync();
+        cmd.CommandText = "DELETE FROM OutboxStream WHERE CorrelationId = @corr AND CompletionSequence <= @seq";
+        var completed = await cmd.ExecuteNonQueryAsync() > 0;
         await tx.CommitAsync();
+        return completed;
+    }
+
+    /// <summary>Recover this stream only, including legacy Sent rows the API never received.</summary>
+    public async Task<bool> ResumeStreamAsync(Guid correlationId, long receivedSequence)
+    {
+        var completed = await AcknowledgeAsync(correlationId, receivedSequence);
+        await using var conn = await OpenAsync();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            UPDATE OutboxMessage SET Status = 'Pending', SentAt = NULL
+            WHERE CorrelationId = @corr AND SequenceNumber > @seq AND Status = 'Sent';
+            """;
+        cmd.Parameters.AddWithValue("@corr", correlationId.ToString());
+        cmd.Parameters.AddWithValue("@seq", receivedSequence);
+        await cmd.ExecuteNonQueryAsync();
+        return completed;
+    }
+
+    /// <summary>Includes exited processes until their completion has been acknowledged.</summary>
+    public async Task<IReadOnlyCollection<Guid>> GetRecoverableCorrelationsAsync()
+    {
+        await using var conn = await OpenAsync();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT CorrelationId FROM OutboxStream";
+        await using var reader = await cmd.ExecuteReaderAsync();
+        var result = new List<Guid>();
+        while (await reader.ReadAsync()) result.Add(Guid.Parse(reader.GetString(0)));
+        return result;
     }
 
     public async Task<int> ResetSentToPendingAboveAsync(long sequence)

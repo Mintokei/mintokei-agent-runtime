@@ -299,6 +299,9 @@ public sealed class RunnerHostedService : BackgroundService
                 // the same 200 oldest Pending rows on every sweep, finds them
                 // all closed, skips them all, never advances the cursor. See
                 // commit history around `head-of-line blocking in outbox drain`.
+                // Output may outlive its process or its task stream. Re-open durable
+                // recovery streams even when no active process remains after reconnect.
+                await _grpcTaskStreams.ReopenPendingAsync(ct);
                 var openCorrelations = _grpcTaskStreams.OpenCorrelations();
                 var pending = await _outbox.GetPendingAsync(200, openCorrelations);
                 foreach (var (seq, type, payload, correlationId) in pending)
@@ -319,18 +322,10 @@ public sealed class RunnerHostedService : BackgroundService
                             // retries.
                             continue;
                         }
-                        await _outbox.MarkSentAsync(seq);
-
-                        // Close the per-task gRPC stream once the terminal
-                        // ProcessCompleted has been delivered. Without this,
-                        // streams accumulate per process and only get cleaned
-                        // up on connection drop. Fire-and-forget — the close
-                        // does not need to complete before draining the next
-                        // message.
-                        if (type == "ReportProcessCompleted" && correlationId is Guid corr)
-                        {
-                            _ = _grpcTaskStreams.CloseAsync(corr);
-                        }
+                        // A successful gRPC write only means buffered locally. Keep output
+                        // Pending until a server ack retires it; a disconnect can discard
+                        // buffered writes. Retransmissions use the same sequence and the
+                        // API deduplicates them. Completion closes only after its ack.
                     }
                     catch (Exception ex)
                     {

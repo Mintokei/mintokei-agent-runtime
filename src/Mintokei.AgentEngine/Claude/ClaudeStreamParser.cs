@@ -270,6 +270,12 @@ internal sealed class ClaudeStreamParser : IAgentStreamParser
 
         _pendingCompactBoundary = message;
 
+        // Manual /compact can finish without another assistant response. Publish the new
+        // footprint now; result.modelUsage is cumulative and cannot refresh it later.
+        if (message.CompactBoundary is { Success: true, PostTokens: { } postTokens } && postTokens >= 0)
+            yield return new DeltaOutput(new ContextUsagePayload(
+                postTokens, WindowTokens: null, Model: null, CostUsd: null));
+
         _logger.LogInformation(
             "Compact boundary for AgentTask {TaskId}: trigger={Trigger} pre={Pre} post={Post} duration={Duration}ms — waiting for synthetic summary",
             _agentTaskId, message.CompactBoundary!.Trigger,

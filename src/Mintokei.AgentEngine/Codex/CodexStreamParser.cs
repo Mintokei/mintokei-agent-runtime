@@ -458,9 +458,9 @@ internal sealed class CodexStreamParser : IAgentStreamParser
     }
 
     /// <summary>
-    /// Codex emits <c>thread/tokenUsageUpdated</c> after every turn with both the last-turn
-    /// breakdown and a running total, plus the model's context-window size. Mirror it onto
-    /// the SSE delta channel as a <see cref="ContextUsagePayload"/> so the UI gauge updates
+    /// Codex emits <c>thread/tokenUsageUpdated</c> after model requests and compaction with
+    /// both the latest context footprint and cumulative usage, plus the model's context-window size.
+    /// Mirror it onto the SSE delta channel as a <see cref="ContextUsagePayload"/> so the UI gauge updates
     /// without waiting for the next full message. (The dispatcher also persists it.)
     /// </summary>
     private IEnumerable<AgentStreamOutput> HandleTokenUsageUpdated(JsonElement msg)
@@ -474,21 +474,22 @@ internal sealed class CodexStreamParser : IAgentStreamParser
 
         long? window = null;
         if (tokenUsage.TryGetProperty("modelContextWindow", out var w)
-            && w.ValueKind == JsonValueKind.Number)
-            window = w.GetInt64();
+            && w.ValueKind == JsonValueKind.Number
+            && w.TryGetInt64(out var windowTokens) && windowTokens > 0)
+            window = windowTokens;
 
-        // Use the most recent turn's input footprint — that's "what's currently in context"
-        // rather than the cumulative thread total which keeps growing.
+        // `last.totalTokens` includes the latest request's input + output. After compaction
+        // Codex reports the new context estimate in this field with input/output both zero.
+        // `total` is cumulative session usage and must never drive the context gauge.
         var used = tokenUsage.TryGetProperty("last", out var last)
             && last.ValueKind == JsonValueKind.Object
-                ? ExtractInputTokens(last)
-                : 0;
+                ? ExtractContextTokens(last)
+                : null;
 
-        if (used <= 0 && window is null)
+        if (used is null && window is null)
             yield break;
 
-        long? usedOpt = used > 0 ? used : null;
-        yield return new DeltaOutput(new ContextUsagePayload(usedOpt, window, Model: null, CostUsd: null));
+        yield return new DeltaOutput(new ContextUsagePayload(used, window, Model: null, CostUsd: null));
     }
 
     private AgentMessage SystemMessage(string? content, MessageType type, MessageStatus status)
@@ -503,17 +504,23 @@ internal sealed class CodexStreamParser : IAgentStreamParser
             CreatedAt = DateTimeOffset.UtcNow,
         };
 
-    /// <summary>Input footprint from a Codex <c>TokenUsageBreakdown</c>. Per
-    /// <c>codex-rs/protocol/src/protocol.rs</c>, <c>cachedInputTokens</c> is a
-    /// <em>subset</em> of <c>inputTokens</c> (the upstream <c>non_cached_input()</c>
-    /// computes <c>input - cached</c>), so <c>inputTokens</c> already covers both cached
-    /// and uncached — don't add <c>cachedInputTokens</c> on top or you double-count.</summary>
-    private static long ExtractInputTokens(JsonElement breakdown)
+    /// <summary>Use Codex's authoritative context total, including explicit zero resets.
+    /// Older/partial frames can fall back to input + output. Cached input and reasoning
+    /// output are subsets of those counts and must not be added again.</summary>
+    private static long? ExtractContextTokens(JsonElement breakdown)
     {
-        if (breakdown.TryGetProperty("inputTokens", out var i) && i.ValueKind == JsonValueKind.Number)
-            return i.GetInt64();
-        return 0;
+        if (ReadTokenCount(breakdown, "totalTokens") is { } total)
+            return total;
+
+        var input = ReadTokenCount(breakdown, "inputTokens");
+        var output = ReadTokenCount(breakdown, "outputTokens");
+        return input is null && output is null ? null : (input ?? 0) + (output ?? 0);
     }
+
+    private static long? ReadTokenCount(JsonElement breakdown, string property)
+        => breakdown.TryGetProperty(property, out var value)
+            && value.ValueKind == JsonValueKind.Number
+            && value.TryGetInt64(out var count) && count >= 0 ? count : null;
 
     private static string ExtractErrorMessage(JsonElement @params)
     {

@@ -39,6 +39,12 @@ public sealed class LocalOutbox
                 AckedAt TEXT
             );
             CREATE UNIQUE INDEX IF NOT EXISTS IX_OutboxMessage_Seq ON OutboxMessage(SequenceNumber);
+            CREATE INDEX IF NOT EXISTS IX_OutboxMessage_Correlation_Seq
+                ON OutboxMessage(CorrelationId, SequenceNumber);
+            CREATE INDEX IF NOT EXISTS IX_OutboxMessage_Pending_Seq
+                ON OutboxMessage(SequenceNumber) WHERE Status = 'Pending';
+            CREATE INDEX IF NOT EXISTS IX_OutboxMessage_Pending_Correlation_Seq
+                ON OutboxMessage(CorrelationId, SequenceNumber) WHERE Status = 'Pending';
 
             CREATE TABLE IF NOT EXISTS RunnerConfig (
                 Key TEXT PRIMARY KEY,
@@ -105,7 +111,7 @@ public sealed class LocalOutbox
         {
             cmd.CommandText = """
                 SELECT SequenceNumber, MessageType, PayloadJson, CorrelationId
-                FROM OutboxMessage
+                FROM OutboxMessage INDEXED BY IX_OutboxMessage_Pending_Seq
                 WHERE Status = 'Pending'
                 ORDER BY SequenceNumber
                 LIMIT @limit
@@ -118,7 +124,7 @@ public sealed class LocalOutbox
             // SQL.
             cmd.CommandText = """
                 SELECT SequenceNumber, MessageType, PayloadJson, CorrelationId
-                FROM OutboxMessage
+                FROM OutboxMessage INDEXED BY IX_OutboxMessage_Pending_Correlation_Seq
                 WHERE Status = 'Pending' AND CorrelationId IS NULL
                 ORDER BY SequenceNumber
                 LIMIT @limit
@@ -136,9 +142,14 @@ public sealed class LocalOutbox
             }
             cmd.CommandText = $"""
                 SELECT SequenceNumber, MessageType, PayloadJson, CorrelationId
-                FROM OutboxMessage
+                FROM OutboxMessage INDEXED BY IX_OutboxMessage_Pending_Correlation_Seq
                 WHERE Status = 'Pending'
-                  AND (CorrelationId IS NULL OR CorrelationId IN ({string.Join(",", paramNames)}))
+                  AND CorrelationId IS NULL
+                UNION ALL
+                SELECT SequenceNumber, MessageType, PayloadJson, CorrelationId
+                FROM OutboxMessage INDEXED BY IX_OutboxMessage_Pending_Correlation_Seq
+                WHERE Status = 'Pending'
+                  AND CorrelationId IN ({string.Join(",", paramNames)})
                 ORDER BY SequenceNumber
                 LIMIT @limit
                 """;
@@ -172,6 +183,31 @@ public sealed class LocalOutbox
         cmd.Parameters.AddWithValue("@seq", sequence);
         cmd.Parameters.AddWithValue("@now", DateTimeOffset.UtcNow.ToString("O"));
         await cmd.ExecuteNonQueryAsync();
+    }
+
+    /// <summary>
+    /// Retires only this stream's acknowledged output. Sequences are allocated per machine, but
+    /// task streams arrive independently: an ack for B must never delete A's unsent output.
+    /// Keep the sequence floor in the same transaction so removing the highest row cannot reuse
+    /// an id the server has already seen. Duplicate/late acks are harmless.
+    /// </summary>
+    public async Task AcknowledgeAsync(Guid correlationId, long sequence)
+    {
+        if (sequence <= 0) return;
+        await using var conn = await OpenAsync();
+        await using var tx = (SqliteTransaction)await conn.BeginTransactionAsync();
+        await using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = """
+            INSERT INTO RunnerConfig (Key, Value) VALUES ('SequenceFloor', @seq)
+            ON CONFLICT(Key) DO UPDATE SET Value = MAX(CAST(Value AS INTEGER), @seq);
+            DELETE FROM OutboxMessage
+            WHERE CorrelationId = @corr AND SequenceNumber <= @seq;
+            """;
+        cmd.Parameters.AddWithValue("@seq", sequence);
+        cmd.Parameters.AddWithValue("@corr", correlationId.ToString());
+        await cmd.ExecuteNonQueryAsync();
+        await tx.CommitAsync();
     }
 
     public async Task<int> ResetSentToPendingAboveAsync(long sequence)

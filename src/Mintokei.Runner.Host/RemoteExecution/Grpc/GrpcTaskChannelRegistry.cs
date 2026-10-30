@@ -66,6 +66,14 @@ public sealed class GrpcTaskChannelRegistry
         Guid correlationId,
         ServerTaskCommand command,
         CancellationToken ct)
+        => await TrySendMessageAsync(machineId, correlationId, new TaskServerMessage { Command = command }, ct);
+
+    public Task<bool> TryAcknowledgeAsync(Guid machineId, Guid correlationId, long sequence, CancellationToken ct)
+        => TrySendMessageAsync(machineId, correlationId,
+            new TaskServerMessage { Ack = new Ack { CumulativeSeq = sequence } }, ct);
+
+    private async Task<bool> TrySendMessageAsync(
+        Guid machineId, Guid correlationId, TaskServerMessage message, CancellationToken ct)
     {
         if (!_channels.TryGetValue((machineId, correlationId), out var channel))
             return false;
@@ -73,7 +81,7 @@ public sealed class GrpcTaskChannelRegistry
         await channel.WriteLock.WaitAsync(ct);
         try
         {
-            await channel.Writer.WriteAsync(new TaskServerMessage { Command = command }, ct);
+            await channel.Writer.WriteAsync(message, ct);
             return true;
         }
         finally

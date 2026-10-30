@@ -31,7 +31,7 @@ namespace Mintokei.Runner;
 /// per-task gRPC stream automatically (the API-side routing landed in
 /// commit 6a055c92).
 /// </summary>
-public sealed class GrpcTaskStreamManager(ILogger<GrpcTaskStreamManager> logger)
+public sealed class GrpcTaskStreamManager(ILogger<GrpcTaskStreamManager> logger, LocalOutbox outbox)
 {
     private readonly object _clientLock = new();
     private RunnerLink.RunnerLinkClient? _client;
@@ -195,6 +195,8 @@ public sealed class GrpcTaskStreamManager(ILogger<GrpcTaskStreamManager> logger)
                 return false;
             }
 
+            await outbox.AcknowledgeAsync(correlationId, first.OpenAck.LastReceivedRunnerSeq);
+
             var stream = new ActiveStream { Call = call, Cts = streamCts };
             if (!_streams.TryAdd(correlationId, stream))
             {
@@ -326,8 +328,10 @@ public sealed class GrpcTaskStreamManager(ILogger<GrpcTaskStreamManager> logger)
                 {
                     await _commandChannel.Writer.WriteAsync((correlationId, msg.Command), ct);
                 }
-                // Acks from the server can be observed for telemetry but
-                // currently require no action on the runner side.
+                else if (msg.PayloadCase == TaskServerMessage.PayloadOneofCase.Ack)
+                {
+                    await outbox.AcknowledgeAsync(correlationId, msg.Ack.CumulativeSeq);
+                }
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)

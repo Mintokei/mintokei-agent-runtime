@@ -600,6 +600,8 @@ public sealed class RunnerLinkService(
                             await TryAdvanceReceivedInboundAsync(channelId, msg.Output.Sequence, CancellationToken.None);
                             await processOutputDispatcher.DispatchProcessOutputAsync(machineId, msg.Output.PayloadJson);
                         }
+                        await taskChannelRegistry.TryAcknowledgeAsync(
+                            machineId, correlationId, msg.Output.Sequence, ct);
                         break;
 
                     case TaskClientMessage.PayloadOneofCase.Completed:
@@ -618,6 +620,8 @@ public sealed class RunnerLinkService(
                             await TryAdvanceReceivedInboundAsync(channelId, msg.Completed.Sequence, CancellationToken.None);
                             await processOutputDispatcher.DispatchProcessCompletedAsync(machineId, msg.Completed.PayloadJson);
                         }
+                        await taskChannelRegistry.TryAcknowledgeAsync(
+                            machineId, correlationId, msg.Completed.Sequence, ct);
                         break;
 
                     case TaskClientMessage.PayloadOneofCase.Wakeup:

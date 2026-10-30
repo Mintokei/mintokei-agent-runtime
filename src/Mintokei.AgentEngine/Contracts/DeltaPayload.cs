@@ -35,7 +35,7 @@ public sealed record TurnPayload(bool IsStart) : DeltaPayload;
 
 /// <summary>
 /// Per-turn context-window usage snapshot. Emitted whenever the underlying CLI reports a fresh
-/// token count (Claude: per assistant message + final result; Codex: <c>thread/tokenUsageUpdated</c>;
+/// token count (Claude: per assistant message + final result; Codex: <c>thread/tokenUsage/updated</c>;
 /// ACP: <c>usage_update</c>).
 /// </summary>
 /// <param name="UsedTokens">Tokens occupying context for the latest turn. Nullable so a per-turn

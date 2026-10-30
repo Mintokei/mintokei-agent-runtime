@@ -55,6 +55,35 @@ public class CodexSessionProtocolTests
     }
 
     [Fact]
+    public async Task Captured_token_usage_notification_reaches_the_session_output()
+    {
+        // Captured from the production runner uplink; only thread/turn ids are anonymized.
+        // Feed the real envelope through the session pump, including JSON-RPC parsing
+        // and method dispatch, rather than constructing a notification name in the test.
+        var fake = new FakeProcessHandle();
+        await using var session = NewCodexSession(fake);
+        await session.AttachAsync(TestContext.Current.CancellationToken);
+        fake.FeedStdout(await File.ReadAllTextAsync(Path.Combine(
+            AppContext.BaseDirectory, "Infrastructure", "Fixtures", "codex-token-usage-live.json"),
+            TestContext.Current.CancellationToken));
+        fake.FeedStdout("""{"method":"turn/completed","params":{"turn":{"status":"completed"}}}""");
+
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(Timeout);
+        var usages = new List<ContextUsagePayload>();
+        await foreach (var output in session.Output.WithCancellation(timeout.Token))
+        {
+            if (output is DeltaOutput { Payload: ContextUsagePayload usage })
+                usages.Add(usage);
+            if (output is TurnEnded) break;
+        }
+
+        var snapshot = Assert.Single(usages);
+        Assert.Equal(201165, snapshot.UsedTokens);
+        Assert.Equal(475000, snapshot.WindowTokens);
+    }
+
+    [Fact]
     public async Task Handshake_initializes_then_starts_a_thread_and_reports_the_thread_id()
     {
         var fake = new FakeProcessHandle();

@@ -15,7 +15,7 @@ public class ContextUsageParserTests
     {
         var parser = new CodexStreamParser(NullLogger.Instance, Guid.NewGuid());
         var outputs = parser.Consume(Frame(
-            """{"method":"thread/tokenUsageUpdated","params":{"tokenUsage": """ + tokenUsage + "}}")).ToList();
+            """{"method":"thread/tokenUsage/updated","params":{"tokenUsage": """ + tokenUsage + "}}")).ToList();
         return Assert.IsType<ContextUsagePayload>(Assert.IsType<DeltaOutput>(Assert.Single(outputs)).Payload);
     }
 
@@ -54,13 +54,14 @@ public class ContextUsageParserTests
     }
 
     [Fact]
-    public void Codex_MissingTotal_FallsBackToInputPlusOutput()
+    public void Codex_MissingTotal_DoesNotInferUsageFromOtherCounts()
     {
         var usage = CodexUsage("""
             {"last":{"inputTokens":10000,"cachedInputTokens":8000,"outputTokens":2000,
-                     "reasoningOutputTokens":1500}}
+                     "reasoningOutputTokens":1500},"modelContextWindow":475000}
             """);
-        Assert.Equal(12000, usage.UsedTokens);
+        Assert.Null(usage.UsedTokens);
+        Assert.Equal(475000, usage.WindowTokens);
     }
 
     [Fact]
@@ -96,6 +97,21 @@ public class ContextUsageParserTests
         Assert.Equal(677, usage.UsedTokens);
         Assert.Null(usage.WindowTokens);
         Assert.Single(outputs.OfType<MessageOutput>(), o => o.Message.Type == MessageType.CompactBoundary);
+    }
+
+    [Fact]
+    public void Claude_CapturedCompaction_PublishesPostTokensBeforeTheCostOnlyResult()
+    {
+        var parser = new ClaudeStreamParser(NullLogger.Instance, Guid.NewGuid());
+        var outputs = File.ReadLines(Path.Combine(AppContext.BaseDirectory,
+            "Infrastructure", "Fixtures", "claude-compact-live.jsonl"))
+            .SelectMany(line => parser.Consume(Frame(line), false)).ToList();
+        var usages = outputs.OfType<DeltaOutput>().Select(o => o.Payload)
+            .OfType<ContextUsagePayload>().ToList();
+
+        Assert.Equal(397, usages[0].UsedTokens);
+        Assert.Null(usages[^1].UsedTokens);
+        Assert.Equal(200000, usages[^1].WindowTokens);
     }
 
     [Fact]

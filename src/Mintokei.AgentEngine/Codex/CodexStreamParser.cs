@@ -10,7 +10,7 @@ namespace Mintokei.AgentEngine.Codex;
 /// Parses Codex app-server JSON-RPC frames into the backend-agnostic
 /// <see cref="AgentStreamOutput"/> vocabulary — both the one-way notifications
 /// (<c>item/started</c>, <c>item/completed</c>, <c>error</c>, <c>turn/completed</c>,
-/// <c>thread/tokenUsageUpdated</c>) and the bidirectional frames as <em>pure data</em>:
+/// <c>thread/tokenUsage/updated</c>) and the bidirectional frames as <em>pure data</em>:
 /// a response (id, no method) → <see cref="ControlResponseReceived"/>, and a server-originated
 /// request (command / file-change approval, user-input prompt, MCP elicitation) →
 /// <see cref="InteractionRequested"/> (with a <c>CacheKey</c> for elicitation). The service
@@ -93,7 +93,7 @@ internal sealed class CodexStreamParser : IAgentStreamParser
             "item/completed" => HandleItemCompleted(msg),
             "error" => HandleError(msg),
             "turn/completed" => HandleTurnCompleted(msg),
-            "thread/tokenUsageUpdated" => HandleTokenUsageUpdated(msg),
+            "thread/tokenUsage/updated" => HandleTokenUsageUpdated(msg),
             "codex/event/error" or "codex/event/warning" => LogAndIgnore(method, msg),
             _ => [],
         };
@@ -327,7 +327,7 @@ internal sealed class CodexStreamParser : IAgentStreamParser
 
             yield return new MessageOutput(message);
             // Compaction complete → drop the banner. Per-turn token counts arrive separately
-            // on thread/tokenUsageUpdated; the contextCompaction item carries no summary text.
+            // on thread/tokenUsage/updated; the contextCompaction item carries no summary text.
             yield return new CompactingChanged(Active: false);
             yield break;
         }
@@ -458,7 +458,7 @@ internal sealed class CodexStreamParser : IAgentStreamParser
     }
 
     /// <summary>
-    /// Codex emits <c>thread/tokenUsageUpdated</c> after model requests and compaction with
+    /// Codex emits <c>thread/tokenUsage/updated</c> after model requests and compaction with
     /// both the latest context footprint and cumulative usage, plus the model's context-window size.
     /// Mirror it onto the SSE delta channel as a <see cref="ContextUsagePayload"/> so the UI gauge updates
     /// without waiting for the next full message. (The dispatcher also persists it.)
@@ -504,21 +504,10 @@ internal sealed class CodexStreamParser : IAgentStreamParser
             CreatedAt = DateTimeOffset.UtcNow,
         };
 
-    /// <summary>Use Codex's authoritative context total, including explicit zero resets.
-    /// Older/partial frames can fall back to input + output. Cached input and reasoning
-    /// output are subsets of those counts and must not be added again.</summary>
+    /// <summary>Use the reported context total, including explicit zero resets.
+    /// Missing totals stay unknown; cached input and reasoning output are already included.</summary>
     private static long? ExtractContextTokens(JsonElement breakdown)
-    {
-        if (ReadTokenCount(breakdown, "totalTokens") is { } total)
-            return total;
-
-        var input = ReadTokenCount(breakdown, "inputTokens");
-        var output = ReadTokenCount(breakdown, "outputTokens");
-        return input is null && output is null ? null : (input ?? 0) + (output ?? 0);
-    }
-
-    private static long? ReadTokenCount(JsonElement breakdown, string property)
-        => breakdown.TryGetProperty(property, out var value)
+        => breakdown.TryGetProperty("totalTokens", out var value)
             && value.ValueKind == JsonValueKind.Number
             && value.TryGetInt64(out var count) && count >= 0 ? count : null;
 

@@ -27,6 +27,11 @@ internal sealed class CodexStreamParser : IAgentStreamParser
     private readonly ILogger _logger;
     private readonly Guid _agentTaskId;
 
+    // App-server identifies streamed messages by item id; the UI's provider-neutral
+    // stream uses integer block indices. Indices remain unique across items/turns.
+    private readonly Dictionary<string, int> _textBlocks = new();
+    private int _nextTextBlockIndex;
+
     /// <summary>Upstream error captured from an <c>error</c> notification, consumed by the
     /// next <c>turn/completed</c> so a failed turn surfaces why it failed.</summary>
     private TurnFailure? _pendingTurnFailure;
@@ -91,6 +96,7 @@ internal sealed class CodexStreamParser : IAgentStreamParser
         {
             "item/started" => HandleItemStarted(msg),
             "item/completed" => HandleItemCompleted(msg),
+            "item/agentMessage/delta" => HandleAgentMessageDelta(msg),
             "error" => HandleError(msg),
             "turn/completed" => HandleTurnCompleted(msg),
             "thread/tokenUsage/updated" => HandleTokenUsageUpdated(msg),
@@ -298,6 +304,26 @@ internal sealed class CodexStreamParser : IAgentStreamParser
         }
     }
 
+    private IEnumerable<AgentStreamOutput> HandleAgentMessageDelta(JsonElement msg)
+    {
+        if (!msg.TryGetProperty("params", out var parameters)
+            || parameters.ValueKind != JsonValueKind.Object
+            || !parameters.TryGetProperty("itemId", out var id)
+            || id.ValueKind != JsonValueKind.String || string.IsNullOrEmpty(id.GetString())
+            || !parameters.TryGetProperty("delta", out var delta)
+            || delta.ValueKind != JsonValueKind.String || string.IsNullOrEmpty(delta.GetString()))
+            yield break;
+
+        var itemId = id.GetString()!;
+        if (!_textBlocks.TryGetValue(itemId, out var index))
+        {
+            index = _nextTextBlockIndex++;
+            _textBlocks.Add(itemId, index);
+            yield return new DeltaOutput(new BlockStartPayload(index, "text"));
+        }
+        yield return new DeltaOutput(new ContentDeltaPayload("text", index, delta.GetString()!));
+    }
+
     private IEnumerable<AgentStreamOutput> HandleItemCompleted(JsonElement msg)
     {
         if (!msg.TryGetProperty("params", out var @params)
@@ -333,8 +359,20 @@ internal sealed class CodexStreamParser : IAgentStreamParser
         }
 
         var parsed = CodexThreadItemParser.Parse(_agentTaskId, item, _logger);
-        if (parsed is not null)
-            yield return new MessageOutput(parsed);
+        if (parsed is null) yield break;
+        var streamed = parsed.ExternalId is { } itemId && _textBlocks.ContainsKey(itemId);
+        if (streamed)
+        {
+            var index = _textBlocks[parsed.ExternalId!];
+            _textBlocks.Remove(parsed.ExternalId!);
+            yield return new DeltaOutput(new BlockStopPayload(index));
+        }
+        // item/completed remains the single authoritative persisted message.
+        yield return new MessageOutput(parsed);
+        // Finished previews must not reappear beside their persisted copy on reconnect.
+        // Do not discard a different item that is still receiving text.
+        if (streamed && _textBlocks.Count == 0)
+            yield return new ClearDeltaSnapshot();
     }
 
     private IEnumerable<AgentStreamOutput> HandleError(JsonElement msg)
@@ -410,6 +448,14 @@ internal sealed class CodexStreamParser : IAgentStreamParser
 
         var isInterrupted = status == "interrupted";
         var isFailed = status == "failed";
+
+        // Preserve text if interruption/failure ended the turn before item/completed.
+        if (_textBlocks.Count > 0)
+        {
+            yield return new FlushDeltaSnapshot();
+            yield return new ClearDeltaSnapshot();
+            _textBlocks.Clear();
+        }
 
         // Capture then reset the per-turn signals so a stale one can't leak into the next turn.
         var failure = _pendingTurnFailure;

@@ -198,6 +198,15 @@ public sealed class AgentSession : IAgentSession
         return Task.CompletedTask;
     }
 
+    public async Task RestoreSessionIdAsync(string sessionId, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        ct.ThrowIfCancellationRequested();
+        if (AgentSessionId is not null && AgentSessionId != sessionId)
+            throw new InvalidOperationException("Cannot replace an existing conversation identity.");
+        await ReportSessionIdAsync(sessionId);
+    }
+
     public Task SendMessageAsync(string content, CancellationToken ct = default)
         => SendTurnAsync(new SessionTurn(content), ct);
 

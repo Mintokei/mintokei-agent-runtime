@@ -25,6 +25,28 @@ public class AgentSessionAttachTests
     }
 
     [Fact]
+    public async Task Verified_identity_can_repair_an_adopted_session_without_a_new_handshake()
+    {
+        var (session, handle) = Adopted(null);
+        await using var _ = session;
+        await session.AttachAsync(TestContext.Current.CancellationToken);
+        await session.RestoreSessionIdAsync("existing-conversation", TestContext.Current.CancellationToken);
+        Assert.Equal("existing-conversation", session.AgentSessionId);
+        Assert.Empty(handle.Writes);
+        await session.SendMessageAsync("followup", TestContext.Current.CancellationToken);
+        Assert.Contains("existing-conversation", Assert.Single(handle.Writes));
+    }
+
+    [Fact]
+    public async Task Restore_never_overwrites_a_different_existing_identity()
+    {
+        var (session, _) = Adopted("original");
+        await using var cleanup = session;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => session.RestoreSessionIdAsync("another", TestContext.Current.CancellationToken));
+        Assert.Equal("original", session.AgentSessionId);
+    }
+
+    [Fact]
     public async Task Attach_writes_no_handshake_and_turn_sends_stamp_the_seeded_session_id()
     {
         var (session, handle) = Adopted("sess-abc");

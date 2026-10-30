@@ -57,6 +57,10 @@ public interface IAgentSession : IAsyncDisposable
     /// </summary>
     Task AttachAsync(CancellationToken ct = default);
 
+    /// <summary>Restores a verified conversation identity on an adopted process without starting a new conversation.</summary>
+    Task RestoreSessionIdAsync(string sessionId, CancellationToken ct = default)
+        => throw new NotSupportedException("This session cannot restore its conversation identity.");
+
     /// <summary>
     /// The CLI's most recent stderr lines (ring-buffered), or null if it wrote none. Survives the pump
     /// ending, so a caller reacting to a dead process can read WHY it died in the CLI's own words —

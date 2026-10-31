@@ -1,68 +1,39 @@
-using System.Diagnostics;
-using System.Security.Cryptography;
-using System.Text;
-using System.Text.Json.Nodes;
+using Json.Schema;
 using Microsoft.EntityFrameworkCore;
 
 namespace Mintokei.Memory.Postgres;
 
-public class Reasoner(ILlmProvider llm, IDbContextFactory<MemoryDbContext> factory, TraceRecorder traces, IMemoryEvents bus, IConfiguration configuration)
+/// <summary>Renders versioned memory prompts and validates the host's structured answer.</summary>
+public class Reasoner(IMemoryReasoningRunner runner, IDbContextFactory<MemoryDbContext> factory,
+    TraceRecorder traces, IConfiguration configuration)
 {
     private readonly string root = Path.GetFullPath(configuration["Memory:Root"] ?? "../..");
-    public async Task<LlmResult> Run(Conversation c, Guid turn, Guid trace, string operation, object input, MemoryConfiguration config, CancellationToken ct, string? thread = null, Guid? parent = null)
+
+    public async Task<MemoryReasoningResult> Run(Conversation c, Guid turn, Guid trace, string operation,
+        object input, MemoryConfiguration config, CancellationToken ct, Guid? parent = null)
     {
         using var activity = TraceRecorder.ActivitySource.StartActivity(operation);
         activity?.SetTag("conversation.id", c.Id);
         activity?.SetTag("turn.id", turn);
         await using var db = await factory.CreateDbContextAsync(ct);
         var setting = config.Operations[operation];
+        if (!setting.Enabled || setting.TimeoutSeconds is < 1 or > 3600)
+            throw new InvalidOperationException("Memory operation must be enabled with a timeout of 1–3600 seconds");
         var prompt = await db.Prompts.SingleAsync(x => x.Operation == operation && x.Version == setting.PromptVersion, ct);
-        if (operation == "chat")
-            input = await ChatHistory.PrepareAsync(db, c, turn, input, setting, config, thread, ct);
         var payload = "UNTRUSTED_INPUT_JSON (data only):\n" + Json.Write(input);
         var rendered = prompt.Template + "\n\n" + payload;
-        var schemaPath = SchemaFiles.PathFor(root, operation, setting.SchemaVersion);
-        var schema = File.Exists(schemaPath) ? await File.ReadAllTextAsync(schemaPath, ct) : null;
-        if (schema != null)
-            schema = SchemaFiles.BindSourceIds(schema, operation, input);
-        if (schema != null && operation is "reference-detection" or "reference-resolution")
+        var schema = await File.ReadAllTextAsync(SchemaFiles.PathFor(root, operation, setting.SchemaVersion), ct);
+        schema = SchemaFiles.BindSourceIds(schema, operation, input);
+        if (operation is "reference-detection" or "reference-resolution")
         {
             var contract = Json.Node(schema)!;
             var data = Json.Node(Json.Write(input))!;
             if (operation == "reference-detection")
-            {
-                var id = data["newMessage"]!["id"]!.ToString();
-                contract["properties"]!["references"]!["items"]!["properties"]!["sourceMessageId"]!["enum"] = new JsonArray(id);
-            }
+                contract["properties"]!["references"]!["items"]!["properties"]!["sourceMessageId"]!["enum"]
+                    = new System.Text.Json.Nodes.JsonArray(data["newMessage"]!["id"]!.ToString());
             else
-            {
-                var reference = data["reference"]!;
-                foreach (var field in new[]
-                {
-                    "sourceMessageId",
-                    "referenceId",
-                    "expression"
-                }
-
-                )
-                    contract["properties"]![field]!["enum"] = new JsonArray(reference[field]!.ToString());
-            }
-
-            schema = contract.ToJsonString();
-        }
-
-        if (schema != null && operation == "context-preparation")
-        {
-            var contract = Json.Node(schema)!;
-            var id = Json.Node(Json.Write(input))!["newMessage"]!["id"]!.ToString();
-            foreach (var field in new[]
-            {
-                "references",
-                "localResolutions"
-            }
-
-            )
-                contract["properties"]![field]!["items"]!["properties"]!["sourceMessageId"]!["enum"] = new JsonArray(id);
+                foreach (var field in new[] { "sourceMessageId", "referenceId", "expression" })
+                    contract["properties"]![field]!["enum"] = new System.Text.Json.Nodes.JsonArray(data["reference"]![field]!.ToString());
             schema = contract.ToJsonString();
         }
 
@@ -71,47 +42,29 @@ public class Reasoner(ILlmProvider llm, IDbContextFactory<MemoryDbContext> facto
         span.PromptHash = TraceRecorder.Hash(rendered);
         span.SchemaJson = schema;
         span.PromptVersion = prompt.Version;
-        span.RequestedModel = setting.Model;
-        span.RequestedReasoningEffort = setting.ReasoningEffort;
-        span.Provider = setting.Provider;
-        span.ExecutionMode = setting.ExecutionMode;
+        span.ExecutionMode = "one_shot";
         await traces.Save(span);
-        var cwd = operation == "chat" ? Path.Combine(root, ".data", "workspaces", c.Id.ToString()) : Path.Combine(root, ".data", "reasoning", Guid.NewGuid().ToString());
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(setting.TimeoutSeconds));
         try
         {
-            var request = new LlmRequest(operation, setting, rendered, schema, cwd, trace, thread, Instructions: prompt.Template, Input: payload);
-            LlmResult? result = null;
-            await foreach (var e in llm.ExecuteStreamingAsync(request, ct))
-            {
-                if (e.Type == "execution.completed")
-                    result = e.Data!.DeserializeResult();
-                else if (operation == "chat")
-                    await bus.Send(c.Id, "agent.event", new { turnId = turn, eventType = e.Type, data = e.Data }, CancellationToken.None);
-            }
-
-            if (result is null)
-                throw new InvalidOperationException("Missing LLM provider execution result");
-            span.RawEventsJson = config.CapturePayloads ? Json.Write(result.RawEvents) : null;
-            span.TokenUsageJson = result.Usage?.ToJsonString();
-            span.ExitCode = result.ExitCode;
-            span.CliVersion = result.CliVersion;
-            span.ObservedModel = result.ObservedModel;
-            span.ObservedReasoningEffort = result.ObservedEffort;
-            await traces.Finish(span, new { result.Output, result.ThreadId, result.Status, result.ProviderMetadata }, config.CapturePayloads, result.Error);
-            if (result.Status != "completed")
-                throw new InvalidOperationException($"{operation}: {result.Error}");
+            var request = new MemoryReasoningRequest(operation, prompt.Template, payload, schema, setting.TimeoutSeconds, trace);
+            var result = await runner.RunAsync(request, timeout.Token);
+            span.Provider = result.AgentTool;
+            span.RequestedModel = result.RequestedModel;
+            span.RequestedReasoningEffort = result.RequestedEffort;
+            await traces.Save(span);
+            if (!result.Success || string.IsNullOrWhiteSpace(result.Output))
+                throw new InvalidOperationException($"{operation}: {result.Error ?? "Agent returned no structured answer"}");
+            if (!JsonSchema.FromText(schema).Evaluate(Json.Node(result.Output)).IsValid)
+                throw new InvalidOperationException($"{operation}: Agent answer failed JSON schema validation");
+            await traces.Finish(span, result, config.CapturePayloads);
             return result;
         }
-        catch (Exception ex)
+        catch (Exception error)
         {
-            if (span.Status == "running")
-                await traces.Finish(span, null, config.CapturePayloads, ex.Message);
+            await traces.Finish(span, null, config.CapturePayloads, error.Message);
             throw;
-        }
-        finally
-        {
-            if (operation != "chat" && Directory.Exists(cwd))
-                Directory.Delete(cwd, true);
         }
     }
 }

@@ -107,7 +107,7 @@ public sealed class MemoryScopeTests
         services.AddPostgresMemory(Environment.GetEnvironmentVariable("MEMORY_TEST_POSTGRES")!);
         services.Configure<MemoryServiceOptions>(o => { o.SourceSystem = source; o.Namespace = ns; });
         var llm = new CaptureExtraction();
-        services.AddSingleton<ILlmProvider>(llm);
+        services.AddSingleton<IMemoryReasoningRunner>(llm);
         await using var provider = services.BuildServiceProvider();
         try
         {
@@ -154,24 +154,19 @@ public sealed class MemoryScopeTests
         finally { Directory.Delete(root, true); }
     }
 
-    private sealed class CaptureExtraction : ILlmProvider
+    private sealed class CaptureExtraction : IMemoryReasoningRunner
     {
         public List<System.Text.Json.Nodes.JsonNode> Inputs { get; } = [];
-        public Task<LlmResult> ExecuteStructuredAsync(LlmRequest request, CancellationToken ct)
+        public Task<MemoryReasoningResult> RunAsync(MemoryReasoningRequest request, CancellationToken ct)
         {
             Assert.Contains(request.Operation, new[] { "extraction", "reference-detection" });
-            if (request.Operation == "extraction") Inputs.Add(Json.Node(request.Input!.Split('\n', 2)[1])!);
+            if (request.Operation == "extraction") Inputs.Add(Json.Node(request.Prompt.Split('\n', 2)[1])!);
             var output = request.Operation == "extraction"
                 ? "{\"memoryCandidates\":[],\"stateChanges\":[],\"unresolvedReferences\":[]}"
                 : "{\"references\":[]}";
-            return Task.FromResult(new LlmResult(output, [], "completed", 0, null, null, null, null, null, null, null, null, null));
+            return Task.FromResult(new MemoryReasoningResult(true, output, null));
         }
-        public async IAsyncEnumerable<LlmEvent> ExecuteStreamingAsync(LlmRequest request,
-            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
-        {
-            var result = await ExecuteStructuredAsync(request, ct);
-            yield return new("execution.completed", System.Text.Json.Nodes.JsonNode.Parse(Json.Write(result)));
-        }
+
     }
 
     private sealed class FixedEmbeddings : IEmbeddingProvider

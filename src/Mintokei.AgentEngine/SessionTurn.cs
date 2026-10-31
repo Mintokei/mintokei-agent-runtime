@@ -9,4 +9,4 @@ namespace Mintokei.AgentEngine;
 /// (null to skip — e.g. every follow-up); <paramref name="ImagesJson"/> is the serialized image
 /// attachments (null for none).
 /// </summary>
-public sealed record SessionTurn(string Content, string? ContextBlock = null, string? ImagesJson = null, System.Text.Json.JsonElement? OutputSchema = null);
+public sealed record SessionTurn(string Content, string? ContextBlock = null, string? ImagesJson = null);

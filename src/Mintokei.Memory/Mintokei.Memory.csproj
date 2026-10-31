@@ -3,6 +3,6 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Description>DB-free memory contracts, evidence rules, state deltas and authenticated service client.</Description>
+    <Description>Memory contracts, evidence validation and state deltas. Execution is supplied by the host.</Description>
   </PropertyGroup>
 </Project>

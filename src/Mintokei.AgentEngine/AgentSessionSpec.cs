@@ -58,8 +58,5 @@ public sealed record AgentSessionSpec
 
     /// <summary>Extra environment variables the adapter supplies (workspace/task ids, etc.). Merged
     /// on top of the backend's static env.</summary>
-    /// <summary>False starts with only explicitly supplied environment variables (local runner).</summary>
-    public bool InheritEnvironment { get; init; } = true;
-
     public IReadOnlyDictionary<string, string>? EnvironmentVariables { get; init; }
 }

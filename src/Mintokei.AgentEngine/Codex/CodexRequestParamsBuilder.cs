@@ -29,15 +29,13 @@ internal static class CodexRequestParamsBuilder
     public static Dictionary<string, object?> BuildTurnStartParams(
         string threadId,
         IReadOnlyList<object> input,
-        CodexConfigMapper.TurnStartConfig? config, System.Text.Json.JsonElement? outputSchema = null)
+        CodexConfigMapper.TurnStartConfig? config)
     {
         var parameters = new Dictionary<string, object?>
         {
             ["threadId"] = threadId,
             ["input"] = input,
         };
-
-        if (outputSchema is not null) parameters["outputSchema"] = outputSchema.Value;
 
         if (config is null)
             return parameters;

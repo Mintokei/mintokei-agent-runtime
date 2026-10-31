@@ -11,7 +11,7 @@ public sealed class MemoryAssetsTests
             MemoryAssets.EnsureFiles(root);
             Assert.True(File.Exists(Path.Combine(root, "prompts", "v2", "extraction.txt")));
             Assert.True(File.Exists(Path.Combine(root, "schemas", "extraction.json")));
-            Assert.True(Directory.GetFiles(root, "*", SearchOption.AllDirectories).Length >= 40);
+            Assert.False(File.Exists(Path.Combine(root, "schemas", "context-answer.json")));
             var custom = Path.Combine(root, "prompts", "v2", "extraction.txt");
             File.WriteAllText(custom, "operator-owned version");
             Parallel.For(0, 4, _ => MemoryAssets.EnsureFiles(root));

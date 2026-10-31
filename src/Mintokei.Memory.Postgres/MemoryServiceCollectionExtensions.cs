@@ -3,7 +3,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Npgsql;
 
 namespace Mintokei.Memory.Postgres;
-/// <summary>Registers the optional PostgreSQL backend. The host supplies an ILlmProvider.</summary>
+/// <summary>Registers the optional PostgreSQL backend. The host supplies an IMemoryReasoningRunner.</summary>
 public static class MemoryServiceCollectionExtensions
 {
     public static IServiceCollection AddPostgresMemory(this IServiceCollection services, string connectionString)

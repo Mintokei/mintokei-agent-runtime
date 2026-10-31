@@ -7,6 +7,7 @@
     <Project Path="src/Mintokei.Runner.Contracts/Mintokei.Runner.Contracts.csproj" />
     <Project Path="src/Mintokei.Runner.Contracts.Grpc/Mintokei.Runner.Contracts.Grpc.csproj" />
     <Project Path="src/Mintokei.Runner.Host/Mintokei.Runner.Host.csproj" />
+    <Project Path="src/Mintokei.Memory/Mintokei.Memory.csproj" />
     <Project Path="src/Mintokei.Runner.Client/Mintokei.Runner.Client.csproj" />
     <Project Path="src/Mintokei.Runner/Mintokei.Runner.csproj" />
     <Project Path="src/Mintokei.Sandbox/Mintokei.Sandbox.csproj" />

@@ -33,6 +33,7 @@ public class BackendLaunchTests
 
         var cflag = opts.ArgumentList[opts.ArgumentList.ToList().IndexOf("-c") + 1];
         Assert.Contains("mcp_servers.mintokei", cflag);
+        Assert.Contains("required=true", cflag); // first turn must not race an optional tool catalog
         Assert.Contains("http://host/mcp/agent-tasks/x", cflag);
         Assert.Equal("tok-9", opts.EnvironmentVariables!["MINTOKEI_TOKEN"]);
         Assert.False(opts.EnvironmentVariables.ContainsKey("MINTOKEI_MCP_DISABLED"));

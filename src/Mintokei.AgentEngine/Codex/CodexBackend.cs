@@ -50,7 +50,7 @@ public sealed class CodexBackend : IAgentBackend
         if (spec.EnableMcp)
         {
             arguments.Add("-c");
-            arguments.Add($"mcp_servers.mintokei={{url=\"{spec.McpUrl}\",bearer_token_env_var=\"MINTOKEI_TOKEN\"}}");
+            arguments.Add($"mcp_servers.mintokei={{url=\"{spec.McpUrl}\",bearer_token_env_var=\"MINTOKEI_TOKEN\",required=true}}");
             envVars["MINTOKEI_TOKEN"] = spec.McpToken ?? "";
         }
         else

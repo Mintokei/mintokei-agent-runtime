@@ -100,8 +100,9 @@ the expected workflow.
 
 MIT — see [LICENSE](LICENSE).
 
-## Optional shared memory
+## Optional in-process memory
 
-The DB-free `Mintokei.Memory` contracts and optional PostgreSQL, provider and hosting adapters
-implement cross-task memory independently of any product. See [memory service setup](samples/SharedMemoryService/README.md)
-and [package boundaries](src/Mintokei.Memory/README.md). PostgreSQL dependencies remain outside the agent-engine core.
+[Memory packages](src/Mintokei.Memory/README.md) provide extraction, provenance and retrieval through
+DI inside the embedding application. PostgreSQL dependencies stay outside the core agent engine.
+The memory adapter reuses that engine and the host's runner factory. There is no separate memory
+server and no dependency on Playground. See [configuration](docs/memory-service-migration.md).

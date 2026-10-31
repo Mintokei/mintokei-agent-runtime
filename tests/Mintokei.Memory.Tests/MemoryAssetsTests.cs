@@ -24,7 +24,7 @@ public sealed class MemoryAssetsTests
     [Fact]
     public void Core_contracts_do_not_depend_on_database_host_or_product_assemblies()
     {
-        var references = typeof(ISharedMemory).Assembly.GetReferencedAssemblies();
+        var references = typeof(IMemoryService).Assembly.GetReferencedAssemblies();
         Assert.DoesNotContain(references, r => r.Name!.StartsWith("Npgsql") || r.Name.Contains("EntityFramework") ||
             r.Name.StartsWith("Microsoft.AspNetCore") || r.Name.StartsWith("Mintokei.Api") || r.Name.Contains("Playground"));
     }

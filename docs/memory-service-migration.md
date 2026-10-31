@@ -1,57 +1,96 @@
-# Memory engine extraction into runtime — 2026-10-31
+# In-process memory integration
 
-## Ownership and compatibility
+Memory is a library hosted inside Mintokei's API. The Playground keeps its independent implementation.
+The initial standalone-service design has been replaced; there is no memory URL, HTTP token, Docker
+image or separate server to deploy. PostgreSQL/pgvector and Ollama remain supporting services.
 
-The actual engine moved from Playground into runtime packages. The core library has no EF,
-ASP.NET or product dependencies. PostgreSQL persistence, optional LLM adapters, HTTP hosting
-and the executable are separate projects. Product repositories consume runtime via submodule.
-Moved C# types use runtime namespaces, file-scoped namespaces and separate files; runtime DI
-extensions compose the engine. Hosts supply notification and replay callbacks instead of importing UI types.
+## Configuration on Mintokei
 
-Playground now references the runtime packages and retains only chat/UI/replay-specific orchestration.
-No second implementation of extraction, evidence validation, semantic storage or memory jobs remains.
-Original database mappings, memory/source IDs, configuration JSON and immutable prompt versions are
-preserved. A legacy seed advisory-lock key is intentionally retained for safe coexistence.
-Codex CLI, App Server and explicit OpenAI API support are retained; prompts/context are unchanged.
+```text
+Memory__Enabled=true
+ConnectionStrings__Memory=Host=localhost;Port=55432;Database=mintokei_memory;Username=<user>;Password=<password>
+Memory__Root=/absolute/persistent/memory-directory
+Memory__SourceSystem=mintokei
+Memory__OwnerId=local
+Memory__Namespace=live
+Memory__EmbeddingUrl=http://localhost:11435
+Memory__EmbeddingModel=nomic-embed-text
+Memory__EmbeddingDimensions=768
+```
 
-The standalone service does not reference a Playground project or call a Playground endpoint.
-Single-owner token authorization is configured by the host, not chosen by a model. Full prompt/payload
-capture is opt-in. PostgreSQL claims, renewable leases, per-conversation locks and ownership-checked
-completion allow recovery without silently repeating persistent facts.
+Run Codex login as the API service account. The adapter defaults to `$CODEX_HOME` or that account's
+`.codex` directory. Override with `Memory:Engine:CodexLoginHome`. Only authentication/model-cache
+files are copied to a private reasoning profile; personal MCP/hook/project instructions are not copied.
+The API's existing runner factory launches Codex through `AgentSessionFactory` / `CodexBackend`.
+Reasoning currently runs locally; remote reasoning and other engine backends are not yet supported.
+Main agent execution, including remote user tasks, remains unchanged.
 
-## Verification
+Optional first-start settings in appsettings JSON:
 
-- Runtime solution: **974 passed, 15 skipped**, no failures. Includes **90 memory tests** for evidence,
-  temporal context, schemas, scripted provider protocols, assets and DB-free core boundaries.
-- Playground after relocating tests: **46 passed, 19 opt-in integration tests skipped**. Remaining
-  coverage includes chat, parallel execution, interaction handling, context routing and coding policies.
-- Standalone native runtime process on an isolated database, real Codex CLI 0.165.0,
-  `gpt-6-luna` / low effort: extracted the test fact “Harbor workshop codename = Willow-73”.
-  Raw source evidence, state/checkpoint, one confirmed memory and a 768-dimensional nomic-embed-text
-  embedding persisted. Extraction and sync jobs both completed on their first attempt.
-- Measured extraction pipeline: **5.51 seconds**; LLM extraction **4.11 seconds**; semantic sync
-  **152 ms**. This is one correctness smoke test, not a latency comparison.
-- Missing-token request rejected; identical envelope accepted as duplicate; changed envelope under
-  the same turn ID rejected. Search and original-source retrieval returned the expected fact.
-- Restarted the standalone process and retrieved the same persisted memory/evidence.
+```json
+{
+  "Memory": {
+    "Configuration": {
+      "CapturePayloads": false,
+      "Operations": {
+        "extraction": {
+          "Provider": "agent_engine",
+          "Model": null,
+          "ReasoningEffort": "low",
+          "ExecutionMode": "read_only"
+        }
+      }
+    }
+  }
+}
+```
 
-Production services/databases were not replaced during these checks. Validation records are synthetic.
-The migration adds no foreground model calls. The Docker recipe and live product checks are recorded below.
+When no model is configured, Codex selects its default model. Other operation keys include
+`reference-detection`, `reference-resolution`, `reconciliation`, `state-update`, and `summarization`.
+Settings are seeded once and persisted; restart does not overwrite historical settings/prompts.
+For an existing memory database, explicitly update the `default` Settings JSON before switching
+legacy providers to `agent_engine`. Unsupported providers fail visibly; there is no paid API fallback.
+Full prompt/payload capture is opt-in. Existing message/memory IDs and database mappings are preserved.
 
-## Deployment
+## Application use
 
-See [the standalone service guide](../samples/SharedMemoryService/README.md). Mintokei's default
-memory URL is now port 5052. Existing configured URLs remain explicit overrides. Deploy the service,
-set the shared server token, and point Mintokei at it. Playground may optionally connect to the same
-store for debugging; it is not required to ingest, extract, search or serve evidence.
+Register `AddPostgresMemory`, `AddMemoryAgentEngine` and `AddMemoryProcessing`. These reuse the host's
+`ICommandLineRunnerFactory`; the memory packages do not register an alternative runner. Configure
+`MemoryServiceOptions` from trusted host settings, not user/model input. Inject `IMemoryService`:
 
-Known inherited limits remain: one owner per deployment; no automatic backfill of old completed tasks;
-rewind/delete in the source app does not yet retract previously exported facts; optional live-provider,
-Kubernetes and Windows-only tests require their respective environments. PostgreSQL schema evolution
-still uses the existing initialization strategy; this migration does not change the stored schema.
+- `StoreTurnAsync`: validate the frozen envelope, persist original messages, queue extraction, return a receipt.
+- `SearchAsync`: search indexed memory and authorized original history.
+- `LoadEvidenceAsync`: load exact sources with native application identity metadata.
 
-## Container check
+`MemoryProcessingWorker` runs inside the API host, leasing PostgreSQL jobs and processing each
+conversation in order. Extraction validates structured output/evidence, reconciles facts, applies
+state deltas and queues semantic indexing. Durable checkpoints/leases make retries safe.
+Mintokei's SQLite turn outbox retries the in-process write to PostgreSQL independently of chat completion.
+No extraction call blocks the user-facing answer. No new foreground AI planning is added.
 
-The service image builds successfully with Codex CLI pinned to 0.165.0. The non-root host
-starts from the image with bundled assets and the existing validation database. Codex extraction
-was verified in the native host; container validation checks deployment and authorization.
+Memory disabled is the default; it requires no PostgreSQL service or Codex login. With memory enabled,
+initial database availability is required at host startup; later failures leave pending jobs/outbox rows.
+A receipt means originals were accepted, not that extraction or indexing has finished.
+
+## Boundaries
+
+One authorized owner/namespace per installation. Original task data stays in SQLite; derived memory
+and a source copy stay in PostgreSQL. No automatic backfill or deletion/rewind retraction yet.
+The engine exposes normalized events; unavailable usage/model observations remain null.
+Prompt/schema files ship as embedded assets and are materialized without overwriting existing versions.
+There is no dependency on Playground for configuration, storage or execution.
+
+## Tests
+
+`dotnet test tests/Mintokei.Memory.Tests` covers pure rules and scripted engine execution.
+Set `MEMORY_TEST_POSTGRES` to an isolated PostgreSQL/pgvector test connection to run direct DI storage,
+idempotency and ownership checks. These tests never require a memory HTTP server.
+Real Mintokei extraction and recall are tested separately with a signed-in Codex account.
+
+Validation on 2026-10-31: the runtime suite passed **944 tests**, with **15 environment-specific
+tests skipped**; all 60 memory tests ran, including the isolated PostgreSQL check. A real Mintokei
+API instance hosted extraction through the existing engine, persisted the public Mariner release
+name Juniper-58 and a local embedding, then a fresh task recalled it using both memory tools.
+The evidence and original task link survived API restart. No memory HTTP server, URL or token was
+configured, and production was not redeployed. One earlier synthetic codeword fixture produced
+a valid empty extraction; extraction quality remains evidence-dependent.

@@ -1,28 +1,41 @@
-# Memory runtime
+# In-process memory
 
-`Mintokei.Memory` contains DB-free contracts, source identity mapping, validation, state deltas,
-context packing and the authenticated `ISharedMemory` HTTP client. It has no product or EF dependency.
-Task/workspace identifiers in export envelopes are opaque source metadata, not product entities.
+Mintokei consumes memory through dependency injection. There is no memory HTTP client, server,
+separate deployment, or dependency on Memory Playground.
 
-Optional implementations are separate projects:
-
-| Project | Responsibility |
+| Package | Responsibility |
 |---|---|
-| `Mintokei.Memory.Postgres` | Raw history, extraction, reconciliation, references, pgvector/Ollama, Mem0 adapter, provenance, traces and bundled prompts/schemas |
-| `Mintokei.Memory.Providers` | Codex CLI, Codex App Server and explicit OpenAI API routing |
-| `Mintokei.Memory.Hosting` | Authenticated memory endpoints, durable background worker, host notification hooks |
-| `Mintokei.Memory.Service` | Standalone deployment host |
+| `Mintokei.Memory` | DB-free contracts, evidence validation, state rules and context helpers |
+| `Mintokei.Memory.Postgres` | `IMemoryService` implementation, extraction, references, provenance, PostgreSQL/pgvector, local embeddings and bundled assets |
+| `Mintokei.Memory.AgentEngine` | `ILlmProvider` adapter over the existing `AgentSessionFactory`, `CodexBackend` and host `ICommandLineRunnerFactory` |
+| `Mintokei.Memory.Hosting` | Initialization and durable background job processing inside the application host |
 
-Use `AddPostgresMemory`, `AddMemoryProviders`, `AddMemoryProcessing` and `MapSharedMemory`
-when embedding in another .NET host. Initialize the database and embedded assets with
-`DatabaseSetup.InitializeAsync` before accepting work. Hosts can replace `ILlmProvider`,
-`IEmbeddingProvider`, `IMemoryEvents`, `IMemoryJobObserver`, `IArtifactStore` and `IMemoryStore`.
-The core runtime does not require these optional persistence/hosting dependencies.
+```csharp
+// The application already registers its ICommandLineRunnerFactory and logging.
+services.AddPostgresMemory(connectionString);
+services.Configure<MemoryServiceOptions>(options => options.SourceSystem = "mintokei");
+services.Configure<MemoryEngineOptions>(options => options.RuntimeHome = "/persistent/memory/codex");
+services.AddMemoryAgentEngine();
+services.AddMemoryProcessing();
 
-Mintokei normally calls the standalone service using `HttpSharedMemory`; Playground embeds the same
-implementation and supplies its SignalR/replay hooks. There is no extraction dependency on a
-running Playground server. See [deployment instructions](../../samples/SharedMemoryService/README.md).
+// Inject IMemoryService into application services or agent tools.
+await memory.StoreTurnAsync(completedTurn, cancellationToken);
+var result = await memory.SearchAsync(new MemorySearch("Harbor project"), cancellationToken);
+var evidence = await memory.LoadEvidenceAsync(sourceIds, cancellationToken);
+```
 
-Callers freeze completed-turn envelopes and retry durably. An acknowledgement means originals
-were ingested, not extraction/indexing completion. Human and agent sender identities stay distinct.
-Historical content is data, evidence is validated, and provider failures never change billing mode.
+Set `Memory:Root` on the host configuration to a persistent data directory. The hosted initializer
+creates/initializes the database and bundled prompt/schema files before starting the worker.
+`StoreTurnAsync` saves originals and queues extraction atomically; it does not run an LLM inline.
+Source identities and exact evidence survive restarts. The caller remains responsible for a durable
+outbox if its application data and memory use separate databases.
+
+The default memory provider is `agent_engine`. The first adapter supports local Codex App Server
+through the existing engine, with a fresh ephemeral session per operation, strict output schema,
+read-only permissions, no MCP/web/shell tools, and an isolated login/profile directory. It uses the
+host's existing local runner, not a second process launcher. Main user sessions and workspace/task
+entities are never created or resumed for extraction. Other providers can implement `ILlmProvider`;
+legacy `codex_cli` / `openai_api` settings fail explicitly rather than silently switching execution.
+
+Engine events are recorded as normalized events. Usage/effective settings not exposed by the engine
+remain unavailable; they are not estimated. See [host setup](../../docs/memory-service-migration.md).

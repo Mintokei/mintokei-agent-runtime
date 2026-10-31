@@ -67,6 +67,7 @@ public sealed class CodexBackend : IAgentBackend
             RedirectStdIn = true,
             CaptureStdErr = true,
             EnvironmentVariables = envVars,
+            InheritEnvironment = spec.InheritEnvironment,
         };
     }
 }

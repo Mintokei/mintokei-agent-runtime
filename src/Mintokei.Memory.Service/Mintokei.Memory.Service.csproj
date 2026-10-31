@@ -1,7 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
-  <PropertyGroup><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><IsPackable>false</IsPackable></PropertyGroup>
-  <ItemGroup>
-    <ProjectReference Include="../Mintokei.Memory.Hosting/Mintokei.Memory.Hosting.csproj" />
-    <ProjectReference Include="../Mintokei.Memory.Providers/Mintokei.Memory.Providers.csproj" />
-  </ItemGroup>
-</Project>

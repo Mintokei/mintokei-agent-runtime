@@ -8,10 +8,9 @@
     <Project Path="src/Mintokei.Runner.Contracts.Grpc/Mintokei.Runner.Contracts.Grpc.csproj" />
     <Project Path="src/Mintokei.Runner.Host/Mintokei.Runner.Host.csproj" />
     <Project Path="src/Mintokei.Memory/Mintokei.Memory.csproj" />
+    <Project Path="src/Mintokei.Memory.AgentEngine/Mintokei.Memory.AgentEngine.csproj" />
     <Project Path="src/Mintokei.Memory.Postgres/Mintokei.Memory.Postgres.csproj" />
-    <Project Path="src/Mintokei.Memory.Providers/Mintokei.Memory.Providers.csproj" />
     <Project Path="src/Mintokei.Memory.Hosting/Mintokei.Memory.Hosting.csproj" />
-    <Project Path="src/Mintokei.Memory.Service/Mintokei.Memory.Service.csproj" />
     <Project Path="src/Mintokei.Runner.Client/Mintokei.Runner.Client.csproj" />
     <Project Path="src/Mintokei.Runner/Mintokei.Runner.csproj" />
     <Project Path="src/Mintokei.Sandbox/Mintokei.Sandbox.csproj" />

@@ -21,6 +21,8 @@ public sealed class RemoteCommandLineRunner(
     public (IProcessHandle Handle, IAsyncEnumerable<CommandOutput> Output) Start(
         CommandLineOptions options, CancellationToken cancellationToken = default)
     {
+        if (!options.InheritEnvironment)
+            throw new NotSupportedException("An isolated process environment is currently supported only by the local runner.");
         var correlationId = Guid.NewGuid();
 
         var remoteHandle = new RemoteProcessHandle(enqueuer, machineId, correlationId);

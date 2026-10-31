@@ -122,6 +122,8 @@ public sealed class CommandLineRunner : ICommandLineRunner
             startInfo.Arguments = BuildArguments(options.Arguments);
         }
 
+        if (!options.InheritEnvironment) startInfo.Environment.Clear();
+
         if (options.EnvironmentVariables is not null)
         {
             foreach (var (key, value) in options.EnvironmentVariables)

@@ -26,6 +26,8 @@ public static class MemoryServiceCollectionExtensions
         services.AddSingleton<IReferenceResolutionService>(s => s.GetRequiredService<ReferenceResolutionService>());
         services.AddSingleton<MemoryPipeline>();
         services.AddSingleton<MemoryJobProcessor>();
+        services.AddOptions<MemoryServiceOptions>();
+        services.AddSingleton<IMemoryService, InProcessMemoryService>();
         return services;
     }
 }

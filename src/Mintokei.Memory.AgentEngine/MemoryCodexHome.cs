@@ -1,13 +1,15 @@
 using System.Security.Cryptography;
 
-namespace Mintokei.Memory.Providers;
+using Microsoft.Extensions.Options;
+
+namespace Mintokei.Memory.AgentEngine;
 // Dedicated config/session directory: the server inherits subscription login only,
 // never the developer's MCP servers, hooks, plugins or instruction configuration.
-public sealed class CodexAppServerHome(IConfiguration configuration)
+public sealed class MemoryCodexHome(IOptions<MemoryEngineOptions> options)
 {
     private readonly SemaphoreSlim gate = new(1);
-    public string SourceHome => configuration["Memory:CodexLoginHome"] ?? Environment.GetEnvironmentVariable("CODEX_HOME") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex");
-    public string RuntimeHome => Path.GetFullPath(configuration["Memory:CodexAppServerHome"] ?? Path.Combine(configuration["Memory:Root"] ?? "../..", ".data", "codex-app-server"));
+    public string SourceHome => options.Value.CodexLoginHome;
+    public string RuntimeHome => Path.GetFullPath(options.Value.RuntimeHome);
     public bool HasFileLogin => File.Exists(Path.Combine(SourceHome, "auth.json"));
 
     public async Task<string> PrepareAsync(CancellationToken ct)

@@ -60,17 +60,14 @@ public sealed class AgentMemoryTools(IDbContextFactory<MemoryDbContext> factory,
         {
             Search("messages", async () => (await history.SearchAsync(s, query, limit, temporal == "relevance" ? "none" : temporal, ct)).ToList())
         };
-        if (!s.CurrentConversationOnly)
-        {
-            tasks.Add(Search("memories_lexical", () => history.MemoryLexicalAsync(s, query, limit, ct)));
-            tasks.Add(Search("memories_semantic", async () => (await (config.MemoryProvider == "mem0" ? (IMemoryStore)mem0 : postgres).SearchAsync(new(s, query, limit), ct)).Items.ToList()));
-        }
+        tasks.Add(Search("memories_lexical", () => history.MemoryLexicalAsync(s, query, limit, ct)));
+        tasks.Add(Search("memories_semantic", async () => (await (config.MemoryProvider == "mem0" ? (IMemoryStore)mem0 : postgres).SearchAsync(new(s, query, limit), ct)).Items.ToList()));
 
         var searches = await Task.WhenAll(tasks);
         await using var db = await factory.CreateDbContextAsync(ct);
         var ranked = HistorySearch.Fuse(searches.Select(x => x.Items), limit * 2);
         var memoryIds = ranked.Where(x => x.SourceType == "memory").Select(x => x.SourceId).ToArray();
-        var memories = await db.Memories.Where(x => memoryIds.Contains(x.Id) && x.UserId == s.UserId && x.Namespace == s.Namespace && x.RecordedAt <= s.AsOf && x.ValidFrom <= s.AsOf).ToListAsync(ct);
+        var memories = await MemoryQueries.ForScope(db, s).Where(x => memoryIds.Contains(x.Id)).ToListAsync(ct);
         // Do not leak revisions written after a replay boundary.
         foreach (var m in memories.ToList())
         {
@@ -91,7 +88,8 @@ public sealed class AgentMemoryTools(IDbContextFactory<MemoryDbContext> factory,
         var allowed = sources.Select(x => x.Id).ToHashSet();
         memories = memories.Where(m => links.Any(l => l.MemoryId == m.Id && allowed.Contains(l.SourceId))).ToList();
         var terms = Regex.Matches(query, @"[\p{L}\p{N}_.-]{3,}").Select(m => m.Value).Distinct(StringComparer.OrdinalIgnoreCase).Take(12).ToArray();
-        var knowledge = await db.Knowledge.Where(x => x.UserId == s.UserId && x.Namespace == s.Namespace && x.CreatedAt <= s.AsOf && (!s.CurrentConversationOnly || x.ConversationId == s.ConversationId)).ToListAsync(ct);
+        var eligibleMemories = MemoryQueries.ForScope(db, s);
+        var knowledge = await db.Knowledge.Where(x => x.UserId == s.UserId && x.Namespace == s.Namespace && x.CreatedAt <= s.AsOf && (!s.CurrentConversationOnly || x.ConversationId == s.ConversationId && (x.MemoryId == null || eligibleMemories.Any(m => m.Id == x.MemoryId)))).ToListAsync(ct);
         var versions = await db.Artifacts.Where(x => x.UserId == s.UserId && x.Namespace == s.Namespace && x.CreatedAt <= s.AsOf && (!s.CurrentConversationOnly || x.ConversationId == s.ConversationId)).ToListAsync(ct);
         bool Matches(string text) => terms.Any(t => text.Contains(t, StringComparison.OrdinalIgnoreCase));
         var matchingArtifacts = versions.Where(a => Matches(a.Name)).Select(a => a.ArtifactId).ToHashSet();

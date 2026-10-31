@@ -21,7 +21,7 @@ services.AddMemoryProcessing();
 // Inject IMemoryService into application services or agent tools.
 await memory.StoreTurnAsync(completedTurn, cancellationToken);
 var result = await memory.SearchAsync(new MemorySearch("Harbor project"), cancellationToken);
-var evidence = await memory.LoadEvidenceAsync(sourceIds, cancellationToken);
+var evidence = await memory.LoadEvidenceAsync(new MemoryEvidenceRequest(sourceIds), cancellationToken);
 ```
 
 Set `Memory:Root` on the host configuration to a persistent data directory. The hosted initializer

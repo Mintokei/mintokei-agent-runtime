@@ -47,27 +47,28 @@ public class RetrievalPolicyTests
     }
 
     [Theory]
-    [InlineData("Use only this conversation to answer.")]
-    [InlineData("Only search this chat for the plan.")]
-    [InlineData("Search the current conversation only.")]
-    [InlineData("Don't use older conversations.")]
-    public void Explicit_local_restrictions_are_preserved(string request)
+    [InlineData(MemorySearchScope.CurrentTask, MemorySearchScope.AllAuthorizedHistory, MemorySearchScope.CurrentTask)]
+    [InlineData(MemorySearchScope.AllAuthorizedHistory, MemorySearchScope.CurrentTask, MemorySearchScope.CurrentTask)]
+    [InlineData(MemorySearchScope.AllAuthorizedHistory, MemorySearchScope.AllAuthorizedHistory, MemorySearchScope.AllAuthorizedHistory)]
+    public void Explicit_scope_can_be_narrowed_but_not_widened(MemorySearchScope requested, MemorySearchScope allowed, MemorySearchScope expected)
+        => Assert.Equal(expected, RetrievalPolicy.RestrictScope(requested, allowed));
+
+    [Fact]
+    public void Invalid_scopes_are_rejected()
     {
-        Assert.True(RetrievalPolicy.IsExplicitlyLocal(request));
-        var attempts = new List<SearchAttempt>
-        {
-            new("messages", "current_conversation", "completed", "plan", 0, Guid.NewGuid())
-        };
-        var coverage = new RetrievalCoverage(attempts, true);
-        Assert.Equal("restricted", coverage.SavedMemories);
-        Assert.Equal("restricted", coverage.OlderConversationMessages);
-        Assert.False(RetrievalPolicy.Queries(Empty, [Unresolved(attempts)], coverage, request, 1).UsedFallback);
+        Assert.Throws<ArgumentOutOfRangeException>(() => RetrievalPolicy.RestrictScope((MemorySearchScope)99, MemorySearchScope.CurrentTask));
+        Assert.Throws<ArgumentOutOfRangeException>(() => RetrievalPolicy.RestrictScope(MemorySearchScope.CurrentTask, (MemorySearchScope)99));
     }
 
-    [Theory]
-    [InlineData("Find flights for our trip")]
-    [InlineData("What did we decide in this chat?")]
-    public void A_topic_or_local_reference_does_not_itself_prohibit_broader_lookup(string request) => Assert.False(RetrievalPolicy.IsExplicitlyLocal(request));
+    [Fact]
+    public void Current_task_boundary_prevents_a_broader_fallback()
+    {
+        var attempts = new List<SearchAttempt> { new("messages", "current_conversation", "completed", "plan", 0, Guid.NewGuid()) };
+        var coverage = new RetrievalCoverage(attempts, RetrievalPolicy.IsTaskScoped(MemorySearchScope.CurrentTask));
+        Assert.Equal("restricted", coverage.SavedMemories);
+        Assert.False(RetrievalPolicy.Queries(Empty, [Unresolved(attempts)], coverage, "Our plan", 1).UsedFallback);
+    }
+
     [Fact]
     public void Rechecked_resolution_wins_without_mutating_the_prior_attempt()
     {

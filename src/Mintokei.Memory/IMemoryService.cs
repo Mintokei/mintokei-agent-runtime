@@ -7,5 +7,5 @@ public interface IMemoryService
 {
     Task<MemoryIngestionReceipt> StoreTurnAsync(CompletedMemoryTurn turn, CancellationToken ct = default);
     Task<JsonElement> SearchAsync(MemorySearch search, CancellationToken ct = default);
-    Task<JsonElement> LoadEvidenceAsync(IReadOnlyList<Guid> sourceIds, CancellationToken ct = default);
+    Task<JsonElement> LoadEvidenceAsync(MemoryEvidenceRequest request, CancellationToken ct = default);
 }

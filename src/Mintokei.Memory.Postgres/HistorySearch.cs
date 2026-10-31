@@ -72,11 +72,19 @@ public class HistorySearch(NpgsqlDataSource source, IDbContextFactory<MemoryDbCo
 
     public async Task<List<SearchCandidate>> MemoryLexicalAsync(SearchScope scope, string query, int limit, CancellationToken ct)
     {
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var allowedIds = scope.CurrentConversationOnly
+            ? await MemoryQueries.ForScope(db, scope).Select(m => m.Id).ToArrayAsync(ct) : [];
+        if (scope.CurrentConversationOnly && allowedIds.Length == 0)
+            return [];
         await using var cmd = source.CreateCommand("""
             SELECT "Id","CanonicalText","ValidFrom",ts_rank_cd(to_tsvector('english',"CanonicalText"),websearch_to_tsquery('english',@q))+similarity("CanonicalText",@q) score
-            FROM "Memories" WHERE "UserId"=@owner AND "Namespace"=@ns AND "ValidFrom"<=@asof
+            FROM "Memories" WHERE "UserId"=@owner AND "Namespace"=@ns AND "ValidFrom"<=@asof AND "RecordedAt"<=@asof
+            AND (NOT @local OR "Id"=ANY(@allowed))
             AND (to_tsvector('english',"CanonicalText") @@ websearch_to_tsquery('english',@q) OR similarity("CanonicalText",@q)>.06) ORDER BY score DESC LIMIT @limit
             """);
+        cmd.Parameters.AddWithValue("local", scope.CurrentConversationOnly);
+        cmd.Parameters.AddWithValue("allowed", allowedIds);
         cmd.Parameters.AddWithValue("q", query);
         cmd.Parameters.AddWithValue("owner", scope.UserId);
         cmd.Parameters.AddWithValue("ns", scope.Namespace);

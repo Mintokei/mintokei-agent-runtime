@@ -46,13 +46,13 @@ public sealed class InProcessMemoryTests
             Assert.Equal(0, await db.MemorySources.CountAsync(s => s.SourceId == MemoryIdentity.SourceId(source, message.Id)));
             await Assert.ThrowsAsync<InvalidOperationException>(() => memory.StoreTurnAsync(turn with { Messages = [message with { Content = "Changed content" }] }));
             var sourceId = MemoryIdentity.SourceId(source, message.Id);
-            var loaded = await memory.LoadEvidenceAsync([sourceId]);
+            var loaded = await memory.LoadEvidenceAsync(new([sourceId]));
             Assert.Contains("Maple-84", loaded.GetRawText());
             Assert.Contains(message.Id.ToString(), loaded.GetRawText());
 
             var other = new InProcessMemoryService(factory, provider.GetRequiredService<AgentMemoryTools>(),
                 provider.GetRequiredService<SettingsService>(), Options.Create(new MemoryServiceOptions { SourceSystem = source, OwnerId = "other" }));
-            Assert.Empty((await other.LoadEvidenceAsync([sourceId])).GetProperty("sources").EnumerateArray());
+            Assert.Empty((await other.LoadEvidenceAsync(new([sourceId]))).GetProperty("sources").EnumerateArray());
             await Assert.ThrowsAsync<InvalidOperationException>(() => other.StoreTurnAsync(turn));
         }
         finally { Directory.Delete(root, recursive: true); }

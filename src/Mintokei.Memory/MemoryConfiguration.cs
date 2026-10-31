@@ -5,6 +5,7 @@ namespace Mintokei.Memory;
 
 public class MemoryConfiguration
 {
+    public MemorySearchScope SearchScope { get; set; } = MemorySearchScope.AllAuthorizedHistory;
     public Dictionary<string, OperationConfig> Operations { get; set; } = new()
     {
         ["chat"] = new(ReasoningEffort: "high", PromptVersion: "v2", ExecutionMode: "workspace_write"),

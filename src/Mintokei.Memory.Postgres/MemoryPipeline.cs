@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 
@@ -12,6 +13,9 @@ public class MemoryPipeline(IDbContextFactory<MemoryDbContext> factory, Settings
         if (c.LastProcessedSequence >= job.ThroughSequence)
             return;
         var config = await settings.Get(c, ct);
+        var recordedScope = Json.Node(job.PayloadJson)?["searchScope"]?.Deserialize<MemorySearchScope>(Json.Options)
+            ?? MemorySearchScope.AllAuthorizedHistory;
+        config.SearchScope = RetrievalPolicy.RestrictScope(recordedScope, config.SearchScope);
         var trace = Guid.NewGuid();
         var root = await traces.Start(c, job.TurnId, trace, "memory-pipeline", new { checkpoint = c.LastProcessedSequence, job.ThroughSequence, job.Attempts }, config.CapturePayloads);
         try
@@ -23,13 +27,18 @@ public class MemoryPipeline(IDbContextFactory<MemoryDbContext> factory, Settings
             var previous = await db.States.Where(x => x.ConversationId == c.Id && x.ProcessedThroughSeq < fresh[0].SequenceNumber).OrderByDescending(x => x.Version).FirstOrDefaultAsync(ct);
             var state = Json.Node(previous?.StateJson ?? "{}")!.AsObject();
             var load = await traces.Start(c, job.TurnId, trace, "load-context", new { fresh = fresh.Select(x => x.Id), recent = recent.Select(x => x.Id) }, config.CapturePayloads, root.Id);
-            var scope = new SearchScope(c.UserId, c.Namespace, c.Id, job.ThroughSequence, fresh.Max(x => x.CreatedAt));
+            var scope = new SearchScope(c.UserId, c.Namespace, c.Id, job.ThroughSequence, fresh.Max(x => x.CreatedAt), RetrievalPolicy.IsTaskScoped(config.SearchScope));
             var relevant = await history.MemoryLexicalAsync(scope, string.Join(" ", fresh.Where(x => x.Role == "user").Select(x => x.Content)), config.TopK, ct);
             var memoryIds = relevant.Select(x => x.SourceId).ToArray();
-            var existing = await db.Memories.Where(x => x.UserId == c.UserId && x.Namespace == c.Namespace && memoryIds.Contains(x.Id)).ToListAsync(ct);
-            var relatedGoals = await db.Knowledge.Where(x => x.UserId == c.UserId && x.Namespace == c.Namespace && x.Kind == "goal" && x.CreatedAt <= scope.AsOf).Take(10).ToListAsync(ct);
+            var existing = await MemoryQueries.ForScope(db, scope).Where(x => memoryIds.Contains(x.Id)).ToListAsync(ct);
+            var eligibleMemories = MemoryQueries.ForScope(db, scope);
+            var relatedGoals = await db.Knowledge.Where(x => x.UserId == c.UserId && x.Namespace == c.Namespace && x.Kind == "goal" && x.CreatedAt <= scope.AsOf && (!scope.CurrentConversationOnly || x.ConversationId == c.Id && x.MemoryId != null && eligibleMemories.Any(m => m.Id == x.MemoryId))).Take(10).ToListAsync(ct);
             var relatedArtifacts = await db.Artifacts.Where(x => x.UserId == c.UserId && x.Namespace == c.Namespace && x.ConversationId == c.Id && x.CreatedAt <= scope.AsOf).ToListAsync(ct);
-            var resolutions = RetrievalPolicy.Latest((await db.Resolutions.Where(x => x.ConversationId == c.Id && fresh.Select(m => m.Id).Contains(x.SourceMessageId)).ToListAsync(ct)).Select(x => Json.Read<ResolvedReference>(x.ResultJson)));
+            var cachedResolutions = RetrievalPolicy.Latest((await db.Resolutions.Where(x => x.ConversationId == c.Id && fresh.Select(m => m.Id).Contains(x.SourceMessageId)).ToListAsync(ct)).Select(x => Json.Read<ResolvedReference>(x.ResultJson)));
+            var resolutions = new List<ResolvedReference>();
+            foreach (var user in fresh.Where(x => x.Role == "user"))
+                if (cachedResolutions.Any(r => r.SourceMessageId == user.Id))
+                    resolutions.AddRange(await resolver.ResolveAsync(c, user, recent, state, config, trace, ct));
             if (config.ExtractionMode == "separated")
                 foreach (var user in fresh.Where(x => x.Role == "user"))
                     if (!resolutions.Any(x => x.SourceMessageId == user.Id))
@@ -45,7 +54,8 @@ public class MemoryPipeline(IDbContextFactory<MemoryDbContext> factory, Settings
                 relatedGoals,
                 relatedArtifacts,
                 config.ExtractionMode,
-                config.AllowSensitiveMemory
+                config.AllowSensitiveMemory,
+                allowedSearchScope = config.SearchScope
             };
             var execution = await reasoner.Run(c, job.TurnId, trace, "extraction", Input(), config, ct, parent: root.Id);
             var extracted = Json.Read<ExtractionOutput>(execution.Output!);
@@ -70,7 +80,7 @@ public class MemoryPipeline(IDbContextFactory<MemoryDbContext> factory, Settings
             var evidence = await (
                 from m in db.Messages
                 join conv in db.Conversations on m.ConversationId equals conv.Id
-                where evidenceIds.Contains(m.Id) && conv.UserId == c.UserId && conv.Namespace == c.Namespace && m.SequenceNumber <= conv.VisibleSequence && m.CreatedAt <= scope.AsOf && (m.ConversationId != c.Id || m.SequenceNumber <= job.ThroughSequence)select m).ToListAsync(ct);
+                where evidenceIds.Contains(m.Id) && conv.UserId == c.UserId && conv.Namespace == c.Namespace && (!scope.CurrentConversationOnly || conv.Id == c.Id) && m.SequenceNumber <= conv.VisibleSequence && m.CreatedAt <= scope.AsOf && (m.ConversationId != c.Id || m.SequenceNumber <= job.ThroughSequence)select m).ToListAsync(ct);
             var allowed = fresh.Concat(recent).Concat(evidence).DistinctBy(x => x.Id).ToDictionary(x => x.Id);
             var newIds = fresh.Select(x => x.Id).ToHashSet();
             var validation = await traces.Start(c, job.TurnId, trace, "candidate-validation", extracted.MemoryCandidates, config.CapturePayloads, root.Id);
@@ -145,7 +155,7 @@ public class MemoryPipeline(IDbContextFactory<MemoryDbContext> factory, Settings
                 }
 
                 var relatedIds = lexical.Concat(semantic).Select(x => x.SourceId).ToArray();
-                var matches = await db.Memories.Where(x => x.UserId == c.UserId && x.Namespace == c.Namespace && x.Subject == candidate.Subject && (x.Predicate == candidate.Predicate || relatedIds.Contains(x.Id)) && (x.Scope == candidate.Scope || candidate.Scope == "global" && (x.Scope == "general" || x.Scope == "user" || x.Scope == "user_profile")) && x.ValidFrom <= scope.AsOf && x.Status != "superseded").OrderByDescending(x => x.ValidFrom).Take(8).ToListAsync(ct);
+                var matches = await MemoryQueries.ForScope(db, scope).Where(x => x.Subject == candidate.Subject && (x.Predicate == candidate.Predicate || relatedIds.Contains(x.Id)) && (x.Scope == candidate.Scope || candidate.Scope == "global" && (x.Scope == "general" || x.Scope == "user" || x.Scope == "user_profile")) && x.ValidFrom <= scope.AsOf && x.Status != "superseded").OrderByDescending(x => x.ValidFrom).Take(8).ToListAsync(ct);
                 await traces.Finish(searchSpan, new { lexical, semantic, matches, semanticSearchError = searchError }, config.CapturePayloads);
                 if (matches.Count == 0 || !config.Operations["reconciliation"].Enabled)
                 {

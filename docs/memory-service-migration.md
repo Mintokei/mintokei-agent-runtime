@@ -94,3 +94,29 @@ name Juniper-58 and a local embedding, then a fresh task recalled it using both 
 The evidence and original task link survived API restart. No memory HTTP server, URL or token was
 configured, and production was not redeployed. One earlier synthetic codeword fixture produced
 a valid empty extraction; extraction quality remains evidence-dependent.
+
+## Explicit retrieval scope
+
+`MemorySearchScope.AllAuthorizedHistory` is the default. Use `CurrentTask` to restrict retrieval,
+and supply the native application task ID (the service maps it to its stored conversation ID):
+
+```csharp
+var matches = await memory.SearchAsync(new MemorySearch(
+    "project database", Scope: MemorySearchScope.CurrentTask, CurrentTaskId: taskId), ct);
+var evidence = await memory.LoadEvidenceAsync(new MemoryEvidenceRequest(
+    sourceIds, MemorySearchScope.CurrentTask, taskId), ct);
+```
+
+The host chooses the permitted scope; tool/model arguments may only narrow it. These DI methods trust
+that host-selected boundary and always enforce the configured owner/namespace. Missing current-task IDs
+and unknown enum values are rejected. Current-task lexical/vector retrieval includes only memories whose
+available evidence is entirely within that task; mixed-source summaries are conservatively excluded.
+Messages, neighboring evidence, goals and artifacts use the same boundary.
+
+`CompletedMemoryTurn.SearchScope` freezes the extraction boundary into the job. Workers pass it through
+reference resolution, evidence validation and extraction context without matching English phrases.
+Legacy turn payloads default to all authorized history and retain their original retry hashes. A narrower
+`MemoryConfiguration.SearchScope` can further restrict background processing. Mintokei uses its
+`Memory:SearchScope` host setting for initial context, both memory tools and completed-turn envelopes.
+Choosing a scope does not add an LLM call, erase already-supplied session history, or constrain unrelated
+task-management tools. Authenticated human source browsing remains separate from agent lookup scope.

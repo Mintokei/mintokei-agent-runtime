@@ -16,6 +16,7 @@ public sealed class InProcessMemoryService(
     {
         if (!MemoryTurnValidation.IsValid(input, options.Value.SourceSystem))
             throw new ArgumentException("Invalid completed-turn envelope", nameof(input));
+        _ = RetrievalPolicy.IsTaskScoped(input.SearchScope);
         var conversationId = MemoryIdentity.SourceId(input.SourceSystem, input.TaskId);
         var turnId = MemoryIdentity.SourceId(input.SourceSystem, input.TurnId);
         await using var db = await factory.CreateDbContextAsync(ct);
@@ -61,7 +62,7 @@ public sealed class InProcessMemoryService(
         }
 
         conversation.UpdatedAt = DateTimeOffset.UtcNow;
-        db.Jobs.Add(new Job { ConversationId = conversationId, TurnId = turnId, ThroughSequence = conversation.VisibleSequence, Kind = "extract", Key = key, PayloadJson = Json.Write(new { contentHash = hash, input.Status }) });
+        db.Jobs.Add(new Job { ConversationId = conversationId, TurnId = turnId, ThroughSequence = conversation.VisibleSequence, Kind = "extract", Key = key, PayloadJson = Json.Write(new { contentHash = hash, input.Status, input.SearchScope }) });
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return new MemoryIngestionReceipt(conversationId, turnId, "pending", false);
@@ -71,6 +72,7 @@ public sealed class InProcessMemoryService(
     {
         if (string.IsNullOrWhiteSpace(input.Query) || input.Query.Length > 500)
             throw new ArgumentException("Use a query of 1–500 characters", nameof(input));
+        var scope = Scope(input.Scope, input.CurrentTaskId);
         var configuration = await settings.Get(ct: ct);
         configuration.TopK = Math.Clamp(input.Limit, 1, 12);
         var result = await tools.Execute("search_knowledge", new JsonObject
@@ -78,31 +80,40 @@ public sealed class InProcessMemoryService(
             ["query"] = input.Query,
             ["scope"] = "all",
             ["temporal"] = "relevance"
-        }, Scope(), configuration, ct);
-        await AddOriginsAsync(result.Data, ct);
+        }, scope, configuration, ct);
+        await AddOriginsAsync(result.Data, scope, ct);
         return JsonSerializer.SerializeToElement(result.Data);
     }
 
-    public async Task<JsonElement> LoadEvidenceAsync(IReadOnlyList<Guid> sourceIds, CancellationToken ct = default)
+    public async Task<JsonElement> LoadEvidenceAsync(MemoryEvidenceRequest request, CancellationToken ct = default)
     {
-        if (sourceIds is not { Count: > 0 and <= 8 })
-            throw new ArgumentException("Supply 1–8 source IDs", nameof(sourceIds));
-        var sources = await tools.Load(Scope(), sourceIds.ToArray(), true, ct);
+        if (request.SourceIds is not { Count: > 0 and <= 8 })
+            throw new ArgumentException("Supply 1–8 source IDs", nameof(request));
+        var scope = Scope(request.Scope, request.CurrentTaskId);
+        var sources = await tools.Load(scope, request.SourceIds.ToArray(), true, ct);
         var result = Json.Node(Json.Write(new { sources }))!.AsObject();
-        await AddOriginsAsync(result, ct);
+        await AddOriginsAsync(result, scope, ct);
         return JsonSerializer.SerializeToElement(result);
     }
 
-    private SearchScope Scope() => new(options.Value.OwnerId, options.Value.Namespace, Guid.Empty, long.MaxValue, DateTimeOffset.UtcNow);
+    private SearchScope Scope(MemorySearchScope requested, Guid? taskId)
+    {
+        var local = RetrievalPolicy.IsTaskScoped(requested);
+        if (local && (taskId is null || taskId == Guid.Empty))
+            throw new ArgumentException("CurrentTask scope requires a non-empty current task ID", nameof(taskId));
+        var conversationId = taskId is { } id && id != Guid.Empty
+            ? MemoryIdentity.SourceId(options.Value.SourceSystem, id) : Guid.Empty;
+        return new(options.Value.OwnerId, options.Value.Namespace, conversationId, long.MaxValue, DateTimeOffset.UtcNow, local);
+    }
 
-    private async Task AddOriginsAsync(JsonObject result, CancellationToken ct)
+    private async Task AddOriginsAsync(JsonObject result, SearchScope scope, CancellationToken ct)
     {
         var sources = result["sources"]?.AsArray();
         if (sources == null)
             return;
         var ids = sources.Select(s => Guid.TryParse(s?["id"]?.ToString(), out var id) ? id : Guid.Empty).ToArray();
         await using var db = await factory.CreateDbContextAsync(ct);
-        var metadata = await AgentMemoryTools.Messages(db, Scope()).Where(m => ids.Contains(m.Id)).ToDictionaryAsync(m => m.Id, m => m.MetadataJson, ct);
+        var metadata = await AgentMemoryTools.Messages(db, scope).Where(m => ids.Contains(m.Id)).ToDictionaryAsync(m => m.Id, m => m.MetadataJson, ct);
         foreach (var source in sources.OfType<JsonObject>())
         {
             if (!Guid.TryParse(source["id"]?.ToString(), out var id) || !metadata.TryGetValue(id, out var json))

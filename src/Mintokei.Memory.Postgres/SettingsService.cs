@@ -12,13 +12,10 @@ public class SettingsService(IDbContextFactory<MemoryDbContext> factory)
     {
         if (c?.ConfigurationJson is not null)
         {
-            var frozen = Json.Read<MemoryConfiguration>(c.ConfigurationJson).WithContextOperations();
-            if (Json.Node(c.ConfigurationJson)?["contextMode"] == null)
-                frozen.ContextMode = "separated";
-            return frozen;
+            return Json.Read<MemoryConfiguration>(c.ConfigurationJson);
         }
 
         await using var db = await factory.CreateDbContextAsync(ct);
-        return Json.Read<MemoryConfiguration>((await db.Settings.SingleAsync(x => x.Key == "default", ct)).ValueJson).WithContextOperations();
+        return Json.Read<MemoryConfiguration>((await db.Settings.SingleAsync(x => x.Key == "default", ct)).ValueJson);
     }
 }

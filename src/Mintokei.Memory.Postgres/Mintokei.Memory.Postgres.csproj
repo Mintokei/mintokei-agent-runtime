@@ -8,6 +8,7 @@
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="../Mintokei.Memory/Mintokei.Memory.csproj" />
+    <PackageReference Include="JsonSchema.Net" Version="7.3.4" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.0" />
     <EmbeddedResource Include="Assets/**/*" LogicalName="$([System.String]::Copy('%(Identity)').Replace('\', '/'))" />
   </ItemGroup>

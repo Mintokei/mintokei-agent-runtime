@@ -18,10 +18,13 @@ public class MemoryDbContext(DbContextOptions<MemoryDbContext> options) : DbCont
     public DbSet<Job> Jobs => Set<Job>();
     public DbSet<Setting> Settings => Set<Setting>();
     public DbSet<PromptVersion> Prompts => Set<PromptVersion>();
-    public DbSet<Experiment> Experiments => Set<Experiment>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
+        // Preserve pre-refactor storage compatibility without exposing Playground session/replay options.
+        b.Entity<Conversation>().Property<string?>("CodexThreadId");
+        b.Entity<Conversation>().Property<bool>("Imported");
+        b.Entity<Conversation>().Property<bool>("ReplayAll");
         b.Entity<Message>().HasIndex(x => new { x.ConversationId, x.SequenceNumber }).IsUnique();
         b.Entity<Message>().HasOne<Conversation>().WithMany().HasForeignKey(x => x.ConversationId).OnDelete(DeleteBehavior.Cascade);
         b.Entity<MemoryRecord>().HasIndex(x => new { x.UserId, x.Namespace, x.CanonicalHash }).IsUnique();

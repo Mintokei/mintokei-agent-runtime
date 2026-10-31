@@ -33,7 +33,7 @@ public sealed class InProcessMemoryTests
             var factory = provider.GetRequiredService<IDbContextFactory<MemoryDbContext>>();
             await using var db = await factory.CreateDbContextAsync();
             await DatabaseSetup.InitializeAsync(db, root);
-            // No ILlmProvider is registered: ingestion/retrieval must not resolve or execute one.
+            // No IMemoryReasoningRunner is registered: ingestion/retrieval must not resolve or execute one.
             var memory = provider.GetRequiredService<IMemoryService>();
             var message = new MemoryMessage(Guid.NewGuid(), "user", "My test project is Maple-84.", DateTimeOffset.UtcNow, "user");
             var turn = new CompletedMemoryTurn(source, Guid.NewGuid(), Guid.NewGuid(), "DI test", null, "completed", [message]);

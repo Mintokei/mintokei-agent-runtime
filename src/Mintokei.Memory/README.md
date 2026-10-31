@@ -1,41 +1,35 @@
 # In-process memory
 
-Mintokei consumes memory through dependency injection. There is no memory HTTP client, server,
-separate deployment, or dependency on Memory Playground.
+Mintokei uses memory through dependency injection, with no memory HTTP server or Playground dependency.
 
 | Package | Responsibility |
 |---|---|
-| `Mintokei.Memory` | DB-free contracts, evidence validation, state rules and context helpers |
-| `Mintokei.Memory.Postgres` | `IMemoryService` implementation, extraction, references, provenance, PostgreSQL/pgvector, local embeddings and bundled assets |
-| `Mintokei.Memory.AgentEngine` | `ILlmProvider` adapter over the existing `AgentSessionFactory`, `CodexBackend` and host `ICommandLineRunnerFactory` |
-| `Mintokei.Memory.Hosting` | Initialization and durable background job processing inside the application host |
+| `Mintokei.Memory` | Storage-free contracts, evidence validation, state rules |
+| `Mintokei.Memory.Postgres` | Ingestion/search, extraction, references, provenance, PostgreSQL/pgvector, embeddings and versioned assets |
+| `Mintokei.Memory.Hosting` | Initialization and durable background processing inside the host |
 
 ```csharp
-// The application already registers its ICommandLineRunnerFactory and logging.
 services.AddPostgresMemory(connectionString);
 services.Configure<MemoryServiceOptions>(options => options.SourceSystem = "mintokei");
-services.Configure<MemoryEngineOptions>(options => options.RuntimeHome = "/persistent/memory/codex");
-services.AddMemoryAgentEngine();
+services.AddSingleton<IMemoryReasoningRunner, MyHostReasoningRunner>();
 services.AddMemoryProcessing();
 
-// Inject IMemoryService into application services or agent tools.
 await memory.StoreTurnAsync(completedTurn, cancellationToken);
 var result = await memory.SearchAsync(new MemorySearch("Harbor project"), cancellationToken);
 var evidence = await memory.LoadEvidenceAsync(new MemoryEvidenceRequest(sourceIds), cancellationToken);
 ```
 
-Set `Memory:Root` on the host configuration to a persistent data directory. The hosted initializer
-creates/initializes the database and bundled prompt/schema files before starting the worker.
-`StoreTurnAsync` saves originals and queues extraction atomically; it does not run an LLM inline.
-Source identities and exact evidence survive restarts. The caller remains responsible for a durable
-outbox if its application data and memory use separate databases.
+`IMemoryReasoningRunner` is a host callback, not an AI provider implementation. Runtime supplies a
+versioned system prompt, untrusted data prompt, JSON schema and timeout. The host returns the answer
+and available execution metadata. Runtime validates the schema and evidence before persisting facts.
+Mintokei implements the callback with its existing `IOneShotAgentRunner`, selected by Library agent
+or AI Utility Tool settings. There are no memory-specific API credentials, CLI processes or transports.
 
-The default memory provider is `agent_engine`. The first adapter supports local Codex App Server
-through the existing engine, with a fresh ephemeral session per operation, strict output schema,
-read-only permissions, no MCP/web/shell tools, and an isolated login/profile directory. It uses the
-host's existing local runner, not a second process launcher. Main user sessions and workspace/task
-entities are never created or resumed for extraction. Other providers can implement `ILlmProvider`;
-legacy `codex_cli` / `openai_api` settings fail explicitly rather than silently switching execution.
+Set `Memory:Root` to a persistent directory. The hosted initializer sets up PostgreSQL and bundled
+prompt/schema assets before the worker starts. Ingestion saves originals and queues extraction
+atomically without an inline LLM call. A host with a separate application database needs a durable
+outbox. Provenance and checkpoints survive restarts.
 
-Engine events are recorded as normalized events. Usage/effective settings not exposed by the engine
-remain unavailable; they are not estimated. See [host setup](../../docs/memory-service-migration.md).
+Debug payload capture defaults to false; timing/status and available selected-tool metadata remain.
+One-shot runners don't expose all effective settings or usage, so those fields remain unavailable.
+See [host configuration and limitations](../../docs/memory-service-migration.md).

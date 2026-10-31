@@ -18,14 +18,21 @@ Memory__EmbeddingModel=nomic-embed-text
 Memory__EmbeddingDimensions=768
 ```
 
-Run Codex login as the API service account. The adapter defaults to `$CODEX_HOME` or that account's
-`.codex` directory. Override with `Memory:Engine:CodexLoginHome`. Only authentication/model-cache
-files are copied to a private reasoning profile; personal MCP/hook/project instructions are not copied.
-The API's existing runner factory launches Codex through `AgentSessionFactory` / `CodexBackend`.
-Reasoning currently runs locally; remote reasoning and other engine backends are not yet supported.
-Main agent execution, including remote user tasks, remains unchanged.
+Choose **Settings → AI & utilities → Memory agent** in Mintokei. Select a Library agent to reuse
+its tool, model and reasoning effort. The default **Use AI Utility Tool** inherits the utility tool
+and its CLI defaults. The existing **Runner Machine** setting chooses local or remote execution.
+Use the selected tool's normal sign-in on that machine. Memory has no API keys, login copies,
+Codex home, transport settings or paid-provider fallback of its own.
 
-Optional first-start settings in appsettings JSON:
+The host adapter dispatches to Mintokei's existing keyed `IOneShotAgentRunner`. Codex, Claude,
+Copilot and OpenCode use their existing one-shot implementations; a tool without a registered
+one-shot runner fails visibly. Selecting an agent does not inject its coding system prompt or
+skills into extraction: memory owns the extraction prompt and JSON contract. These calls disable
+tools, use an empty temporary local directory and validate JSON against the schema before persistence.
+Remote Codex receives its schema inline because the API's temporary schema file isn't on the runner.
+This is tool restriction, not a disposable OS sandbox. Use the host's runner isolation for that.
+
+Optional first-start memory settings:
 
 ```json
 {
@@ -34,10 +41,10 @@ Optional first-start settings in appsettings JSON:
       "CapturePayloads": false,
       "Operations": {
         "extraction": {
-          "Provider": "agent_engine",
-          "Model": null,
-          "ReasoningEffort": "low",
-          "ExecutionMode": "read_only"
+          "PromptVersion": "v2",
+          "SchemaVersion": "v1",
+          "TimeoutSeconds": 120,
+          "Enabled": true
         }
       }
     }
@@ -45,18 +52,31 @@ Optional first-start settings in appsettings JSON:
 }
 ```
 
-When no model is configured, Codex selects its default model. Other operation keys include
-`reference-detection`, `reference-resolution`, `reconciliation`, `state-update`, and `summarization`.
-Settings are seeded once and persisted; restart does not overwrite historical settings/prompts.
-For an existing memory database, explicitly update the `default` Settings JSON before switching
-legacy providers to `agent_engine`. Unsupported providers fail visibly; there is no paid API fallback.
-Full prompt/payload capture is opt-in. Existing message/memory IDs and database mappings are preserved.
+Operation settings describe the memory pipeline only. Model/tool selection belongs to Mintokei.
+Other operation keys are `reference-detection`, `reference-resolution`, `reconciliation`,
+`state-update` and `summarization`. Settings/prompts are seeded once and persisted. Old provider,
+model and effort fields in stored operation settings are ignored; select the Library agent in Mintokei.
+Full prompt/payload capture is opt-in and defaults to false. Original IDs and stored history survive.
+Unused Playground chat, context-answer and experiment contracts/assets are no longer shipped.
+Existing database columns/tables remain compatible; this change does not delete recorded history.
 
 ## Application use
 
-Register `AddPostgresMemory`, `AddMemoryAgentEngine` and `AddMemoryProcessing`. These reuse the host's
-`ICommandLineRunnerFactory`; the memory packages do not register an alternative runner. Configure
-`MemoryServiceOptions` from trusted host settings, not user/model input. Inject `IMemoryService`:
+```csharp
+services.AddPostgresMemory(connectionString);
+services.Configure<MemoryServiceOptions>(configuration.GetSection("Memory"));
+services.AddSingleton<IMemoryReasoningRunner, MyHostReasoningRunner>();
+services.AddMemoryProcessing();
+```
+
+The host implements `IMemoryReasoningRunner.RunAsync(request, cancellationToken)` by forwarding the
+system prompt, data prompt, schema and timeout to its existing agent abstraction, returning
+`MemoryReasoningResult`. No engine/provider package is required by memory. Runtime owns prompt
+rendering, schema/evidence validation, reconciliation, durable jobs, storage and tracing. Mintokei's
+`MemoryReasoningRunner` resolves Library settings and calls `IOneShotAgentRunner`; it doesn't launch
+another CLI or manage credentials itself.
+
+Configure `MemoryServiceOptions` from trusted host settings, not user/model input. Inject `IMemoryService`:
 
 - `StoreTurnAsync`: validate the frozen envelope, persist original messages, queue extraction, return a receipt.
 - `SearchAsync`: search indexed memory and authorized original history.
@@ -68,7 +88,7 @@ state deltas and queues semantic indexing. Durable checkpoints/leases make retri
 Mintokei's SQLite turn outbox retries the in-process write to PostgreSQL independently of chat completion.
 No extraction call blocks the user-facing answer. No new foreground AI planning is added.
 
-Memory disabled is the default; it requires no PostgreSQL service or Codex login. With memory enabled,
+Memory disabled is the default; it requires no PostgreSQL service or an agent sign-in. With memory enabled,
 initial database availability is required at host startup; later failures leave pending jobs/outbox rows.
 A receipt means originals were accepted, not that extraction or indexing has finished.
 
@@ -76,24 +96,16 @@ A receipt means originals were accepted, not that extraction or indexing has fin
 
 One authorized owner/namespace per installation. Original task data stays in SQLite; derived memory
 and a source copy stay in PostgreSQL. No automatic backfill or deletion/rewind retraction yet.
-The engine exposes normalized events; unavailable usage/model observations remain null.
+One-shot calls return their answer and selected settings; unavailable usage/model observations remain null.
 Prompt/schema files ship as embedded assets and are materialized without overwriting existing versions.
 There is no dependency on Playground for configuration, storage or execution.
 
 ## Tests
 
-`dotnet test tests/Mintokei.Memory.Tests` covers pure rules and scripted engine execution.
+`dotnet test tests/Mintokei.Memory.Tests` covers pure rules and the host reasoning contract.
 Set `MEMORY_TEST_POSTGRES` to an isolated PostgreSQL/pgvector test connection to run direct DI storage,
 idempotency and ownership checks. These tests never require a memory HTTP server.
 Real Mintokei extraction and recall are tested separately with a signed-in Codex account.
-
-Validation on 2026-10-31: the runtime suite passed **944 tests**, with **15 environment-specific
-tests skipped**; all 60 memory tests ran, including the isolated PostgreSQL check. A real Mintokei
-API instance hosted extraction through the existing engine, persisted the public Mariner release
-name Juniper-58 and a local embedding, then a fresh task recalled it using both memory tools.
-The evidence and original task link survived API restart. No memory HTTP server, URL or token was
-configured, and production was not redeployed. One earlier synthetic codeword fixture produced
-a valid empty extraction; extraction quality remains evidence-dependent.
 
 ## Explicit retrieval scope
 

@@ -150,7 +150,19 @@ public sealed class RemoteProcessOutputDispatcher(
         if (handle is not null)
         {
             var outputType = report.OutputType == "StdErr" ? OutputType.StdErr : OutputType.StdOut;
-            await handle.OutputWriter.WriteAsync(new CommandOutput(report.Line, outputType, report.Timestamp));
+            var output = new CommandOutput(report.Line, outputType, report.Timestamp);
+            if (!handle.OutputWriter.TryWrite(output))
+            {
+                // A timed-out one-shot may have disposed its reader before late output arrives.
+                // Do not tear down the gRPC stream and prevent its completion from being acknowledged.
+                remoteProcessStore.Remove(report.CorrelationId, handle);
+                var recovered = handle.Disconnected
+                    ? await recoveryService.TryRecoverAsync(report.CorrelationId, machineId)
+                    : null;
+                if (recovered?.OutputWriter.TryWrite(output) != true)
+                    logger.LogWarning("Output arrived after its consumer closed for correlation {CorrelationId}",
+                        report.CorrelationId);
+            }
         }
         else
         {

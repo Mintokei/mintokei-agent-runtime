@@ -137,37 +137,6 @@ public sealed class RunnerLinkService(
 
         fileServerPortStore.Register(machineId, first.Handshake.FileServerPort);
 
-        // Register the Control writer BEFORE kicking the outbox so that the
-        // first drain after handshake can send OpenTaskRequest bootstrap
-        // signals through it. Without this register-first order, that drain
-        // races the writer registration: with the SignalR fallback removed
-        // (PR 5+) any per-task message queued during the disconnect would
-        // sit Pending until the next NotifyMachineConnected happens to fire
-        // — which doesn't happen in steady state once the connect-time
-        // signal has already passed.
-        controlChannelRegistry.Register(machineId, responseStream);
-
-        // Presence: THIS stream owns RunnerMachine.Status — register the runner in the control plane under
-        // our per-stream connection id so the sidecar projects Online.
-        runnerRegistry.ConnectRunner(machineId, controlConnectionId);
-
-        outboxProcessor.NotifyMachineConnected(machineId);
-
-        // Reconcile reported correlations vs DB tasks (best-effort, errors logged).
-        var reportedCorrelations = first.Handshake.ActiveCorrelationIds
-            .Select(s => Guid.TryParse(s, out var g) ? g : (Guid?)null)
-            .Where(g => g.HasValue)
-            .Select(g => g!.Value)
-            .ToList();
-        try
-        {
-            await runnerHost.OnRunnerConnectedAsync(machineId, reportedCorrelations);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "gRPC handshake reconciliation failed for machine {MachineId}", machineId);
-        }
-
         // NOTE: file-watcher restart was previously triggered here, but at
         // handshake time the runner has not yet opened the OpenWatcher
         // stream — RestartWatchersForMachineAsync would no-op silently with
@@ -204,6 +173,38 @@ public sealed class RunnerLinkService(
         }
 
         await responseStream.WriteAsync(new ServerControlMessage { Handshake = handshakeResponse }, ct);
+
+        // The handshake must be the first frame, before registering a writer that can drain OpenTask.
+        // Register the Control writer BEFORE kicking the outbox so that the
+        // first drain after handshake can send OpenTaskRequest bootstrap
+        // signals through it. Without this register-first order, that drain
+        // races the writer registration: with the SignalR fallback removed
+        // (PR 5+) any per-task message queued during the disconnect would
+        // sit Pending until the next NotifyMachineConnected happens to fire
+        // — which doesn't happen in steady state once the connect-time
+        // signal has already passed.
+        controlChannelRegistry.Register(machineId, responseStream);
+
+        // Presence: THIS stream owns RunnerMachine.Status — register the runner in the control plane under
+        // our per-stream connection id so the sidecar projects Online.
+        runnerRegistry.ConnectRunner(machineId, controlConnectionId);
+
+        outboxProcessor.NotifyMachineConnected(machineId);
+
+        // Reconcile reported correlations vs DB tasks (best-effort, errors logged).
+        var reportedCorrelations = first.Handshake.ActiveCorrelationIds
+            .Select(s => Guid.TryParse(s, out var g) ? g : (Guid?)null)
+            .Where(g => g.HasValue)
+            .Select(g => g!.Value)
+            .ToList();
+        try
+        {
+            await runnerHost.OnRunnerConnectedAsync(machineId, reportedCorrelations);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "gRPC handshake reconciliation failed for machine {MachineId}", machineId);
+        }
 
         logger.LogInformation(
             "Runner {MachineId} connected via gRPC Control stream (lastAckedOutbound={LastAcked}, activeCorrelations={Count}, cliProbes={Probes})",

@@ -28,7 +28,8 @@ public sealed record StartProcessMessage(
 public sealed record WriteStdinMessage(
     Guid CorrelationId,
     string Text,
-    bool AppendNewline);
+    bool AppendNewline,
+    bool Close = false);
 
 /// <summary>
 /// Request to kill a running process.

@@ -526,7 +526,7 @@ public sealed class RunnerHostedService : BackgroundService
                 switch (command.CommandCase)
                 {
                     case GrpcContracts.ServerTaskCommand.CommandOneofCase.Start:
-                        HandleStartProcess(command.Start.PayloadJson);
+                        await HandleStartProcessAsync(command.Start.PayloadJson);
                         break;
                     case GrpcContracts.ServerTaskCommand.CommandOneofCase.Stdin:
                         await HandleWriteStdinAsync(command.Stdin.PayloadJson);
@@ -564,7 +564,7 @@ public sealed class RunnerHostedService : BackgroundService
         }
     }
 
-    private void HandleStartProcess(string payloadJson)
+    internal async Task HandleStartProcessAsync(string payloadJson)
     {
         var msg = JsonSerializer.Deserialize<StartProcessMessage>(payloadJson, JsonOptions)
             ?? throw new InvalidOperationException("Failed to deserialize StartProcessMessage");
@@ -595,7 +595,24 @@ public sealed class RunnerHostedService : BackgroundService
             CaptureStdErr = msg.CaptureStdErr,
         };
 
-        var (handle, output) = _commandLineRunner.Start(options);
+        IProcessHandle handle;
+        IAsyncEnumerable<CommandOutput> output;
+        try
+        {
+            (handle, output) = _commandLineRunner.Start(options);
+        }
+        catch (Exception error) when (error is not OperationCanceledException)
+        {
+            // A rejected OS launch is terminal, not a transport error. Persist its result
+            // before acknowledging Start so a poison command cannot replay forever.
+            var report = new ProcessOutputReport(msg.CorrelationId,
+                $"Process launch failed: {error.GetBaseException().Message}", "StdErr", DateTimeOffset.UtcNow);
+            await _outbox.InsertAsync("ReportProcessOutput", JsonSerializer.Serialize(report, JsonOptions), msg.CorrelationId);
+            var completed = new ProcessCompletedReport(msg.CorrelationId, -1, DateTimeOffset.UtcNow);
+            await _outbox.InsertAsync("ReportProcessCompleted", JsonSerializer.Serialize(completed, JsonOptions), msg.CorrelationId);
+            SignalDrain();
+            return;
+        }
         _handles[msg.CorrelationId] = handle;
 
         _logger.LogInformation("Started process for correlation {CorrelationId}: {Executable}",
@@ -656,7 +673,7 @@ public sealed class RunnerHostedService : BackgroundService
         }
     }
 
-    private async Task HandleWriteStdinAsync(string payloadJson)
+    internal async Task HandleWriteStdinAsync(string payloadJson)
     {
         var msg = JsonSerializer.Deserialize<WriteStdinMessage>(payloadJson, JsonOptions);
         if (msg is null) return;
@@ -666,6 +683,7 @@ public sealed class RunnerHostedService : BackgroundService
             try
             {
                 await handle.WriteAsync(msg.Text);
+                if (msg.Close) handle.CloseStdIn();
             }
             catch (Exception ex)
             {

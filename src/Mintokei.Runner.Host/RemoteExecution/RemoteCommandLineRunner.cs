@@ -28,7 +28,7 @@ public sealed class RemoteCommandLineRunner(
 
         // Enqueue the start process message — must not be fire-and-forget
         // because the outbox sequence guarantees ordering.
-        _ = enqueuer.EnqueueAsync(machineId, OutboxMessageType.StartProcess, new
+        remoteHandle.StartEnqueued = enqueuer.EnqueueAsync(machineId, OutboxMessageType.StartProcess, new
         {
             CorrelationId = correlationId,
             options.Executable,

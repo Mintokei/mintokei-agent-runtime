@@ -18,6 +18,9 @@ public sealed class RemoteProcessStore
     public RemoteProcessHandle? Remove(Guid correlationId) =>
         _store.TryRemove(correlationId, out var handle) ? handle : null;
 
+    public bool Remove(Guid correlationId, RemoteProcessHandle expected) =>
+        _store.TryRemove(new KeyValuePair<Guid, RemoteProcessHandle>(correlationId, expected));
+
     public IReadOnlyCollection<Guid> GetAllCorrelationIds() => _store.Keys.ToList();
 
     /// <summary>

@@ -35,9 +35,7 @@ public sealed class CommandLineRunner : ICommandLineRunner
             process.Dispose();
             linkedCts.Dispose();
             throw new InvalidOperationException(
-                $"Failed to start '{options.Executable}': executable not found. " +
-                "Ensure the CLI tool is installed and available on PATH, or configure a remote " +
-                "runner machine (RunnerMachineId) on the workspace so tasks run via RemoteCommandLineRunner.",
+                $"Failed to start '{options.Executable}' (OS error {ex.NativeErrorCode}): {ex.Message}",
                 ex);
         }
 

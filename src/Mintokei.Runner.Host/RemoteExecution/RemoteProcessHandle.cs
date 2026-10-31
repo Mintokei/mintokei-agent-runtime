@@ -16,6 +16,7 @@ public sealed class RemoteProcessHandle : IProcessHandle
 
     public Guid MachineId { get; }
     public Guid CorrelationId => _correlationId;
+    internal Task StartEnqueued { get; set; } = Task.CompletedTask;
     private readonly Channel<CommandOutput> _outputChannel;
     private readonly TaskCompletionSource _exitTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly CancellationTokenSource _cts = new();
@@ -58,6 +59,7 @@ public sealed class RemoteProcessHandle : IProcessHandle
 
     public async Task WriteLineAsync(string line, CancellationToken cancellationToken = default)
     {
+        await StartEnqueued.WaitAsync(cancellationToken);
         await _enqueuer.EnqueueAsync(MachineId, OutboxMessageType.WriteStdin,
             new { CorrelationId = _correlationId, Text = line + "\n", AppendNewline = false },
             correlationId: _correlationId, ct: cancellationToken);
@@ -65,6 +67,7 @@ public sealed class RemoteProcessHandle : IProcessHandle
 
     public async Task WriteAsync(string text, CancellationToken cancellationToken = default)
     {
+        await StartEnqueued.WaitAsync(cancellationToken);
         await _enqueuer.EnqueueAsync(MachineId, OutboxMessageType.WriteStdin,
             new { CorrelationId = _correlationId, Text = text, AppendNewline = false },
             correlationId: _correlationId, ct: cancellationToken);
@@ -72,7 +75,15 @@ public sealed class RemoteProcessHandle : IProcessHandle
 
     public void CloseStdIn()
     {
-        // Remote stdin close is a no-op — the runner handles process lifecycle
+        _ = CloseStdInAsync();
+    }
+
+    public async Task CloseStdInAsync(CancellationToken cancellationToken = default)
+    {
+        await StartEnqueued.WaitAsync(cancellationToken);
+        await _enqueuer.EnqueueAsync(MachineId, OutboxMessageType.WriteStdin,
+            new { CorrelationId = _correlationId, Text = "", AppendNewline = false, Close = true },
+            correlationId: _correlationId, ct: cancellationToken);
     }
 
     public void Cancel()

@@ -1,0 +1,8 @@
+**/bin
+**/obj
+**/.git
+**/.data
+**/node_modules
+**/auth.json
+**/*.key
+**/.env*

@@ -1,0 +1,22 @@
+{
+  "type": "object",
+  "properties": {
+    "missing": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "queries": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "missing",
+    "queries"
+  ],
+  "additionalProperties": false
+}

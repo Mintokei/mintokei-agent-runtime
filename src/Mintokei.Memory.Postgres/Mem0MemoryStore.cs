@@ -26,7 +26,7 @@ public class Mem0MemoryStore(HttpClient http, IConfiguration config, IDbContextF
         var body = await response.Content.ReadFromJsonAsync<JsonArray>(ct);
         var ids = body!.Select(x => Guid.TryParse(x?["domainId"]?.ToString(), out var id) ? id : Guid.Empty).ToArray();
         await using var db = await factory.CreateDbContextAsync(ct);
-        var rows = await db.Memories.Where(x => ids.Contains(x.Id) && x.UserId == r.Scope.UserId && x.Namespace == r.Scope.Namespace && x.ValidFrom <= r.Scope.AsOf).ToListAsync(ct);
+        var rows = await MemoryQueries.ForScope(db, r.Scope).Where(x => ids.Contains(x.Id)).ToListAsync(ct);
         return new(rows.Select(x => new SearchCandidate(x.Id, "memory", null, null, x.ValidFrom, x.CanonicalText, body!.First(y => y?["domainId"]?.ToString() == x.Id.ToString())?["score"]?.GetValue<double>() ?? 0, "mem0")).ToList());
     }
 

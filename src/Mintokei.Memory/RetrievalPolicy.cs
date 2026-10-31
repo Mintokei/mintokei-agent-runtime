@@ -1,10 +1,22 @@
-using System.Text.RegularExpressions;
-
 namespace Mintokei.Memory;
 
 public static class RetrievalPolicy
 {
-    public static bool IsExplicitlyLocal(string request) => Regex.IsMatch(request, @"\b(?:(?:only|just)\s+(?:(?:use|search|check|look\s+in|refer\s+to)\s+)?(?:the\s+)?(?:this|current)\s+(?:chat|conversation)|(?:use|search|check)\s+(?:only|just)\s+(?:this|the\s+current)\s+(?:chat|conversation)|(?:this|current)\s+(?:chat|conversation)\s+only|(?:do\s+not|don't)\s+(?:use|search|include)\s+(?:other|older|previous)\s+(?:chats|conversations|memories))\b", RegexOptions.IgnoreCase);
+    public static bool IsTaskScoped(MemorySearchScope scope) => scope switch
+    {
+        MemorySearchScope.CurrentTask => true,
+        MemorySearchScope.AllAuthorizedHistory => false,
+        _ => throw new ArgumentOutOfRangeException(nameof(scope), scope, "Unknown memory search scope")
+    };
+
+    /// <summary>A tool request may narrow the host's boundary, never widen it.</summary>
+    public static MemorySearchScope RestrictScope(MemorySearchScope requested, MemorySearchScope allowed)
+    {
+        var taskOnly = IsTaskScoped(requested);
+        var restricted = IsTaskScoped(allowed);
+        return taskOnly || restricted ? MemorySearchScope.CurrentTask : MemorySearchScope.AllAuthorizedHistory;
+    }
+
     public static List<ResolvedReference> Latest(IEnumerable<ResolvedReference> references) => references.GroupBy(r => (r.SourceMessageId, r.Expression)).Select(g => g.OrderByDescending(r => r.EvaluatedAt ?? DateTimeOffset.MinValue).First()).ToList();
     public static RetrievalQueryPlan Queries(RetrievalPlan plan, List<ResolvedReference> references, RetrievalCoverage coverage, string request, int maxSearchRounds)
     {

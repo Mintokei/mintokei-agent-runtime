@@ -13,7 +13,7 @@ public class ReferenceResolutionService(IDbContextFactory<MemoryDbContext> facto
         {
             var latest = RetrievalPolicy.Latest(cached.Select(x => Json.Read<ResolvedReference>(x.ResultJson)));
             var ids = latest.SelectMany(r => r.Evidence.Select(e => e.MessageId)).Distinct().ToArray();
-            var local = RetrievalPolicy.IsExplicitlyLocal(message.Content);
+            var local = RetrievalPolicy.IsTaskScoped(config.SearchScope);
             var evidence = await (
                 from m in db.Messages
                 join conv in db.Conversations on m.ConversationId equals conv.Id
@@ -33,7 +33,7 @@ public class ReferenceResolutionService(IDbContextFactory<MemoryDbContext> facto
             return[];
         }
 
-        var detection = await reasoner.Run(c, message.TurnId, trace, "reference-detection", new { newMessage = message, recentMessages = recent, conversationState = state, allowedSearchScope = RetrievalPolicy.IsExplicitlyLocal(message.Content) ? "current_conversation" : "authorized_user_history" }, config, ct);
+        var detection = await reasoner.Run(c, message.TurnId, trace, "reference-detection", new { newMessage = message, recentMessages = recent, conversationState = state, allowedSearchScope = RetrievalPolicy.IsTaskScoped(config.SearchScope) ? "current_conversation" : "authorized_user_history" }, config, ct);
         var refs = Json.Read<List<ReferenceRequest>>(Json.Node(detection.Output!)!["references"]!.ToJsonString());
         return await ResolveRequestsAsync(c, message, recent, state, refs, config, trace, ct);
     }
@@ -45,7 +45,7 @@ public class ReferenceResolutionService(IDbContextFactory<MemoryDbContext> facto
         {
             if (proposed.SourceMessageId != message.Id || string.IsNullOrWhiteSpace(proposed.Expression) || !message.Content.Contains(proposed.Expression, StringComparison.Ordinal))
                 continue;
-            var local = RetrievalPolicy.IsExplicitlyLocal(message.Content) || proposed.Scope == "current_conversation";
+            var local = RetrievalPolicy.IsTaskScoped(config.SearchScope) || proposed.Scope == "current_conversation";
             var reference = proposed with
             {
                 Scope = local ? "current_conversation" : "cross_conversation"
@@ -79,7 +79,7 @@ public class ReferenceResolutionService(IDbContextFactory<MemoryDbContext> facto
         // Re-authorize supplied IDs, including replay/time boundaries. Do not trust a caller's message objects.
         await using var db = await factory.CreateDbContextAsync(ct);
         var ids = evidence.Select(m => m.Id).ToArray();
-        var local = RetrievalPolicy.IsExplicitlyLocal(message.Content);
+        var local = RetrievalPolicy.IsTaskScoped(config.SearchScope);
         var allowed = await (
             from m in db.Messages
             join conv in db.Conversations on m.ConversationId equals conv.Id
@@ -120,7 +120,7 @@ public class ReferenceResolutionService(IDbContextFactory<MemoryDbContext> facto
     private async Task<ResolvedReference> ResolveEvidence(Conversation c, Message message, IReadOnlyList<Message> recent, JsonNode state, ReferenceRequest reference, IReadOnlyList<SearchCandidate> candidates, IReadOnlyList<Message> adjacent, List<SearchAttempt> attempts, MemoryConfiguration config, Guid trace, Guid parent, CancellationToken ct)
     {
         var allowed = recent.Concat(adjacent).Append(message).DistinctBy(x => x.Id).ToDictionary(x => x.Id);
-        var coverage = new RetrievalCoverage(attempts, RetrievalPolicy.IsExplicitlyLocal(message.Content));
+        var coverage = new RetrievalCoverage(attempts, RetrievalPolicy.IsTaskScoped(config.SearchScope));
         var execution = await reasoner.Run(c, message.TurnId, trace, "reference-resolution", new { originalMessage = message, reference, recentMessages = recent, conversationState = state, candidates, adjacent, searchCoverage = coverage }, config, ct, parent: parent);
         var resolution = Json.Read<ResolvedReference>(execution.Output!);
         return (await ValidateProposalsAsync(c, message, [reference], [resolution], allowed.Values.ToList(), candidates, attempts, config, trace, parent, ct)).Single();
@@ -131,7 +131,7 @@ public class ReferenceResolutionService(IDbContextFactory<MemoryDbContext> facto
         // Authorize originals again; model IDs and caller-provided message bodies are not trusted.
         await using var db = await factory.CreateDbContextAsync(ct);
         var ids = suppliedEvidence.Select(m => m.Id).Append(message.Id).Distinct().ToArray();
-        var local = RetrievalPolicy.IsExplicitlyLocal(message.Content);
+        var local = RetrievalPolicy.IsTaskScoped(config.SearchScope);
         var originals = await (
             from m in db.Messages
             join conv in db.Conversations on m.ConversationId equals conv.Id

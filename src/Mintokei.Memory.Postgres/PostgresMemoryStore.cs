@@ -29,14 +29,22 @@ public class PostgresMemoryStore(NpgsqlDataSource source, IDbContextFactory<Memo
 
     public async Task<MemorySearchResult> SearchAsync(MemorySearchRequest r, CancellationToken ct)
     {
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var allowedIds = r.Scope.CurrentConversationOnly
+            ? await MemoryQueries.ForScope(db, r.Scope).Select(m => m.Id).ToArrayAsync(ct) : [];
+        if (r.Scope.CurrentConversationOnly && allowedIds.Length == 0)
+            return new([]);
         var vector = await embeddings.EmbedAsync(r.Query, ct);
         await using var cmd = source.CreateCommand("""
             SELECT m."Id",m."CanonicalText",m."ValidFrom",1-(e.embedding <=> @vector::vector) score,m."Status",m."Scope"
             FROM memory_embeddings e JOIN "Memories" m ON e.memory_id=m."Id"
-            WHERE m."UserId"=@owner AND m."Namespace"=@ns AND m."ValidFrom"<=@asof
+            WHERE m."UserId"=@owner AND m."Namespace"=@ns AND m."ValidFrom"<=@asof AND m."RecordedAt"<=@asof
+            AND (NOT @local OR m."Id"=ANY(@allowed))
             AND e.model=@model AND e.dimensions=@dimensions
             ORDER BY e.embedding <=> @vector::vector LIMIT @limit
             """);
+        cmd.Parameters.AddWithValue("local", r.Scope.CurrentConversationOnly);
+        cmd.Parameters.AddWithValue("allowed", allowedIds);
         cmd.Parameters.AddWithValue("owner", r.Scope.UserId);
         cmd.Parameters.AddWithValue("ns", r.Scope.Namespace);
         cmd.Parameters.AddWithValue("asof", r.Scope.AsOf);

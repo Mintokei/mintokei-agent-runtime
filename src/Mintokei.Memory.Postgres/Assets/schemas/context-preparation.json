@@ -1,0 +1,234 @@
+{
+  "type": "object",
+  "properties": {
+    "route": {
+      "type": "string",
+      "enum": [
+        "local_followup",
+        "general",
+        "retrieve"
+      ]
+    },
+    "reason": {
+      "type": "string"
+    },
+    "followupEvidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "messageId": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "quote": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "messageId",
+          "role",
+          "quote"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "references": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "referenceId": {
+            "type": "string"
+          },
+          "sourceMessageId": {
+            "type": "string"
+          },
+          "expression": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "current_conversation",
+              "cross_conversation"
+            ]
+          },
+          "temporalHint": {
+            "type": "string",
+            "enum": [
+              "none",
+              "first",
+              "original",
+              "beginning",
+              "latest",
+              "previous"
+            ]
+          }
+        },
+        "required": [
+          "referenceId",
+          "sourceMessageId",
+          "expression",
+          "query",
+          "scope",
+          "temporalHint"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "localResolutions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "referenceId": {
+            "type": "string"
+          },
+          "sourceMessageId": {
+            "type": "string"
+          },
+          "expression": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "resolved",
+              "ambiguous",
+              "not_found"
+            ]
+          },
+          "resolvedValue": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "messageId": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string"
+                },
+                "quote": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "messageId",
+                "role",
+                "quote"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "explanation": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "referenceId",
+          "sourceMessageId",
+          "expression",
+          "status",
+          "resolvedValue",
+          "evidence",
+          "explanation"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "plan": {
+      "type": "object",
+      "properties": {
+        "intent": {
+          "type": "string"
+        },
+        "requiredInformation": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "queries": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "artifactRequests": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "artifactId": {
+                "type": "string"
+              },
+              "selection": {
+                "type": "string",
+                "enum": [
+                  "preferred",
+                  "latest",
+                  "latest_approved",
+                  "latest_draft",
+                  "original",
+                  "specific"
+                ]
+              },
+              "versionId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "artifactId",
+              "selection",
+              "versionId"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "provisionalMessageIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "intent",
+        "requiredInformation",
+        "queries",
+        "artifactRequests",
+        "provisionalMessageIds"
+      ],
+      "additionalProperties": false
+    },
+    "needsEvaluation": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "route",
+    "reason",
+    "followupEvidence",
+    "references",
+    "localResolutions",
+    "plan",
+    "needsEvaluation"
+  ],
+  "additionalProperties": false
+}

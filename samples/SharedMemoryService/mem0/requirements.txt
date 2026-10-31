@@ -1,0 +1,4 @@
+mem0ai==0.1.118
+fastapi==0.115.12
+uvicorn==0.34.2
+ollama==0.6.1

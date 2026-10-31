@@ -1,0 +1,30 @@
+{
+  "type": "object",
+  "properties": {
+    "operation": {
+      "type": "string",
+      "enum": [
+        "CREATE",
+        "ADD_EVIDENCE",
+        "SUPERSEDE",
+        "MARK_CONTRADICTION",
+        "REJECT"
+      ]
+    },
+    "targetMemoryId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "reason": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "operation",
+    "targetMemoryId",
+    "reason"
+  ],
+  "additionalProperties": false
+}

@@ -99,3 +99,9 @@ the expected workflow.
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Optional shared memory
+
+The DB-free `Mintokei.Memory` contracts and optional PostgreSQL, provider and hosting adapters
+implement cross-task memory independently of any product. See [memory service setup](samples/SharedMemoryService/README.md)
+and [package boundaries](src/Mintokei.Memory/README.md). PostgreSQL dependencies remain outside the agent-engine core.

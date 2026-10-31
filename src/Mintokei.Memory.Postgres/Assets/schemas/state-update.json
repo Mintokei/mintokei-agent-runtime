@@ -1,0 +1,47 @@
+{
+  "type": "object",
+  "properties": {
+    "stateChanges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": [
+              "set",
+              "add",
+              "remove",
+              "clear",
+              "resolve",
+              "supersede"
+            ]
+          },
+          "path": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "sourceMessageIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "operation",
+          "path",
+          "value",
+          "sourceMessageIds"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "stateChanges"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,158 @@
+{
+  "type": "object",
+  "properties": {
+    "memoryCandidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "temporaryId": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "predicate": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "confirmed",
+              "proposed",
+              "inferred",
+              "historical",
+              "uncertain"
+            ]
+          },
+          "scope": {
+            "type": "string"
+          },
+          "sourceEvidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "messageId": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string"
+                },
+                "quote": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "messageId",
+                "role",
+                "quote"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "temporaryId",
+          "type",
+          "text",
+          "subject",
+          "predicate",
+          "value",
+          "status",
+          "scope",
+          "sourceEvidence"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "stateChanges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": [
+              "set",
+              "add",
+              "remove",
+              "clear",
+              "resolve",
+              "supersede"
+            ]
+          },
+          "path": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "sourceMessageIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "operation",
+          "path",
+          "value",
+          "sourceMessageIds"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "unresolvedReferences": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "referenceId": {
+            "type": "string"
+          },
+          "sourceMessageId": {
+            "type": "string"
+          },
+          "expression": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "temporalHint": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "referenceId",
+          "sourceMessageId",
+          "expression",
+          "query",
+          "scope",
+          "temporalHint"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "memoryCandidates",
+    "stateChanges",
+    "unresolvedReferences"
+  ],
+  "additionalProperties": false
+}

@@ -25,6 +25,8 @@ public sealed class CommandLineOptions
 
     public string? WorkingDirectory { get; init; }
     public IReadOnlyDictionary<string, string>? EnvironmentVariables { get; init; }
+    /// <summary>Whether to inherit the parent environment. False requires an explicit environment.</summary>
+    public bool InheritEnvironment { get; init; } = true;
     public bool RedirectStdIn { get; init; }
     public bool CaptureStdErr { get; init; } = true;
 }

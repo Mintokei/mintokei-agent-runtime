@@ -123,7 +123,7 @@ internal sealed class CodexSessionProtocol : IAgentSessionProtocol
         }
 
         var response = await session.SendRequestAndWaitAsync(
-            "turn/start", CodexRequestParamsBuilder.BuildTurnStartParams(threadId, inputItems, _turnConfig), ct);
+            "turn/start", CodexRequestParamsBuilder.BuildTurnStartParams(threadId, inputItems, _turnConfig, turn.OutputSchema), ct);
         await session.BeginTurnAsync(CodexJsonRpcHelper.ExtractTurnId(response));
     }
 

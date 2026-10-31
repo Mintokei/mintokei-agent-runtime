@@ -5,6 +5,10 @@
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
     <ProjectReference Include="../../src/Mintokei.Memory.Hosting/Mintokei.Memory.Hosting.csproj" />
-    <ProjectReference Include="../../src/Mintokei.Memory.Providers/Mintokei.Memory.Providers.csproj" />
+    <ProjectReference Include="../../src/Mintokei.Memory.AgentEngine/Mintokei.Memory.AgentEngine.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../Mintokei.AgentEngine.Tests/FakeProcessHandle.cs" Link="Support/FakeProcessHandle.cs" />
+    <Compile Include="../Mintokei.AgentEngine.Tests/FakeCommandLineRunnerFactory.cs" Link="Support/FakeCommandLineRunnerFactory.cs" />
   </ItemGroup>
 </Project>

@@ -61,8 +61,16 @@ public sealed class AgentSessionFactory
             logger,
             initialAgentSessionId: spec.ResumeSessionId);
 
-        await session.StartAsync(resume: !string.IsNullOrEmpty(spec.ResumeSessionId), ct);
-        return session;
+        try
+        {
+            await session.StartAsync(resume: !string.IsNullOrEmpty(spec.ResumeSessionId), ct);
+            return session;
+        }
+        catch
+        {
+            await session.DisposeAsync();
+            throw;
+        }
     }
 
     /// <summary>Spawns a Claude Code session (via <see cref="ClaudeBackend"/> — the same launch builder

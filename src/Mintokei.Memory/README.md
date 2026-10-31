@@ -1,12 +1,28 @@
-# Shared memory contracts
+# Memory runtime
 
-`Mintokei.Memory` is a provider-neutral runtime library for completed-turn export and evidence-based retrieval. It has no database, web UI, workspace, or Codex dependency. Hosts supply an authenticated HttpClient to `HttpSharedMemory` or implement `ISharedMemory` themselves.
+`Mintokei.Memory` contains DB-free contracts, source identity mapping, validation, state deltas,
+context packing and the authenticated `ISharedMemory` HTTP client. It has no product or EF dependency.
+Task/workspace identifiers in export envelopes are opaque source metadata, not product entities.
 
-- `CompletedMemoryTurn`: stable application task/turn/message identities and original messages, including outcome and sender.
-- `MemoryIdentity`: stable, source-system-specific identifiers for independent host storage.
-- `MemoryInstructions`: common instructions and a delimited untrusted-context envelope.
-- `ISharedMemory`: ingest a completed turn, search knowledge, and load original evidence.
+Optional implementations are separate projects:
 
-The caller must freeze an export before retrying, use durable retries, authorize the owner partition outside model arguments, and keep credentials on the server. An ingestion acknowledgement is not proof that extraction or embedding indexing has finished. Agent-originated messages must retain their sender identity.
+| Project | Responsibility |
+|---|---|
+| `Mintokei.Memory.Postgres` | Raw history, extraction, reconciliation, references, pgvector/Ollama, Mem0 adapter, provenance, traces and bundled prompts/schemas |
+| `Mintokei.Memory.Providers` | Codex CLI, Codex App Server and explicit OpenAI API routing |
+| `Mintokei.Memory.Hosting` | Authenticated memory endpoints, durable background worker, host notification hooks |
+| `Mintokei.Memory.Service` | Standalone deployment host |
 
-V1 HTTP implementation targets the Memory Playground `/api/memory/v1` server-to-server bridge. Configure `X-Memory-Token` on the HttpClient and set its BaseAddress. This is an actual service dependency: extraction and PostgreSQL/pgvector storage currently run in that host, not inside this library.
+Use `AddPostgresMemory`, `AddMemoryProviders`, `AddMemoryProcessing` and `MapSharedMemory`
+when embedding in another .NET host. Initialize the database and embedded assets with
+`DatabaseSetup.InitializeAsync` before accepting work. Hosts can replace `ILlmProvider`,
+`IEmbeddingProvider`, `IMemoryEvents`, `IMemoryJobObserver`, `IArtifactStore` and `IMemoryStore`.
+The core runtime does not require these optional persistence/hosting dependencies.
+
+Mintokei normally calls the standalone service using `HttpSharedMemory`; Playground embeds the same
+implementation and supplies its SignalR/replay hooks. There is no extraction dependency on a
+running Playground server. See [deployment instructions](../../samples/SharedMemoryService/README.md).
+
+Callers freeze completed-turn envelopes and retry durably. An acknowledgement means originals
+were ingested, not extraction/indexing completion. Human and agent sender identities stay distinct.
+Historical content is data, evidence is validated, and provider failures never change billing mode.

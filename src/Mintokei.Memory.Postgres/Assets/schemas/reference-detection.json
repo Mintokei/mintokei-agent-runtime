@@ -1,0 +1,44 @@
+{
+  "type": "object",
+  "properties": {
+    "references": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "referenceId": {
+            "type": "string"
+          },
+          "sourceMessageId": {
+            "type": "string"
+          },
+          "expression": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "temporalHint": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "referenceId",
+          "sourceMessageId",
+          "expression",
+          "query",
+          "scope",
+          "temporalHint"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "references"
+  ],
+  "additionalProperties": false
+}

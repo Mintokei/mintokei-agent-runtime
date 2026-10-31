@@ -1,0 +1,113 @@
+{
+  "type": "object",
+  "properties": {
+    "resolutions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "referenceId": {
+            "type": "string"
+          },
+          "sourceMessageId": {
+            "type": "string"
+          },
+          "expression": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "resolved",
+              "ambiguous",
+              "not_found"
+            ]
+          },
+          "resolvedValue": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "messageId": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string"
+                },
+                "quote": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "messageId",
+                "role",
+                "quote"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "explanation": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "referenceId",
+          "sourceMessageId",
+          "expression",
+          "status",
+          "resolvedValue",
+          "evidence",
+          "explanation"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "missing": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "queries": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "selection": {
+      "type": "object",
+      "properties": {
+        "memoryIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "messageIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "memoryIds",
+        "messageIds"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "resolutions",
+    "missing",
+    "queries",
+    "selection"
+  ],
+  "additionalProperties": false
+}

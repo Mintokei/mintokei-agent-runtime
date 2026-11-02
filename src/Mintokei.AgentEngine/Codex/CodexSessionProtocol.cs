@@ -96,6 +96,26 @@ internal sealed class CodexSessionProtocol : IAgentSessionProtocol
         var threadId = session.AgentSessionId
             ?? throw new InvalidOperationException("Codex turn before handshake completed (no threadId).");
 
+        if (session.NeedsTurnStateRecovery)
+        {
+            // Adoption deliberately skips initialize/thread-resume. Its persisted thread ID does
+            // not tell us which provider turn is running. In particular, turn/start on an already
+            // active Codex thread can reuse the SAME turn, so it is not a safe discovery probe.
+            var version = session.TurnStateVersion;
+            var snapshot = await session.SendRequestAndWaitAsync("thread/read", new
+            {
+                threadId,
+                includeTurns = true,
+            }, ct);
+            var turns = snapshot.GetProperty("result").GetProperty("thread").GetProperty("turns");
+            string? recoveredTurnId = null;
+            foreach (var existing in turns.EnumerateArray())
+                if (existing.TryGetProperty("status", out var status) && status.GetString() == "inProgress")
+                    recoveredTurnId = existing.GetProperty("id").GetString();
+            session.RestoreTurnIfUnchanged(version, recoveredTurnId);
+            session.NeedsTurnStateRecovery = false;
+        }
+
         var inputItems = new List<object>();
         // Codex sends the workspace context block as a separate input item (not inlined like Claude).
         if (turn.ContextBlock is { } block)

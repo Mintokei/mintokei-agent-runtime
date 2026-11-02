@@ -102,17 +102,40 @@ public sealed class AgentSession : IAgentSession
     /// the JSON-RPC backends (Codex/ACP) whose turn state now lives on the session, not the context.</summary>
     public Action<string?>? CurrentTurnIdChanged { get; set; }
 
+    /// <summary>Fires only for a turn/start acknowledgement, not when recovering an adopted turn.
+    /// Hosts use this to distinguish a new dispatch from restoring existing protocol state.</summary>
+    public Action<string?>? TurnStartedAcknowledged { get; set; }
+
+    private readonly object _turnStateGate = new();
     private string? _currentTurnId;
+    private long _turnStateVersion;
+    internal bool NeedsTurnStateRecovery { get; set; }
+    internal long TurnStateVersion { get { lock (_turnStateGate) return _turnStateVersion; } }
+
+    // A completion can arrive while thread/read is in flight. Never resurrect that completed
+    // turn from the older snapshot. Compare-and-restore shares the setter's short synchronous lock.
+    internal void RestoreTurnIfUnchanged(long expectedVersion, string? turnId)
+    {
+        lock (_turnStateGate)
+        {
+            if (_turnStateVersion != expectedVersion) return;
+            CurrentTurnId = turnId;
+        }
+    }
 
     /// <summary>The id of the in-flight turn (JSON-RPC backends), for interrupt params and mid-turn-
     /// death detection. Set by <see cref="BeginTurnAsync"/>; cleared on turn end.</summary>
     internal string? CurrentTurnId
     {
-        get => _currentTurnId;
+        get { lock (_turnStateGate) return _currentTurnId; }
         set
         {
-            _currentTurnId = value;
-            CurrentTurnIdChanged?.Invoke(value);
+            lock (_turnStateGate)
+            {
+                _currentTurnId = value;
+                _turnStateVersion++;
+                CurrentTurnIdChanged?.Invoke(value);
+            }
         }
     }
 
@@ -135,6 +158,7 @@ public sealed class AgentSession : IAgentSession
     internal async Task BeginTurnAsync(string? turnId)
     {
         CurrentTurnId = turnId;
+        TurnStartedAcknowledged?.Invoke(turnId);
         await EmitAsync(new DeltaOutput(new TurnPayload(IsStart: true)));
     }
 
@@ -194,6 +218,7 @@ public sealed class AgentSession : IAgentSession
     public Task AttachAsync(CancellationToken ct = default)
     {
         Interlocked.CompareExchange(ref _nextRequestId, AdoptedRequestIdBase, 0);
+        NeedsTurnStateRecovery = true;
         _pumpTask = RunPumpAsync();
         return Task.CompletedTask;
     }

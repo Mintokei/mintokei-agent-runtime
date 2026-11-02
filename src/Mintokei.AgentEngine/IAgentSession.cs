@@ -54,6 +54,8 @@ public interface IAgentSession : IAsyncDisposable
     /// (as the legacy reattach proves) accepts follow-up turns without re-initializing. Call INSTEAD of
     /// <see cref="StartAsync"/>, exactly once, on a session whose id was seeded from persistence
     /// (<c>spec.ResumeSessionId</c> / <c>initialAgentSessionId</c>) — that seed is what turn sends stamp.
+    /// Codex recovers its active provider turn lazily before the first subsequent send; restoring
+    /// that state is not a new turn/start acknowledgement.
     /// </summary>
     Task AttachAsync(CancellationToken ct = default);
 

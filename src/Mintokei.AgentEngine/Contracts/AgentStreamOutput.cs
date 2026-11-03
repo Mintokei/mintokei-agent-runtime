@@ -31,7 +31,16 @@ public sealed record CompactingChanged(bool Active) : AgentStreamOutput;
 /// turn-completed event), whether the user interrupted it, and a normalized
 /// <see cref="TurnFailure"/> when the turn ended in error (null on success/interrupt).
 /// </summary>
-public sealed record TurnEnded(JsonElement? RawResult, bool IsInterrupted, TurnFailure? Failure) : AgentStreamOutput;
+public sealed record TurnEnded(JsonElement? RawResult, bool IsInterrupted, TurnFailure? Failure,
+    IReadOnlyList<Guid>? AnsweredInputIds = null) : AgentStreamOutput;
+
+/// <summary>The current provider run has consumed these caller input IDs. Emitted before its output,
+/// including its completion. A send while busy is not itself proof of membership in that run.</summary>
+public sealed record TurnInputsObserved(IReadOnlyList<Guid> InputIds) : AgentStreamOutput;
+
+/// <summary>The provider finished handling this input command. It may have been consumed by a
+/// run, or dropped by a hook. Only run markers/results establish that it was answered.</summary>
+public sealed record InputCommandFinished(Guid InputId) : AgentStreamOutput;
 
 /// <summary>
 /// The CLI reported a session/thread id on the stream (Claude system + result events).
@@ -44,7 +53,7 @@ public sealed record SessionIdChanged(string SessionId) : AgentStreamOutput;
 /// The host back-fills it onto the most recent persisted row of that role — used later as the
 /// rewind/fork anchor.
 /// </summary>
-public sealed record ExternalMessageIdAssigned(MessageRole Role, string ExternalId) : AgentStreamOutput;
+public sealed record ExternalMessageIdAssigned(MessageRole Role, string ExternalId, Guid? InputId = null) : AgentStreamOutput;
 
 /// <summary>A new turn began without user input (Claude's Monitor / ScheduleWakeup wake).
 /// The host resumes a Processed task.</summary>

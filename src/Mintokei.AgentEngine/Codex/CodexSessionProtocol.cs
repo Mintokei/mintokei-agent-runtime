@@ -18,6 +18,8 @@ namespace Mintokei.AgentEngine.Codex;
 /// </summary>
 internal sealed class CodexSessionProtocol : IAgentSessionProtocol
 {
+    public InputDeliveryMode InputDeliveryMode => InputDeliveryMode.ExplicitSteering;
+
     private readonly ILogger _logger;
     private readonly CodexConfigMapper.MappedConfig _config;
     private readonly string? _systemPrompt;

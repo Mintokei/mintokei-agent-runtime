@@ -15,6 +15,8 @@ namespace Mintokei.AgentEngine;
 /// </summary>
 public interface IAgentSessionProtocol
 {
+    InputDeliveryMode InputDeliveryMode => InputDeliveryMode.RejectWhileBusy;
+
     /// <summary>Creates the stream parser for this session (frame → <see cref="AgentStreamOutput"/>).</summary>
     IAgentStreamParser CreateParser(Guid sessionId);
 

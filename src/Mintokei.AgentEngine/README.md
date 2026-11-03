@@ -126,6 +126,7 @@ await session.AttachAsync();   // adopt: no re-handshake; the CLI keeps its stat
 
 | Member | What it does |
 |--------|--------------|
+| `InputDeliveryMode` | negotiated busy-input semantics: reject, queue, explicit steering, or correlated streaming |
 | `Output` | `IAsyncEnumerable<AgentStreamOutput>` — the one-way transcript; completes at process exit |
 | `SendMessageAsync(text)` / `SendTurnAsync(SessionTurn)` | send a user turn (text + optional context block + images) |
 | `RespondAsync(requestId, UserInteractionResponse)` | answer a surfaced `InteractionRequested` |
@@ -141,8 +142,13 @@ await session.AttachAsync();   // adopt: no re-handshake; the CLI keeps its stat
   command execution, compaction boundary, …).
 - **`DeltaOutput(DeltaPayload)`** — real-time streaming: content deltas, block start/stop, per-turn
   token-usage snapshots.
-- **`TurnEnded(rawResult, isInterrupted, TurnFailure?)`** — a turn boundary; `TurnFailure` normalises
-  rate-limit / auth / overload / max-tokens errors across backends.
+- **`TurnEnded(rawResult, isInterrupted, TurnFailure?, AnsweredInputIds?)`** — a turn boundary;
+  `TurnFailure` normalises rate-limit / auth / overload / max-tokens errors across backends.
+- **`TurnInputsObserved(InputIds)`** — caller input IDs consumed by the current provider run;
+  emitted before its output/completion. Supply `SessionTurn.InputId` for stable correlation.
+  Busy input may join the current run or start/merge into the next one: a write is not attribution.
+- **`InputCommandFinished(InputId)`** — the CLI finished handling that input command, which may
+  have been answered or dropped by a hook. Only run markers/results prove it was answered.
 - **`ApiRetrying(kind, message, httpStatus, attempt, maxAttempts, retryAfter)`** — the CLI hit a
   provider error and is retrying *by itself*; the turn has **not** ended and may still succeed.
   Emitted on the first failed attempt, because every CLI retries before giving up — Claude Code

@@ -23,6 +23,41 @@ internal sealed class ClaudeStreamParser : IAgentStreamParser
 {
     private readonly ILogger _logger;
     private readonly Guid _agentTaskId;
+    private volatile bool _supportsInputCorrelation;
+    private volatile bool _hasMarkerLists;
+    private volatile bool _hasCommandLifecycle;
+    private int? _lastResultIndex;
+    public bool SupportsInputCorrelation => _supportsInputCorrelation;
+
+    internal void ObserveCapabilities(JsonElement frame)
+    {
+        // Conservative fallback for older/unknown CLIs. 2.1.310 is verified against the actual
+        // stream-json CLI; an adopted process may instead prove support via its streamed markers.
+        if (frame.TryGetProperty("claude_code_version", out var version) && version.ValueKind == JsonValueKind.String
+            && Version.TryParse(version.GetString(), out var parsed) && parsed >= new Version(2, 1, 310))
+            _supportsInputCorrelation = true;
+        if (frame.TryGetProperty("capabilities", out var capabilities) && capabilities.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var capability in capabilities.EnumerateArray())
+            {
+                if (capability.ValueKind != JsonValueKind.String) continue;
+                if (capability.GetString() == "request_marker_lists_v1") _hasMarkerLists = true;
+                if (capability.GetString() == "msg_lifecycle_v1") _hasCommandLifecycle = true;
+            }
+        }
+        if (_hasMarkerLists && _hasCommandLifecycle) _supportsInputCorrelation = true;
+    }
+
+    private static IReadOnlyList<Guid>? ReadInputIds(JsonElement frame)
+    {
+        var ids = new List<Guid>();
+        if (frame.TryGetProperty("user_message_uuids", out var list) && list.ValueKind == JsonValueKind.Array)
+            foreach (var item in list.EnumerateArray())
+                if (item.ValueKind == JsonValueKind.String && item.TryGetGuid(out var id) && !ids.Contains(id)) ids.Add(id);
+        if (frame.TryGetProperty("user_message_uuid", out var single) && single.ValueKind == JsonValueKind.String
+            && single.TryGetGuid(out var primary) && !ids.Contains(primary)) ids.Add(primary);
+        return ids.Count > 0 ? ids : null;
+    }
 
     private readonly Dictionary<string, ClaudeCodeOutputParser.ToolUseInfo> _toolUseRegistry = new();
 
@@ -66,14 +101,37 @@ internal sealed class ClaudeStreamParser : IAgentStreamParser
     public IEnumerable<AgentStreamOutput> Consume(JsonElement root, bool isInterrupted)
     {
         if (!root.TryGetProperty("type", out var typeProp))
-            return [];
+            yield break;
 
         var parentToolUseId = root.TryGetProperty("parent_tool_use_id", out var ptProp)
             && ptProp.ValueKind == JsonValueKind.String
             ? ptProp.GetString()
             : null;
 
-        return typeProp.GetString() switch
+        var type = typeProp.GetString();
+        if (type == "system") ObserveCapabilities(root);
+        if (type == "result" && root.TryGetProperty("result_index", out var index) && index.TryGetInt32(out var sequence))
+        {
+            if (_lastResultIndex is { } previous && sequence <= previous) yield break;
+            _lastResultIndex = sequence;
+        }
+        if (parentToolUseId is null && (type is "assistant" or "stream_event" or "result"
+            || type == "system" && root.TryGetProperty("status", out var status) && status.GetString() == "requesting")
+            && ReadInputIds(root) is { } ids)
+        {
+            if (root.TryGetProperty("user_message_uuids", out _)) _hasMarkerLists = true;
+            if (_hasMarkerLists && _hasCommandLifecycle) _supportsInputCorrelation = true;
+            yield return new TurnInputsObserved(ids);
+        }
+        if (type == "command_lifecycle" && root.TryGetProperty("command_uuid", out var commandId)
+            && commandId.ValueKind == JsonValueKind.String && commandId.TryGetGuid(out var inputId))
+        {
+            _hasCommandLifecycle = true;
+            if (_hasMarkerLists) _supportsInputCorrelation = true;
+            if (root.TryGetProperty("state", out var state) && state.GetString() == "completed")
+                yield return new InputCommandFinished(inputId);
+        }
+        var outputs = type switch
         {
             "system" => HandleSystem(root),
             "assistant" => HandleAssistant(root, parentToolUseId),
@@ -86,6 +144,7 @@ internal sealed class ClaudeStreamParser : IAgentStreamParser
             "control_response" => HandleControlResponse(root),
             _ => [],
         };
+        foreach (var output in outputs) yield return output;
     }
 
     // ── bidirectional frames (pure data; the dispatch acts on these with the handle) ──
@@ -226,6 +285,8 @@ internal sealed class ClaudeStreamParser : IAgentStreamParser
 
         if (subtype == "api_retry")
             return HandleApiRetry(root);
+        if (subtype == "informational" && root.TryGetProperty("content", out var info) && info.ValueKind == JsonValueKind.String)
+            return [new MessageOutput(SystemMessage(info.GetString()!, MessageType.Other, MessageStatus.Completed))];
 
         if (root.TryGetProperty("session_id", out var sessionIdProp)
             && sessionIdProp.GetString() is { Length: > 0 } sessionId)
@@ -350,9 +411,12 @@ internal sealed class ClaudeStreamParser : IAgentStreamParser
             }
         }
 
-        if (root.TryGetProperty("uuid", out var uuidProp)
-            && uuidProp.GetString() is { Length: > 0 } uuid)
-            yield return new ExternalMessageIdAssigned(MessageRole.User, uuid);
+        // Tool results are also `user` frames and have their own UUID. They must NEVER
+        // back-fill a queued human input's rewind anchor. Replays echo our exact input UUID.
+        if (root.TryGetProperty("isReplay", out var replay) && replay.ValueKind == JsonValueKind.True
+            && root.TryGetProperty("uuid", out var uuidProp) && uuidProp.GetString() is { Length: > 0 } uuid)
+            yield return new ExternalMessageIdAssigned(MessageRole.User, uuid,
+                Guid.TryParse(uuid, out var inputId) ? inputId : null);
 
         foreach (var msg in ClaudeCodeOutputParser.ParseUserEvent(
                      _agentTaskId, root, _toolUseRegistry, _logger, parentToolUseId))
@@ -396,7 +460,7 @@ internal sealed class ClaudeStreamParser : IAgentStreamParser
             _logger.LogWarning("Claude turn failed for AgentTask {TaskId}: kind={Kind}, message={Message}",
                 _agentTaskId, failure.Kind, failure.Message);
 
-        yield return new TurnEnded(turnResult, isInterrupted, failure);
+        yield return new TurnEnded(turnResult, isInterrupted, failure, ReadInputIds(root));
     }
 
     // ── stream_event ──

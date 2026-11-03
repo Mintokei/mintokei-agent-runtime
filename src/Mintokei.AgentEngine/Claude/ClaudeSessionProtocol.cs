@@ -16,6 +16,9 @@ namespace Mintokei.AgentEngine.Claude;
 internal sealed class ClaudeSessionProtocol : IAgentSessionProtocol
 {
     private readonly ILogger _logger;
+    private ClaudeStreamParser? _parser;
+    public InputDeliveryMode InputDeliveryMode => _parser?.SupportsInputCorrelation == true
+        ? InputDeliveryMode.CorrelatedStreaming : InputDeliveryMode.QueueWhileBusy;
 
     public ClaudeSessionProtocol(ILogger logger) => _logger = logger;
 
@@ -24,7 +27,7 @@ internal sealed class ClaudeSessionProtocol : IAgentSessionProtocol
     public UserInteractionResponse AcceptDecision { get; } = new("allow", null, null);
     public UserInteractionResponse DenyDecision { get; } = new("deny", null, null);
 
-    public IAgentStreamParser CreateParser(Guid sessionId) => new ClaudeStreamParser(_logger, sessionId);
+    public IAgentStreamParser CreateParser(Guid sessionId) => _parser = new ClaudeStreamParser(_logger, sessionId);
 
     public bool TryParseFrame(string line, out JsonElement frame) => ClaudeCodeHelper.TryParseJson(line, out frame);
 
@@ -45,9 +48,12 @@ internal sealed class ClaudeSessionProtocol : IAgentSessionProtocol
         IProcessHandle handle, string requestId, string method, object? payload, CancellationToken ct)
         => ClaudeCodeHelper.SendControlRequestAsync(handle, requestId, MergeSubtype(method, payload), ct);
 
-    public Task HandshakeAsync(AgentSession session, bool resume, CancellationToken ct)
-        // The control_response for "initialize" routes through the pump, already running by now.
-        => session.SendRequestAndWaitAsync("initialize", new { hooks = (object?)null }, ct);
+    public async Task HandshakeAsync(AgentSession session, bool resume, CancellationToken ct)
+    {
+        var response = await session.SendRequestAndWaitAsync("initialize", new { hooks = (object?)null }, ct);
+        if (response.TryGetProperty("response", out var info))
+            _parser?.ObserveCapabilities(info);
+    }
 
     public Task SendTurnAsync(AgentSession session, SessionTurn turn, CancellationToken ct)
     {
@@ -61,6 +67,7 @@ internal sealed class ClaudeSessionProtocol : IAgentSessionProtocol
         var message = JsonSerializer.Serialize(new
         {
             type = "user",
+            uuid = turn.InputId?.ToString(),
             message = new { role = "user", content },
             session_id = session.AgentSessionId ?? "default",
             parent_tool_use_id = (string?)null,

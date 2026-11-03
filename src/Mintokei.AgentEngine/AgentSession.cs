@@ -83,6 +83,7 @@ public sealed class AgentSession : IAgentSession
     }
 
     public Guid SessionId { get; }
+    public InputDeliveryMode InputDeliveryMode => _protocol.InputDeliveryMode;
     public string? AgentSessionId { get; private set; }
     public bool HasExited => _handle.HasExited;
     public IAsyncEnumerable<AgentStreamOutput> Output => _outChannel.Reader.ReadAllAsync();

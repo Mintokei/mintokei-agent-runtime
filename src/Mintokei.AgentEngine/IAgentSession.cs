@@ -30,6 +30,9 @@ public interface IAgentSession : IAsyncDisposable
     /// <summary>The session's own opaque id (not a DB task id). Fed to the parser to tag messages.</summary>
     Guid SessionId { get; }
 
+    /// <summary>Negotiated busy-input semantics. May become more capable as protocol evidence arrives.</summary>
+    InputDeliveryMode InputDeliveryMode => InputDeliveryMode.RejectWhileBusy;
+
     /// <summary>The CLI's reported session/thread id once the handshake/first frames land, else null.</summary>
     string? AgentSessionId { get; }
 

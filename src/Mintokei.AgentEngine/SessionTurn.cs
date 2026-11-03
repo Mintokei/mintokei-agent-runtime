@@ -7,6 +7,7 @@ namespace Mintokei.AgentEngine;
 /// the caller (the execution-service adapter) supplies it: <paramref name="Content"/> is the message
 /// text; <paramref name="ContextBlock"/> is the workspace context block to inline on a first turn
 /// (null to skip — e.g. every follow-up); <paramref name="ImagesJson"/> is the serialized image
-/// attachments (null for none).
+/// attachments (null for none). <paramref name="InputId"/> is the caller's stable input identity,
+/// echoed by protocols that support input correlation; it is not a provider turn id.
 /// </summary>
-public sealed record SessionTurn(string Content, string? ContextBlock = null, string? ImagesJson = null);
+public sealed record SessionTurn(string Content, string? ContextBlock = null, string? ImagesJson = null, Guid? InputId = null);

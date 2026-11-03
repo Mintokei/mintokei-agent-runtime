@@ -49,9 +49,9 @@ public sealed record InputCommandFinished(Guid InputId) : AgentStreamOutput;
 public sealed record SessionIdChanged(string SessionId) : AgentStreamOutput;
 
 /// <summary>
-/// The CLI reported the provider's own id (UUID) for the latest user/assistant message.
-/// The host back-fills it onto the most recent persisted row of that role — used later as the
-/// rewind/fork anchor.
+/// The CLI reported a message UUID, used for rewind/fork anchors. For a user replay, InputId
+/// identifies the exact caller input being acknowledged; tool-result UUIDs are not input acks.
+/// Assistant UUIDs accompany their ordered message output.
 /// </summary>
 public sealed record ExternalMessageIdAssigned(MessageRole Role, string ExternalId, Guid? InputId = null) : AgentStreamOutput;
 

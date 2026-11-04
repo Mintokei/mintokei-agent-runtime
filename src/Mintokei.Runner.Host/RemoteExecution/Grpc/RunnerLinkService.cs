@@ -214,6 +214,20 @@ public sealed class RunnerLinkService(
         {
             while (await requestStream.MoveNext(ct))
             {
+                // A heartbeat timeout can evict presence without closing this RPC. Continuing
+                // to acknowledge it only refreshes LastHeartbeatAt: the runner stays Offline
+                // indefinitely because ConnectRunner runs only during the handshake. Reject
+                // an evicted (or superseded) stream so the client reconnects and re-registers
+                // through the full handshake. Never let an old stream reclaim a newer one.
+                if (runnerRegistry.GetMachineId(controlConnectionId) != machineId)
+                {
+                    logger.LogWarning(
+                        "Runner {MachineId} Control connection {ConnectionId} is no longer registered; requiring a fresh handshake",
+                        machineId, controlConnectionId);
+                    throw new RpcException(new Status(StatusCode.Unavailable,
+                        "Runner presence expired or was replaced; reconnect with a fresh Control handshake."));
+                }
+
                 var msg = requestStream.Current;
                 switch (msg.PayloadCase)
                 {

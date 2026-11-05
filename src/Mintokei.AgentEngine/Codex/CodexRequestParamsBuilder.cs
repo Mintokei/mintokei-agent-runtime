@@ -20,6 +20,13 @@ internal static class CodexRequestParamsBuilder
         var parameters = new Dictionary<string, object?>
         {
             ["threadId"] = threadId,
+            // Full-history hydration (the default) replays every turn in the response, which for
+            // long-running threads can run tens of MB and blow well past SendRequestAndWaitAsync's
+            // 30s cap, killing the process mid-handshake. We only ever read result.thread.id from
+            // this response (see CodexJsonRpcHelper.ExtractThreadId) — the turns are never used — so
+            // excluding them is free. History for display comes from Mintokei's own message store,
+            // not this response.
+            ["excludeTurns"] = true,
         };
 
         AddThreadConfig(parameters, config, includeEphemeral: false);

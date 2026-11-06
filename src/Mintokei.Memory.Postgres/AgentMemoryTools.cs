@@ -20,7 +20,7 @@ public sealed class AgentMemoryTools(IDbContextFactory<MemoryDbContext> factory,
         from m in db.Messages
         join c in db.Conversations on m.ConversationId equals c.Id
         where c.UserId == s.UserId && c.Namespace == s.Namespace && m.CreatedAt <= s.AsOf && m.SequenceNumber <= c.VisibleSequence && (!s.CurrentConversationOnly || c.Id == s.ConversationId) && (c.Id != s.ConversationId || m.SequenceNumber <= s.ThroughSequence) && m.Id != (s.ExcludeMessageId ?? Guid.Empty)select m;
-    public async Task<AgentToolResult> Execute(string name, JsonObject args, SearchScope scope, MemoryConfiguration config, CancellationToken ct)
+    public async Task<AgentToolResult> Execute(string name, JsonObject args, SearchScope scope, MemoryConfiguration config, CancellationToken ct, bool includeTrace = false)
     {
         if (name == "load_evidence")
         {
@@ -58,9 +58,9 @@ public sealed class AgentMemoryTools(IDbContextFactory<MemoryDbContext> factory,
 
         var tasks = new List<Task<(string Strategy, List<SearchCandidate> Items, string? Error)>>
         {
-            Search("messages", async () => (await history.SearchAsync(s, query, limit, temporal == "relevance" ? "none" : temporal, ct)).ToList())
+            Search("messages", async () => (await history.SearchAsync(s, query, limit, temporal == "relevance" ? "none" : temporal, ct, includeTrace)).ToList())
         };
-        tasks.Add(Search("memories_lexical", () => history.MemoryLexicalAsync(s, query, limit, ct)));
+        tasks.Add(Search("memories_lexical", () => history.MemoryLexicalAsync(s, query, limit, ct, includeTrace)));
         tasks.Add(Search("memories_semantic", async () => (await (config.MemoryProvider == "mem0" ? (IMemoryStore)mem0 : postgres).SearchAsync(new(s, query, limit), ct)).Items.ToList()));
 
         var searches = await Task.WhenAll(tasks);
@@ -84,9 +84,50 @@ public sealed class AgentMemoryTools(IDbContextFactory<MemoryDbContext> factory,
         memoryIds = memories.Select(x => x.Id).ToArray();
         var links = await db.MemorySources.Where(x => memoryIds.Contains(x.MemoryId) && x.CreatedAt <= s.AsOf).ToListAsync(ct);
         var ids = ranked.Where(x => x.SourceType == "message").Select(x => x.SourceId).Concat(links.Select(x => x.SourceId)).Distinct().Take(24).ToArray();
-        var sources = await Load(s, ids, true, ct);
+        IReadOnlyDictionary<Guid, string> evidenceOutcomes = new Dictionary<Guid, string>();
+        var sources = await Load(s, ids, true, ct, captureOutcomes: includeTrace ? value => evidenceOutcomes = value : null);
         var allowed = sources.Select(x => x.Id).ToHashSet();
-        memories = memories.Where(m => links.Any(l => l.MemoryId == m.Id && allowed.Contains(l.SourceId))).ToList();
+        memories = memories.Where(m => links.Any(l => l.MemoryId == m.Id && allowed.Contains(l.SourceId)))
+            .OrderBy(m => ranked.FindIndex(c => c.SourceId == m.Id)).ToList();
+        var directHits = ranked.Where(c => c.SourceType == "message").Select(c => c.SourceId).ToHashSet();
+        sources = sources.Select(source => source with
+        {
+            InclusionReasons = (source.InclusionReasons ?? []).Where(r => r.Kind == "neighbor").Concat(
+                directHits.Contains(source.Id) ? new[] { new SourceInclusion("direct_search_hit", []) } : [])
+                .Concat(links.Where(l => l.SourceId == source.Id && memories.Any(m => m.Id == l.MemoryId))
+                    .Select(l => new SourceInclusion("summary_reference", [l.MemoryId]))).ToArray()
+        }).ToList();
+        object? retrievalTrace = null;
+        if (includeTrace)
+        {
+            try
+            {
+                var candidateIds = searches.SelectMany(x => x.Items).Select(c => c.SourceId).Distinct().ToArray();
+                var inspectable = (await Messages(db, s).Where(m => candidateIds.Contains(m.Id)).Select(m => m.Id).ToListAsync(ct)).ToHashSet();
+                inspectable.UnionWith(await MemoryQueries.ForScope(db, s).Where(m => candidateIds.Contains(m.Id)
+                    && !db.MemoryRevisions.Any(r => r.MemoryId == m.Id && r.CreatedAt > s.AsOf)).Select(m => m.Id).ToListAsync(ct));
+                var returned = allowed.Concat(memories.Select(m => m.Id)).ToHashSet();
+                var exclusions = new Dictionary<Guid, string>();
+                foreach (var candidate in ranked.Where(c => !returned.Contains(c.SourceId)))
+                {
+                    if (candidate.SourceType == "message")
+                        exclusions[candidate.SourceId] = evidenceOutcomes.GetValueOrDefault(candidate.SourceId, "evidence_not_available_in_scope");
+                    else
+                    {
+                        var references = links.Where(l => l.MemoryId == candidate.SourceId).Select(l => l.SourceId).ToArray();
+                        exclusions[candidate.SourceId] = references.Length == 0 ? "no_source_reference"
+                            : references.All(id => !ids.Contains(id)) ? "evidence_request_limit"
+                            : references.Any(id => evidenceOutcomes.GetValueOrDefault(id) == "evidence_excerpt_budget") ? "evidence_excerpt_budget"
+                            : "evidence_not_available_in_scope";
+                    }
+                }
+                retrievalTrace = RetrievalDiagnostics.Build(searches, limit, limit * 2, inspectable, returned, exclusions);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                retrievalTrace = new { version = 1, status = "failed", error = "Diagnostic snapshot unavailable: " + ex.Message };
+            }
+        }
         var terms = Regex.Matches(query, @"[\p{L}\p{N}_.-]{3,}").Select(m => m.Value).Distinct(StringComparer.OrdinalIgnoreCase).Take(12).ToArray();
         var eligibleMemories = MemoryQueries.ForScope(db, s);
         var knowledge = await db.Knowledge.Where(x => x.UserId == s.UserId && x.Namespace == s.Namespace && x.CreatedAt <= s.AsOf && (!s.CurrentConversationOnly || x.ConversationId == s.ConversationId && (x.MemoryId == null || eligibleMemories.Any(m => m.Id == x.MemoryId)))).ToListAsync(ct);
@@ -98,6 +139,7 @@ public sealed class AgentMemoryTools(IDbContextFactory<MemoryDbContext> factory,
             query,
             scope = s.CurrentConversationOnly ? "current_conversation" : "authorized_user_history",
             temporal,
+            retrievalTrace,
             strategies = searches.Select(x => new { x.Strategy, status = x.Error == null ? "completed" : "failed", x.Error, count = x.Items.Count }),
             ranking = ranked.Where(x => x.SourceType == "message" ? allowed.Contains(x.SourceId) : memories.Any(m => m.Id == x.SourceId)).Select(x => new { x.SourceId, x.SourceType, x.RetrievalMethod, x.RetrievalScore }),
             memories = memories.Select(m => new { m.Id, text = m.CanonicalText, m.Status, m.Scope, m.ValidFrom, m.ValidTo, sourceIds = links.Where(l => l.MemoryId == m.Id && allowed.Contains(l.SourceId)).Select(l => l.SourceId).Distinct() }),
@@ -109,16 +151,27 @@ public sealed class AgentMemoryTools(IDbContextFactory<MemoryDbContext> factory,
         return new(Json.Node(Json.Write(result))!.AsObject(), sources);
     }
 
-    public async Task<List<AgentSource>> Load(SearchScope scope, Guid[] ids, bool neighbors, CancellationToken ct, bool bounded = true)
+    public async Task<List<AgentSource>> Load(SearchScope scope, Guid[] ids, bool neighbors, CancellationToken ct, bool bounded = true, Action<IReadOnlyDictionary<Guid, string>>? captureOutcomes = null)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         var messages = await Messages(db, scope).Where(x => ids.Contains(x.Id)).ToListAsync(ct);
+        var neighborOf = new Dictionary<Guid, HashSet<Guid>>();
         if (neighbors)
             foreach (var m in messages.ToArray().Take(8))
-                messages.AddRange(await Messages(db, scope).Where(x => x.ConversationId == m.ConversationId && x.SequenceNumber >= m.SequenceNumber - 1 && x.SequenceNumber <= m.SequenceNumber + 1).ToListAsync(ct));
+            {
+                var adjacent = await Messages(db, scope).Where(x => x.ConversationId == m.ConversationId && x.SequenceNumber >= m.SequenceNumber - 1 && x.SequenceNumber <= m.SequenceNumber + 1).ToListAsync(ct);
+                foreach (var neighbor in adjacent.Where(x => x.Id != m.Id))
+                {
+                    if (!neighborOf.TryGetValue(neighbor.Id, out var parents)) neighborOf[neighbor.Id] = parents = [];
+                    parents.Add(m.Id);
+                }
+                messages.AddRange(adjacent);
+            }
         var conversationIds = messages.Select(m => m.ConversationId).Distinct().ToArray();
         var checkpoints = await db.Conversations.Where(x => conversationIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id, x => x.LastProcessedSequence, ct);
-        var result = messages.DistinctBy(x => x.Id).OrderBy(x => x.CreatedAt).ThenBy(x => x.SequenceNumber).Select(m => new AgentSource(m.Id, "message", m.Content, m.CreatedAt, m.ConversationId, m.SequenceNumber, m.Role, m.SequenceNumber > checkpoints[m.ConversationId])).ToList();
+        var result = messages.DistinctBy(x => x.Id).OrderBy(x => x.CreatedAt).ThenBy(x => x.SequenceNumber).Select(m => new AgentSource(m.Id, "message", m.Content, m.CreatedAt, m.ConversationId, m.SequenceNumber, m.Role, m.SequenceNumber > checkpoints[m.ConversationId],
+            (ids.Contains(m.Id) ? new[] { new SourceInclusion("requested_id", []) } : []).Concat(
+                neighborOf.TryGetValue(m.Id, out var parents) ? new[] { new SourceInclusion("neighbor", parents.ToArray()) } : []).ToArray())).ToList();
         var versions = await db.Artifacts.Where(x => ids.Contains(x.Id) && x.UserId == scope.UserId && x.Namespace == scope.Namespace && x.CreatedAt <= scope.AsOf && (!scope.CurrentConversationOnly || x.ConversationId == scope.ConversationId)).ToListAsync(ct);
         foreach (var a in versions)
             result.Add(new(a.Id, "artifact_version", await artifacts.ReadAsync(a.StoragePath, ct), a.CreatedAt, a.ConversationId));
@@ -136,6 +189,13 @@ public sealed class AgentMemoryTools(IDbContextFactory<MemoryDbContext> factory,
             selectedSources.Add(source with { Content = text });
         }
 
+        if (captureOutcomes != null)
+        {
+            var available = result.Select(s => s.Id).ToHashSet();
+            var selected = selectedSources.Select(s => s.Id).ToHashSet();
+            captureOutcomes(ids.ToDictionary(id => id, id => selected.Contains(id) ? "returned"
+                : available.Contains(id) ? "evidence_excerpt_budget" : "evidence_not_available_in_scope"));
+        }
         return selectedSources;
     }
 }

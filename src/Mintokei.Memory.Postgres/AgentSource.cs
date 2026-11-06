@@ -4,4 +4,6 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Mintokei.Memory.Postgres;
 
-public record AgentSource(Guid Id, string Type, string Content, DateTimeOffset Timestamp, Guid? ConversationId = null, long? SequenceNumber = null, string? Role = null, bool Provisional = false);
+public record AgentSource(Guid Id, string Type, string Content, DateTimeOffset Timestamp, Guid? ConversationId = null, long? SequenceNumber = null, string? Role = null, bool Provisional = false, IReadOnlyList<SourceInclusion>? InclusionReasons = null);
+
+public record SourceInclusion(string Kind, IReadOnlyList<Guid> RelatedIds);

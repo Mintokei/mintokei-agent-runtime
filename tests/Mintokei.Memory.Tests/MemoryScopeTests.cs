@@ -70,18 +70,30 @@ public sealed class MemoryScopeTests
             var store = provider.GetRequiredService<PostgresMemoryStore>();
             foreach (var fact in new[] { factA, factB, mixed }) await store.AddAsync(fact, default);
 
-            var local = await memory.SearchAsync(new("Quartz", Scope: MemorySearchScope.CurrentTask, CurrentTaskId: taskA));
+            var local = await memory.SearchAsync(new("Quartz", Scope: MemorySearchScope.CurrentTask, CurrentTaskId: taskA, IncludeDiagnostics: true));
             Assert.Equal(factA.Id, Assert.Single(local.GetProperty("memories").EnumerateArray()).GetProperty("id").GetGuid());
             Assert.All(local.GetProperty("sources").EnumerateArray(), s => Assert.Equal(receiptA.ConversationId, s.GetProperty("conversationId").GetGuid()));
             Assert.Equal(artA.Id, Assert.Single(local.GetProperty("artifacts").EnumerateArray()).GetProperty("versionId").GetGuid());
             Assert.Equal("Quartz local goal", Assert.Single(local.GetProperty("knowledge").EnumerateArray()).GetProperty("name").GetString());
             Assert.All(local.GetProperty("strategies").EnumerateArray(), s => Assert.Equal("completed", s.GetProperty("status").GetString()));
+            var trace = local.GetProperty("retrievalTrace");
+            Assert.Equal(1, trace.GetProperty("version").GetInt32());
+            var tracedCandidates = trace.GetProperty("strategies").EnumerateArray().SelectMany(s => s.GetProperty("candidates").EnumerateArray()).ToArray();
+            Assert.All(tracedCandidates, c => Assert.Contains(c.GetProperty("sourceId").GetGuid(), new[] { factA.Id, idA }));
+            Assert.DoesNotContain("PostgreSQL", trace.GetRawText());
+            var lexical = trace.GetProperty("strategies").EnumerateArray().Single(s => s.GetProperty("strategy").GetString() == "memories_lexical");
+            Assert.True(lexical.GetProperty("candidates")[0].GetProperty("match").GetProperty("fullTextMatched").GetBoolean());
+            Assert.Contains("Quartz", lexical.GetProperty("candidates")[0].GetProperty("match").GetProperty("fullTextTerms").GetRawText());
+            var semantic = trace.GetProperty("strategies").EnumerateArray().Single(s => s.GetProperty("strategy").GetString() == "memories_semantic");
+            Assert.Equal("cosine_similarity", semantic.GetProperty("candidates")[0].GetProperty("match").GetProperty("metric").GetString());
+            Assert.Equal(1d, semantic.GetProperty("candidates")[0].GetProperty("score").GetDouble(), 5);
             var narrow = new SearchScope(owner, "live", receiptA.ConversationId, long.MaxValue, DateTimeOffset.UtcNow, true);
             Assert.Equal(factA.Id, Assert.Single((await store.SearchAsync(new(narrow, "Quartz", 1), default)).Items).SourceId);
             Assert.Equal(factA.Id, Assert.Single(await provider.GetRequiredService<HistorySearch>().MemoryLexicalAsync(narrow, "Quartz", 1, default)).SourceId);
 
             var all = await memory.SearchAsync(new("Quartz", CurrentTaskId: taskA));
             Assert.Equal(3, all.GetProperty("memories").GetArrayLength());
+            Assert.Equal(JsonValueKind.Null, all.GetProperty("retrievalTrace").ValueKind);
             var loaded = await memory.LoadEvidenceAsync(new([idA, idB, artA.Id, artB.Id], MemorySearchScope.CurrentTask, taskA));
             var ids = loaded.GetProperty("sources").EnumerateArray().Select(s => s.GetProperty("id").GetGuid()).ToArray();
             Assert.Contains(idA, ids); Assert.Contains(artA.Id, ids); Assert.DoesNotContain(idB, ids); Assert.DoesNotContain(artB.Id, ids);

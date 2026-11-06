@@ -56,7 +56,7 @@ public class PostgresMemoryStore(NpgsqlDataSource source, IDbContextFactory<Memo
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         while (await reader.ReadAsync(ct))
             if (reader.GetDouble(3) > .30)
-                list.Add(new(reader.GetGuid(0), "memory", null, null, reader.GetFieldValue<DateTimeOffset>(2), reader.GetString(1), reader.GetDouble(3), "semantic", Json.Write(new { status = reader.GetString(4), scope = reader.GetString(5), model = embeddings.Model, dimensions = embeddings.Dimensions })));
+                list.Add(new(reader.GetGuid(0), "memory", null, null, reader.GetFieldValue<DateTimeOffset>(2), reader.GetString(1), reader.GetDouble(3), "semantic", Json.Write(new { status = reader.GetString(4), scope = reader.GetString(5), model = embeddings.Model, dimensions = embeddings.Dimensions, metric = "cosine_similarity", threshold = .30 })));
         return new(list);
     }
 

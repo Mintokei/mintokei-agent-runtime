@@ -5,13 +5,20 @@ namespace Mintokei.Memory.Postgres;
 
 public class HistorySearch(NpgsqlDataSource source, IDbContextFactory<MemoryDbContext> factory) : IHistorySearch
 {
-    public async Task<IReadOnlyList<SearchCandidate>> SearchAsync(SearchScope scope, string query, int limit, string temporalHint, CancellationToken ct)
+    public Task<IReadOnlyList<SearchCandidate>> SearchAsync(SearchScope scope, string query, int limit, string temporalHint, CancellationToken ct)
+        => SearchAsync(scope, query, limit, temporalHint, ct, includeDiagnostics: false);
+
+    public async Task<IReadOnlyList<SearchCandidate>> SearchAsync(SearchScope scope, string query, int limit, string temporalHint, CancellationToken ct, bool includeDiagnostics)
     {
         var order = temporalHint is "first" or "original" or "beginning" ? "m.\"CreatedAt\" ASC, m.\"SequenceNumber\" ASC" : temporalHint is "latest" or "previous" ? "m.\"CreatedAt\" DESC, m.\"SequenceNumber\" DESC" : "score DESC";
         await using var cmd = source.CreateCommand("""
             SELECT m."Id",m."ConversationId",m."SequenceNumber",m."CreatedAt",m."Content",m."Role",
             ts_rank_cd(to_tsvector('english',m."Content"),websearch_to_tsquery('english',@query))+similarity(m."Content",@query) score,
-            m."SequenceNumber">c."LastProcessedSequence" provisional
+            m."SequenceNumber">c."LastProcessedSequence" provisional,
+            CASE WHEN @diagnostics THEN to_tsvector('english',m."Content") @@ websearch_to_tsquery('english',@query) ELSE false END full_text_match,
+            CASE WHEN @diagnostics THEN ts_rank_cd(to_tsvector('english',m."Content"),websearch_to_tsquery('english',@query)) ELSE 0::real END full_text_score,
+            CASE WHEN @diagnostics THEN similarity(m."Content",@query) ELSE 0::real END trigram_score,
+            ARRAY(SELECT term FROM unnest(@terms::text[]) term WHERE to_tsvector('english',m."Content") @@ plainto_tsquery('english',term)) matched_terms
             FROM "Messages" m JOIN "Conversations" c ON c."Id"=m."ConversationId"
             WHERE c."UserId"=@owner AND c."Namespace"=@ns AND m."CreatedAt"<=@asof
             AND (NOT @local OR c."Id"=@conversation) AND m."Id"<>@excluded
@@ -20,6 +27,8 @@ public class HistorySearch(NpgsqlDataSource source, IDbContextFactory<MemoryDbCo
             ORDER BY
             """ + " " + order + " LIMIT @limit");
         cmd.Parameters.AddWithValue("query", query);
+        cmd.Parameters.AddWithValue("terms", includeDiagnostics ? RetrievalDiagnostics.Terms(query) : []);
+        cmd.Parameters.AddWithValue("diagnostics", includeDiagnostics);
         cmd.Parameters.AddWithValue("owner", scope.UserId);
         cmd.Parameters.AddWithValue("ns", scope.Namespace);
         cmd.Parameters.AddWithValue("asof", scope.AsOf);
@@ -31,7 +40,7 @@ public class HistorySearch(NpgsqlDataSource source, IDbContextFactory<MemoryDbCo
         var list = new List<SearchCandidate>();
         await using (var reader = await cmd.ExecuteReaderAsync(ct))
             while (await reader.ReadAsync(ct))
-                list.Add(new(reader.GetGuid(0), "message", reader.GetGuid(1), reader.GetInt64(2), reader.GetFieldValue<DateTimeOffset>(3), reader.GetString(4), reader.GetFloat(6), "full_text+trigram", Json.Write(new { role = reader.GetString(5), provisional = reader.GetBoolean(7) })));
+                list.Add(new(reader.GetGuid(0), "message", reader.GetGuid(1), reader.GetInt64(2), reader.GetFieldValue<DateTimeOffset>(3), reader.GetString(4), reader.GetFloat(6), "full_text+trigram", includeDiagnostics ? Json.Write(new { role = reader.GetString(5), provisional = reader.GetBoolean(7), fullTextMatched = reader.GetBoolean(8), fullTextScore = reader.GetFloat(9), trigramScore = reader.GetFloat(10), trigramThreshold = .06, termLimit = RetrievalDiagnostics.TermLimit, termsTruncated = RetrievalDiagnostics.TermsTruncated(query), fullTextTerms = reader.GetFieldValue<string[]>(11), literalTerms = RetrievalDiagnostics.LiteralTerms(query, reader.GetString(4)) }) : Json.Write(new { role = reader.GetString(5), provisional = reader.GetBoolean(7) })));
         return list;
     }
 
@@ -70,7 +79,7 @@ public class HistorySearch(NpgsqlDataSource source, IDbContextFactory<MemoryDbCo
         return result.DistinctBy(x => x.Id).OrderBy(x => x.CreatedAt).ThenBy(x => x.SequenceNumber).ToList();
     }
 
-    public async Task<List<SearchCandidate>> MemoryLexicalAsync(SearchScope scope, string query, int limit, CancellationToken ct)
+    public async Task<List<SearchCandidate>> MemoryLexicalAsync(SearchScope scope, string query, int limit, CancellationToken ct, bool includeDiagnostics = false)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         var allowedIds = scope.CurrentConversationOnly
@@ -78,7 +87,11 @@ public class HistorySearch(NpgsqlDataSource source, IDbContextFactory<MemoryDbCo
         if (scope.CurrentConversationOnly && allowedIds.Length == 0)
             return [];
         await using var cmd = source.CreateCommand("""
-            SELECT "Id","CanonicalText","ValidFrom",ts_rank_cd(to_tsvector('english',"CanonicalText"),websearch_to_tsquery('english',@q))+similarity("CanonicalText",@q) score
+            SELECT "Id","CanonicalText","ValidFrom",ts_rank_cd(to_tsvector('english',"CanonicalText"),websearch_to_tsquery('english',@q))+similarity("CanonicalText",@q) score,
+                CASE WHEN @diagnostics THEN to_tsvector('english',"CanonicalText") @@ websearch_to_tsquery('english',@q) ELSE false END full_text_match,
+                CASE WHEN @diagnostics THEN ts_rank_cd(to_tsvector('english',"CanonicalText"),websearch_to_tsquery('english',@q)) ELSE 0::real END full_text_score,
+                CASE WHEN @diagnostics THEN similarity("CanonicalText",@q) ELSE 0::real END trigram_score,
+                ARRAY(SELECT term FROM unnest(@terms::text[]) term WHERE to_tsvector('english',"CanonicalText") @@ plainto_tsquery('english',term)) matched_terms
             FROM "Memories" WHERE "UserId"=@owner AND "Namespace"=@ns AND "ValidFrom"<=@asof AND "RecordedAt"<=@asof
             AND (NOT @local OR "Id"=ANY(@allowed))
             AND (to_tsvector('english',"CanonicalText") @@ websearch_to_tsquery('english',@q) OR similarity("CanonicalText",@q)>.06) ORDER BY score DESC LIMIT @limit
@@ -86,6 +99,8 @@ public class HistorySearch(NpgsqlDataSource source, IDbContextFactory<MemoryDbCo
         cmd.Parameters.AddWithValue("local", scope.CurrentConversationOnly);
         cmd.Parameters.AddWithValue("allowed", allowedIds);
         cmd.Parameters.AddWithValue("q", query);
+        cmd.Parameters.AddWithValue("terms", includeDiagnostics ? RetrievalDiagnostics.Terms(query) : []);
+        cmd.Parameters.AddWithValue("diagnostics", includeDiagnostics);
         cmd.Parameters.AddWithValue("owner", scope.UserId);
         cmd.Parameters.AddWithValue("ns", scope.Namespace);
         cmd.Parameters.AddWithValue("asof", scope.AsOf);
@@ -93,7 +108,7 @@ public class HistorySearch(NpgsqlDataSource source, IDbContextFactory<MemoryDbCo
         var result = new List<SearchCandidate>();
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         while (await reader.ReadAsync(ct))
-            result.Add(new(reader.GetGuid(0), "memory", null, null, reader.GetFieldValue<DateTimeOffset>(2), reader.GetString(1), reader.GetFloat(3), "memory_lexical"));
+            result.Add(new(reader.GetGuid(0), "memory", null, null, reader.GetFieldValue<DateTimeOffset>(2), reader.GetString(1), reader.GetFloat(3), "memory_lexical", includeDiagnostics ? Json.Write(new { fullTextMatched = reader.GetBoolean(4), fullTextScore = reader.GetFloat(5), trigramScore = reader.GetFloat(6), trigramThreshold = .06, termLimit = RetrievalDiagnostics.TermLimit, termsTruncated = RetrievalDiagnostics.TermsTruncated(query), fullTextTerms = reader.GetFieldValue<string[]>(7), literalTerms = RetrievalDiagnostics.LiteralTerms(query, reader.GetString(1)) }) : "{}"));
         return result;
     }
 

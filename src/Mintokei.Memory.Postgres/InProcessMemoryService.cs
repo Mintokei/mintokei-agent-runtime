@@ -80,7 +80,7 @@ public sealed class InProcessMemoryService(
             ["query"] = input.Query,
             ["scope"] = "all",
             ["temporal"] = "relevance"
-        }, scope, configuration, ct);
+        }, scope, configuration, ct, input.IncludeDiagnostics);
         await AddOriginsAsync(result.Data, scope, ct);
         return JsonSerializer.SerializeToElement(result.Data);
     }
@@ -108,15 +108,16 @@ public sealed class InProcessMemoryService(
 
     private async Task AddOriginsAsync(JsonObject result, SearchScope scope, CancellationToken ct)
     {
-        var sources = result["sources"]?.AsArray();
-        if (sources == null)
-            return;
-        var ids = sources.Select(s => Guid.TryParse(s?["id"]?.ToString(), out var id) ? id : Guid.Empty).ToArray();
+        var sources = (result["sources"]?.AsArray().OfType<JsonObject>() ?? []).ToList();
+        foreach (var strategy in result["retrievalTrace"]?["strategies"]?.AsArray() ?? [])
+            sources.AddRange(strategy?["candidates"]?.AsArray().OfType<JsonObject>() ?? []);
+        if (sources.Count == 0) return;
+        var ids = sources.Select(s => Guid.TryParse((s["id"] ?? s["sourceId"])?.ToString(), out var id) ? id : Guid.Empty).ToArray();
         await using var db = await factory.CreateDbContextAsync(ct);
         var metadata = await AgentMemoryTools.Messages(db, scope).Where(m => ids.Contains(m.Id)).ToDictionaryAsync(m => m.Id, m => m.MetadataJson, ct);
-        foreach (var source in sources.OfType<JsonObject>())
+        foreach (var source in sources)
         {
-            if (!Guid.TryParse(source["id"]?.ToString(), out var id) || !metadata.TryGetValue(id, out var json))
+            if (!Guid.TryParse((source["id"] ?? source["sourceId"])?.ToString(), out var id) || !metadata.TryGetValue(id, out var json))
                 continue;
             var origin = Json.Node(json);
             if (origin?["sourceSystem"] == null)

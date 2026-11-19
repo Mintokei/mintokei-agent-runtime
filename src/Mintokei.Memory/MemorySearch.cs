@@ -6,4 +6,4 @@ using System.Text;
 namespace Mintokei.Memory;
 
 public record MemorySearch(string Query, int Limit = 8,
-    MemorySearchScope Scope = MemorySearchScope.AllAuthorizedHistory, Guid? CurrentTaskId = null);
+    MemorySearchScope Scope = MemorySearchScope.AllAuthorizedHistory, Guid? CurrentTaskId = null, bool IncludeDiagnostics = false);
